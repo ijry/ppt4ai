@@ -1,4 +1,4 @@
-import { validateDocument, validateTextBody, type Element, type Fill, type Ppt4aiDocument, type Rect, type TableBorder, type TableCellBorders, type TableElement, type TextBody } from '@ppt4ai/model'
+import { validateDocument, validateTextBody, type Element, type Fill, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -60,6 +60,10 @@ export type EngineCommand =
   | { type: 'setTableCellText'; body: TextBody }
   | { type: 'setTableCellFill'; fill: Fill | null }
   | { type: 'setTableCellBorders'; borders: Partial<Record<TableBorderSide, TableBorder | null>> }
+  | { type: 'insertTableRow'; elementId: string; index: number; count?: number }
+  | { type: 'deleteTableRow'; elementId: string; index: number; count?: number }
+  | { type: 'insertTableColumn'; elementId: string; index: number; count?: number }
+  | { type: 'deleteTableColumn'; elementId: string; index: number; count?: number }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'move'; dx: number; dy: number }
@@ -144,6 +148,23 @@ interface TableSourceCell {
   cellIndex: number
 }
 
+type TableStructureOperation =
+  | { axis: 'row'; mode: 'insert' | 'delete'; index: number; count: number }
+  | { axis: 'column'; mode: 'insert' | 'delete'; index: number; count: number }
+
+interface TableSourceRect {
+  row: number
+  column: number
+  rowSpan: number
+  colSpan: number
+  cell: TableCell
+}
+
+interface TableStructureResult {
+  table: TableElement
+  mapPoint(point: { row: number; column: number }): { row: number; column: number } | undefined
+}
+
 type TableBorderSide = 'left' | 'right' | 'top' | 'bottom'
 
 const tableBorderSides: TableBorderSide[] = ['left', 'right', 'top', 'bottom']
@@ -187,6 +208,144 @@ function validTableCellSelection(document: Ppt4aiDocument, selection: TableCellS
   if (!element || element.kind !== 'table') return undefined
   if (!sourceCellAt(element, selection.anchorRow, selection.anchorColumn) || !sourceCellAt(element, selection.row, selection.column)) return undefined
   return selection
+}
+
+function emptyTableCell(column: number): TableCell {
+  return { column, body: { paragraphs: [{ runs: [] }] } }
+}
+
+function tableSourceRects(table: TableElement): TableSourceRect[] {
+  return table.rows.flatMap((row, rowIndex) => row.cells.map((cell) => ({
+    row: rowIndex,
+    column: cell.column,
+    rowSpan: cell.rowSpan ?? 1,
+    colSpan: cell.colSpan ?? 1,
+    cell: clone(cell),
+  })))
+}
+
+function mapStructureCoordinate(value: number, operation: TableStructureOperation, clampDeleted: boolean): number | undefined {
+  if (operation.mode === 'insert') return value >= operation.index ? value + operation.count : value
+  const end = operation.index + operation.count
+  if (value < operation.index) return value
+  if (value >= end) return value - operation.count
+  if (!clampDeleted) return undefined
+  return operation.index === 0 ? 0 : operation.index - 1
+}
+
+function transformSourceRect(rect: TableSourceRect, operation: TableStructureOperation): TableSourceRect | undefined {
+  const start = operation.axis === 'row' ? rect.row : rect.column
+  const span = operation.axis === 'row' ? rect.rowSpan : rect.colSpan
+  const end = start + span
+  let nextStart = start
+  let nextSpan = span
+
+  if (operation.mode === 'insert') {
+    if (start >= operation.index) nextStart += operation.count
+    else if (end > operation.index) nextSpan += operation.count
+  } else {
+    const deleteEnd = operation.index + operation.count
+    const survivingCoordinates = Array.from({ length: span }, (_, offset) => mapStructureCoordinate(start + offset, operation, false))
+      .filter((coordinate): coordinate is number => coordinate !== undefined)
+    if (survivingCoordinates.length === 0) return undefined
+    nextStart = Math.min(...survivingCoordinates)
+    nextSpan = Math.max(...survivingCoordinates) - nextStart + 1
+    if (deleteEnd <= start) nextStart = start - operation.count
+  }
+
+  const cell = clone(rect.cell)
+  if (operation.axis === 'row') {
+    cell.column = rect.column
+    if (nextSpan === 1) delete cell.rowSpan
+    else cell.rowSpan = nextSpan
+  } else {
+    cell.column = nextStart
+    if (nextSpan === 1) delete cell.colSpan
+    else cell.colSpan = nextSpan
+  }
+  return {
+    row: operation.axis === 'row' ? nextStart : rect.row,
+    column: operation.axis === 'column' ? nextStart : rect.column,
+    rowSpan: operation.axis === 'row' ? nextSpan : rect.rowSpan,
+    colSpan: operation.axis === 'column' ? nextSpan : rect.colSpan,
+    cell,
+  }
+}
+
+function rebuildTableRows(rowCount: number, columnCount: number, heights: number[], rects: TableSourceRect[]): TableRow[] {
+  const occupied = new Set<string>()
+  const rows = heights.map((height) => ({ height, cells: [] as TableCell[] }))
+  const sorted = [...rects].sort((left, right) => left.row - right.row || left.column - right.column)
+  for (const rect of sorted) {
+    const cell = clone(rect.cell)
+    cell.column = rect.column
+    if (rect.rowSpan === 1) delete cell.rowSpan
+    else cell.rowSpan = rect.rowSpan
+    if (rect.colSpan === 1) delete cell.colSpan
+    else cell.colSpan = rect.colSpan
+    rows[rect.row]?.cells.push(cell)
+    for (let row = rect.row; row < rect.row + rect.rowSpan; row += 1) {
+      for (let column = rect.column; column < rect.column + rect.colSpan; column += 1) occupied.add(`${row}:${column}`)
+    }
+  }
+  for (let row = 0; row < rowCount; row += 1) {
+    for (let column = 0; column < columnCount; column += 1) {
+      if (occupied.has(`${row}:${column}`)) continue
+      rows[row]?.cells.push(emptyTableCell(column))
+    }
+    rows[row]?.cells.sort((left, right) => left.column - right.column)
+  }
+  return rows
+}
+
+function transformTableStructure(table: TableElement, operation: TableStructureOperation): TableStructureResult {
+  const nextRowCount = operation.axis === 'row'
+    ? table.rows.length + (operation.mode === 'insert' ? operation.count : -operation.count)
+    : table.rows.length
+  const nextColumnCount = operation.axis === 'column'
+    ? table.columns.length + (operation.mode === 'insert' ? operation.count : -operation.count)
+    : table.columns.length
+  const rowHeights = table.rows.map((row) => row.height)
+  const columnWidths = [...table.columns]
+
+  if (operation.mode === 'insert') {
+    if (operation.axis === 'row') {
+      const sourceHeight = table.rows[Math.min(operation.index, table.rows.length - 1)]!.height
+      rowHeights.splice(operation.index, 0, ...Array.from({ length: operation.count }, () => sourceHeight))
+    } else {
+      const sourceWidth = table.columns[Math.min(operation.index, table.columns.length - 1)]!
+      columnWidths.splice(operation.index, 0, ...Array.from({ length: operation.count }, () => sourceWidth))
+    }
+  } else if (operation.axis === 'row') rowHeights.splice(operation.index, operation.count)
+  else columnWidths.splice(operation.index, operation.count)
+
+  const rects = tableSourceRects(table).flatMap((rect) => {
+    const transformed = transformSourceRect(rect, operation)
+    return transformed ? [transformed] : []
+  })
+  const rows = rebuildTableRows(nextRowCount, nextColumnCount, rowHeights, rects)
+  const nextTable: TableElement = {
+    ...clone(table),
+    bounds: { ...table.bounds },
+    columns: columnWidths,
+    rows,
+  }
+  const insertedSize = operation.axis === 'row' ? rowHeights[operation.index] ?? 0 : columnWidths[operation.index] ?? 0
+  const removedSize = operation.mode === 'delete'
+    ? (operation.axis === 'row' ? table.rows.slice(operation.index, operation.index + operation.count).reduce((sum, row) => sum + row.height, 0) : table.columns.slice(operation.index, operation.index + operation.count).reduce((sum, width) => sum + width, 0))
+    : 0
+  const delta = operation.mode === 'insert' ? insertedSize * operation.count : removedSize
+  if (operation.axis === 'row') nextTable.bounds.h = table.bounds.h + (operation.mode === 'insert' ? delta : -delta)
+  else nextTable.bounds.w = table.bounds.w + (operation.mode === 'insert' ? delta : -delta)
+  return {
+    table: nextTable,
+    mapPoint: (point) => {
+      const row = operation.axis === 'row' ? mapStructureCoordinate(point.row, operation, true) : point.row
+      const column = operation.axis === 'column' ? mapStructureCoordinate(point.column, operation, true) : point.column
+      if (row === undefined || column === undefined || row < 0 || column < 0 || row >= nextRowCount || column >= nextColumnCount) return undefined
+      return { row, column }
+    },
+  }
 }
 
 function elementBounds(element: Element): Rect {
@@ -307,6 +466,22 @@ export class EditorEngine {
         this.setTableCellBorders(command.borders)
         break
       }
+      case 'insertTableRow': {
+        this.editTableStructure(command.elementId, { axis: 'row', mode: 'insert', index: command.index, count: command.count ?? 1 })
+        break
+      }
+      case 'deleteTableRow': {
+        this.editTableStructure(command.elementId, { axis: 'row', mode: 'delete', index: command.index, count: command.count ?? 1 })
+        break
+      }
+      case 'insertTableColumn': {
+        this.editTableStructure(command.elementId, { axis: 'column', mode: 'insert', index: command.index, count: command.count ?? 1 })
+        break
+      }
+      case 'deleteTableColumn': {
+        this.editTableStructure(command.elementId, { axis: 'column', mode: 'delete', index: command.index, count: command.count ?? 1 })
+        break
+      }
       case 'undo':
         this.applyHistoryEntry(this.undoStack, this.redoStack)
         break
@@ -410,6 +585,52 @@ export class EditorEngine {
     const validation = validateDocument(applyPatch(this.document, patch))
     if (!validation.valid) throw new Error(`table cell style is invalid: ${validation.errors.join('; ')}`)
     this.commit(changes)
+  }
+
+  private editTableStructure(elementId: string, operation: TableStructureOperation): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`table element does not exist: ${elementId}`)
+    if (element.kind !== 'table') throw new Error(`element is not a table: ${elementId}`)
+    if (!Number.isFinite(operation.count) || !Number.isInteger(operation.count) || operation.count < 1) {
+      throw new Error(`table structure count must be a positive integer: ${elementId}[${operation.count}]`)
+    }
+    const axisSize = operation.axis === 'row' ? element.rows.length : element.columns.length
+    const axisName = operation.axis === 'row' ? 'row' : 'column'
+    if (!Number.isFinite(operation.index) || !Number.isInteger(operation.index)) {
+      throw new Error(`table ${axisName} ${operation.mode === 'insert' ? 'insertion index' : 'deletion range'} must use integers: ${elementId}[${operation.index}]`)
+    }
+    if (operation.mode === 'insert') {
+      if (operation.index < 0 || operation.index > axisSize) throw new Error(`table ${axisName} insertion index is outside table: ${elementId}[${operation.index}]`)
+    } else {
+      const end = operation.index + operation.count
+      if (operation.index < 0 || end > axisSize) throw new Error(`table ${axisName} deletion range is outside table: ${elementId}[${operation.index},${end})`)
+      if (operation.count === axisSize) throw new Error(`table must keep at least one ${axisName}: ${elementId}`)
+    }
+
+    const result = transformTableStructure(element, operation)
+    const nextDocument = clone(this.document)
+    nextDocument.elements[elementId] = result.table
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`table structure is invalid: ${validation.errors.join('; ')}`)
+
+    const previousSelection = this.tableCellSelection?.elementId === elementId ? this.tableCellSelection : undefined
+    this.commit([{ path: ['elements', elementId], value: result.table }])
+    if (!previousSelection) return
+    const anchor = result.mapPoint({ row: previousSelection.anchorRow, column: previousSelection.anchorColumn })
+    const focus = result.mapPoint({ row: previousSelection.row, column: previousSelection.column })
+    if (!anchor || !focus) {
+      this.tableCellSelection = undefined
+      return
+    }
+    const anchorSource = sourceCellAt(result.table, anchor.row, anchor.column)
+    const focusSource = sourceCellAt(result.table, focus.row, focus.column)
+    this.tableCellSelection = anchorSource && focusSource ? {
+      elementId,
+      anchorRow: anchorSource.row,
+      anchorColumn: anchorSource.column,
+      row: focusSource.row,
+      column: focusSource.column,
+    } : undefined
   }
 
   private move(dx: number, dy: number): void {

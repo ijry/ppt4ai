@@ -236,80 +236,77 @@ describe('EditorEngine', () => {
   it('inserts rows and columns while preserving merged coverage and dimensions', () => {
     const rowEngine = new EditorEngine(makeStructureDocument())
     const withRow = rowEngine.dispatch({ type: 'insertTableRow', elementId: 'el_table', index: 1 })
-    expect(withRow.document.elements.el_table).toEqual(expect.objectContaining({
-      bounds: { x: 1000, y: 2000, w: 1000, h: 120 },
-      rows: [
-        expect.objectContaining({ cells: [expect.objectContaining({ column: 0, rowSpan: 4, colSpan: 2 })] }),
-        { height: 20, cells: [
-          { column: 2, body: { paragraphs: [{ runs: [] }] } },
-          { column: 3, body: { paragraphs: [{ runs: [] }] } },
-        ] },
-        expect.objectContaining({ height: 20, cells: [expect.objectContaining({ column: 2, colSpan: 2 })] }),
-        expect.anything(),
-        expect.anything(),
-      ],
-    }))
+    const rowTable = withRow.document.elements.el_table
+    expect(rowTable).toMatchObject({ bounds: { x: 1000, y: 2000, w: 1000, h: 120 } })
+    expect(rowTable?.kind).toBe('table')
+    if (rowTable?.kind !== 'table') throw new Error('expected table')
+    expect(rowTable.rows).toHaveLength(5)
+    expect(rowTable.rows[0]?.cells[0]).toMatchObject({ column: 0, rowSpan: 4, colSpan: 2 })
+    expect(rowTable.rows[1]).toMatchObject({ height: 20, cells: [
+      { column: 2, body: { paragraphs: [{ runs: [] }] } },
+      { column: 3, body: { paragraphs: [{ runs: [] }] } },
+    ] })
+    expect(rowTable.rows[2]).toMatchObject({ height: 20, cells: [{ column: 2, colSpan: 2 }] })
 
     const columnEngine = new EditorEngine(makeStructureDocument())
     const withColumns = columnEngine.dispatch({ type: 'insertTableColumn', elementId: 'el_table', index: 1, count: 2 })
-    expect(withColumns.document.elements.el_table).toEqual(expect.objectContaining({
-      bounds: { x: 1000, y: 2000, w: 1400, h: 100 },
-      columns: [100, 200, 200, 200, 300, 400],
-      rows: [
-        expect.objectContaining({ cells: [
-          expect.objectContaining({ column: 0, rowSpan: 3, colSpan: 4 }),
-          expect.objectContaining({ column: 4 }),
-          expect.objectContaining({ column: 5 }),
-        ] }),
-        expect.objectContaining({ cells: [expect.objectContaining({ column: 4, colSpan: 2 })] }),
-        expect.anything(),
-        expect.objectContaining({ cells: [
-          expect.objectContaining({ column: 0 }),
-          { column: 1, body: { paragraphs: [{ runs: [] }] } },
-          { column: 2, body: { paragraphs: [{ runs: [] }] } },
-          expect.objectContaining({ column: 3 }),
-          expect.objectContaining({ column: 4 }),
-          expect.objectContaining({ column: 5 }),
-        ] }),
-      ],
-    }))
+    const columnTable = withColumns.document.elements.el_table
+    expect(columnTable).toMatchObject({ bounds: { x: 1000, y: 2000, w: 1400, h: 100 }, columns: [100, 200, 200, 200, 300, 400] })
+    expect(columnTable?.kind).toBe('table')
+    if (columnTable?.kind !== 'table') throw new Error('expected table')
+    expect(columnTable.rows[0]).toMatchObject({ cells: [
+      { column: 0, rowSpan: 3, colSpan: 4 },
+      { column: 4 },
+      { column: 5 },
+    ] })
+    expect(columnTable.rows[1]).toMatchObject({ cells: [{ column: 4, colSpan: 2 }] })
+    expect(columnTable.rows[3]).toMatchObject({ cells: [
+      { column: 0 },
+      { column: 1, body: { paragraphs: [{ runs: [] }] } },
+      { column: 2, body: { paragraphs: [{ runs: [] }] } },
+      { column: 3 },
+      { column: 4 },
+      { column: 5 },
+    ] })
   })
 
   it('deletes merged source rows and columns while migrating payloads', () => {
     const rowEngine = new EditorEngine(makeStructureDocument())
     const withoutSourceRow = rowEngine.dispatch({ type: 'deleteTableRow', elementId: 'el_table', index: 0 })
-    expect(withoutSourceRow.document.elements.el_table).toEqual(expect.objectContaining({
-      bounds: { x: 1000, y: 2000, w: 1000, h: 90 },
-      rows: [expect.objectContaining({ cells: [
-        {
-          column: 0,
-          rowSpan: 2,
-          colSpan: 2,
-          body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] },
-          fill: { color: { type: 'srgb', v: 'ABCDEF' } },
-          borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
-        },
-        expect.objectContaining({ column: 2, colSpan: 2 }),
-      ] })],
-    }))
+    const rowDeletedTable = withoutSourceRow.document.elements.el_table
+    expect(rowDeletedTable).toMatchObject({ bounds: { x: 1000, y: 2000, w: 1000, h: 90 } })
+    expect(rowDeletedTable?.kind).toBe('table')
+    if (rowDeletedTable?.kind !== 'table') throw new Error('expected table')
+    expect(rowDeletedTable.rows).toHaveLength(3)
+    expect(rowDeletedTable.rows[0]).toMatchObject({ cells: [
+      {
+        column: 0,
+        rowSpan: 2,
+        colSpan: 2,
+        body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] },
+        fill: { color: { type: 'srgb', v: 'ABCDEF' } },
+        borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
+      },
+      { column: 2, colSpan: 2 },
+    ] })
 
     const columnEngine = new EditorEngine(makeStructureDocument())
     const withoutSourceColumn = columnEngine.dispatch({ type: 'deleteTableColumn', elementId: 'el_table', index: 0 })
-    expect(withoutSourceColumn.document.elements.el_table).toEqual(expect.objectContaining({
-      bounds: { x: 1000, y: 2000, w: 900, h: 100 },
-      columns: [200, 300, 400],
-      rows: [expect.objectContaining({ cells: [
-        {
-          column: 0,
-          rowSpan: 3,
-          body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] },
-          fill: { color: { type: 'srgb', v: 'ABCDEF' } },
-          borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
-        },
-        expect.objectContaining({ column: 1 }),
-        expect.objectContaining({ column: 2 }),
-      ] })],
-    }))
+    const columnDeletedTable = withoutSourceColumn.document.elements.el_table
+    expect(columnDeletedTable).toMatchObject({ bounds: { x: 1000, y: 2000, w: 900, h: 100 }, columns: [200, 300, 400] })
+    expect(columnDeletedTable?.kind).toBe('table')
+    if (columnDeletedTable?.kind !== 'table') throw new Error('expected table')
+    expect(columnDeletedTable.rows[0]).toMatchObject({ cells: [
+      {
+        column: 0,
+        rowSpan: 3,
+        body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] },
+        fill: { color: { type: 'srgb', v: 'ABCDEF' } },
+        borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
+      },
+      { column: 1 },
+      { column: 2 },
+    ] })
     expect(() => new EditorEngine(makeStructureDocument()).dispatch({ type: 'deleteTableRow', elementId: 'el_table', index: 0, count: 4 })).toThrow('table must keep at least one row: el_table')
     expect(() => new EditorEngine(makeStructureDocument()).dispatch({ type: 'deleteTableColumn', elementId: 'el_table', index: 0, count: 4 })).toThrow('table must keep at least one column: el_table')
   })
