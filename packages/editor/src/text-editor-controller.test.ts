@@ -19,6 +19,23 @@ function createFakeBridgeFactory(events: { options?: ImeInputBridgeOptions; focu
   }
 }
 
+function createRecordingBridgeFactory(events: {
+  options: ImeInputBridgeOptions | undefined
+  focus: number
+  destroy: number
+  caretRects: Array<{ x: number; y: number; width: number; height: number }>
+}) {
+  return (options: ImeInputBridgeOptions): ImeInputBridge => {
+    events.options = options
+    return {
+      focus: () => { events.focus += 1 },
+      setCaretRect: (rect) => { events.caretRects.push({ ...rect }) },
+      getCaretClientRect: () => new DOMRect(),
+      destroy: () => { events.destroy += 1 },
+    }
+  }
+}
+
 describe('text editor controller', () => {
   it('connects bridge events to one editor state and delegates lifecycle methods', () => {
     const events: { options?: ImeInputBridgeOptions; focus: number; destroy: number } = { focus: 0, destroy: 0 }
@@ -81,6 +98,38 @@ describe('text editor controller', () => {
     controller.dispatch({ type: 'text-input', text: 'A' })
     callback?.({ type: 'text-input', text: 'A' })
     expect(controller.getSnapshot().body).toEqual(body)
+  })
+
+  it('forwards the latest caret rectangle and repeats it on focus', () => {
+    const events = { options: undefined as ImeInputBridgeOptions | undefined, focus: 0, destroy: 0, caretRects: [] as Array<{ x: number; y: number; width: number; height: number }> }
+    const controller = createTextEditorController({
+      host: document.createElement('div'),
+      body,
+      bridgeFactory: createRecordingBridgeFactory(events),
+    })
+    const rect = { x: 50, y: 80, width: 1, height: 24 }
+
+    controller.syncCaret(rect)
+    rect.x = 99
+    controller.focus()
+
+    expect(events.caretRects).toEqual([
+      { x: 50, y: 80, width: 1, height: 24 },
+      { x: 50, y: 80, width: 1, height: 24 },
+    ])
+  })
+
+  it('ignores caret synchronization after destroy', () => {
+    const events = { options: undefined as ImeInputBridgeOptions | undefined, focus: 0, destroy: 0, caretRects: [] as Array<{ x: number; y: number; width: number; height: number }> }
+    const controller = createTextEditorController({
+      host: document.createElement('div'),
+      body,
+      bridgeFactory: createRecordingBridgeFactory(events),
+    })
+    controller.destroy()
+    controller.syncCaret({ x: 1, y: 2, width: 1, height: 3 })
+
+    expect(events.caretRects).toEqual([])
   })
 })
 

@@ -7,6 +7,7 @@ import {
   type ImeBridgeEvent,
   type ImeInputBridge,
   type ImeInputBridgeOptions,
+  type ScreenRect,
   type TextEditorSnapshot,
 } from '@ppt4ai/text'
 
@@ -18,6 +19,7 @@ export interface TextEditorControllerOptions {
 
 export interface TextEditorController {
   getSnapshot(): TextEditorSnapshot
+  syncCaret(rect: ScreenRect): void
   focus(): void
   dispatch(event: ImeBridgeEvent): void
   destroy(): void
@@ -26,6 +28,7 @@ export interface TextEditorController {
 export function createTextEditorController(options: TextEditorControllerOptions): TextEditorController {
   let state = createTextEditorState(options.body)
   let destroyed = false
+  let caretRect: ScreenRect | undefined
 
   const dispatch = (event: ImeBridgeEvent): void => {
     if (destroyed) return
@@ -38,8 +41,15 @@ export function createTextEditorController(options: TextEditorControllerOptions)
 
   return {
     getSnapshot: () => getTextEditorSnapshot(state),
+    syncCaret(rect): void {
+      if (destroyed) return
+      caretRect = { ...rect }
+      bridge.setCaretRect(caretRect)
+    },
     focus(): void {
-      if (!destroyed) bridge.focus()
+      if (destroyed) return
+      bridge.focus()
+      if (caretRect) bridge.setCaretRect({ ...caretRect })
     },
     dispatch,
     destroy(): void {

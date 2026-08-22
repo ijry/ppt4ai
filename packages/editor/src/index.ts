@@ -14,3 +14,11 @@ export type {
   SelectionOverlayModel,
   SelectionOverlayOptions,
 } from './selection-overlay'
+export { default as TextEditorOverlay } from './TextEditorOverlay.vue'
+export {
+  createTextInteraction,
+  layoutRectToScreen,
+  screenPointToLayout,
+  textPositionAtScreenPoint,
+} from './text-editor-interaction'
+export type { TextEditorInteraction, TextViewportTransform } from './text-editor-interaction'
