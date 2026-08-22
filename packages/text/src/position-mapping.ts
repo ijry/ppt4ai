@@ -36,6 +36,9 @@ interface LineInfo {
 interface CharacterBoundary {
   position: number
   x: number
+  y: number
+  width: number
+  height: number
 }
 
 function paragraphInfos(document: ProseMirrorNode): ParagraphInfo[] {
@@ -76,14 +79,31 @@ function createLineInfos(layout: TextLayout, document: ProseMirrorNode): LineInf
 }
 
 function boundariesForLine(info: LineInfo, fontScale: number): CharacterBoundary[] {
-  const boundaries: CharacterBoundary[] = [{ position: info.start, x: info.line.x }]
+  if (info.line.runs[0]?.y !== undefined) {
+    const firstRun = info.line.runs[0]
+    const boundaries: CharacterBoundary[] = [{ position: info.start, x: info.line.x, y: info.line.y, width: info.line.width, height: firstRun?.height ?? info.line.height }]
+    let position = info.start
+    let y = info.line.y
+    let lastHeight = firstRun?.height ?? info.line.height
+    for (const run of info.line.runs) {
+      for (const character of [...run.text]) {
+        position += character.length
+        const height = run.height ?? measureText(character, run.marks, fontScale)
+        y += height
+        lastHeight = height
+        boundaries.push({ position, x: info.line.x, y, width: info.line.width, height: lastHeight })
+      }
+    }
+    return boundaries
+  }
+  const boundaries: CharacterBoundary[] = [{ position: info.start, x: info.line.x, y: info.line.y, width: 1, height: info.line.height }]
   let position = info.start
   let x = info.line.x
   for (const run of info.line.runs) {
     for (const character of [...run.text]) {
       position += character.length
       x += measureText(character, run.marks, fontScale)
-      boundaries.push({ position, x })
+      boundaries.push({ position, x, y: info.line.y, width: 1, height: info.line.height })
     }
   }
   return boundaries
@@ -117,6 +137,7 @@ export function mapTextPosition(layout: TextLayout, document: ProseMirrorNode, p
   const clamped = clampPosition(document, position)
   const info = nearestLine(infos, clamped)
   const boundary = boundaryForPosition(info, clamped, layout.fontScale)
+  if (info.line.runs[0]?.y !== undefined) return { x: boundary.x, y: boundary.y, width: 1, height: boundary.height }
   return { x: boundary.x, y: info.line.y, width: 1, height: info.line.height }
 }
 
@@ -135,6 +156,16 @@ export function mapTextSelection(
     if (start >= end) return []
     const startBoundary = boundaryForPosition(info, start, layout.fontScale)
     const endBoundary = boundaryForPosition(info, end, layout.fontScale)
+    if (info.line.runs[0]?.y !== undefined) {
+      return [{
+        x: info.line.x,
+        y: Math.min(startBoundary.y, endBoundary.y),
+        width: info.line.width,
+        height: Math.max(0, Math.abs(endBoundary.y - startBoundary.y)),
+        from: start,
+        to: end,
+      }]
+    }
     return [{ x: startBoundary.x, y: info.line.y, width: Math.max(0, endBoundary.x - startBoundary.x), height: info.line.height, from: start, to: end }]
   })
 }
@@ -143,12 +174,25 @@ export function textPositionAtPoint(layout: TextLayout, document: ProseMirrorNod
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) throw new Error('point must be finite')
   const infos = createLineInfos(layout, document)
   if (infos.length === 0) return 1
-  const info = infos.reduce((best, candidate) => {
+  const info = layout.vertical === 'vertical'
+    ? infos.reduce((best, candidate) => {
+      const bestCenter = best.line.x + best.line.width / 2
+      const candidateCenter = candidate.line.x + candidate.line.width / 2
+      return Math.abs(candidateCenter - point.x) < Math.abs(bestCenter - point.x) ? candidate : best
+    }, infos[0]!)
+    : infos.reduce((best, candidate) => {
     const bestCenter = best.line.y + best.line.height / 2
     const candidateCenter = candidate.line.y + candidate.line.height / 2
     return Math.abs(candidateCenter - point.y) < Math.abs(bestCenter - point.y) ? candidate : best
-  }, infos[0]!)
+    }, infos[0]!)
   const boundaries = boundariesForLine(info, layout.fontScale)
+  if (layout.vertical === 'vertical') {
+    return boundaries.reduce((best, boundary) => {
+      const bestDistance = Math.abs(best.y - point.y)
+      const distance = Math.abs(boundary.y - point.y)
+      return distance < bestDistance ? boundary : best
+    }, boundaries[0]!).position
+  }
   return boundaries.reduce((best, boundary) => {
     const bestDistance = Math.abs(best.x - point.x)
     const distance = Math.abs(boundary.x - point.x)

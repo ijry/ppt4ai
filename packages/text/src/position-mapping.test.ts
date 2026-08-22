@@ -55,4 +55,31 @@ describe('text position mapping', () => {
     expect(structuredClone(caret)).toEqual(caret)
     expect(Object.getPrototypeOf(caret)).toBe(Object.prototype)
   })
+
+  it('maps vertical caret and selection geometry along the column axis', () => {
+    const body: TextBody = {
+      bodyPr: { vertical: 'vertical' },
+      paragraphs: [{ runs: [{ text: '中文A1中文' }] }],
+    }
+    const { document, layout } = createFixture(body)
+    const rightmost = layout.lines[0]!
+    const caret = mapTextPosition(layout, document, 2)
+
+    expect(caret).toEqual({ x: rightmost.x, y: 228600, width: 1, height: 228600 })
+    const selection = mapTextSelection(layout, document, 1, 3)
+    expect(selection).toEqual([{ x: rightmost.x, y: 0, width: rightmost.width, height: 457200, from: 1, to: 3 }])
+  })
+
+  it('hits vertical positions by column first and cell y second', () => {
+    const body: TextBody = {
+      bodyPr: { vertical: 'vertical' },
+      paragraphs: [{ runs: [{ text: '中文A1中文' }] }],
+    }
+    const { document, layout } = createFixture(body)
+    const rightmost = layout.lines[0]!
+    const leftmost = layout.lines[1]!
+
+    expect(textPositionAtPoint(layout, document, { x: rightmost.x + 1, y: rightmost.y + 1 })).toBe(1)
+    expect(textPositionAtPoint(layout, document, { x: leftmost.x + 1, y: leftmost.y + 1 })).toBe(6)
+  })
 })
