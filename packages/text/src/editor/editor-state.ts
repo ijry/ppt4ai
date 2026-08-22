@@ -65,6 +65,12 @@ export function replaceText(state: EditorState, text: string): EditorState {
   return state.apply(state.tr.insertText(text))
 }
 
+export function setTextEditorSelection(state: EditorState, selection: TextEditorSelection): EditorState {
+  const nextSelection = TextSelection.create(state.doc, selection.anchor, selection.head)
+  if (nextSelection.anchor === state.selection.anchor && nextSelection.head === state.selection.head) return state
+  return state.apply(state.tr.setSelection(nextSelection))
+}
+
 export function insertParagraph(state: EditorState): EditorState {
   return runCommand(state, splitBlock)
 }

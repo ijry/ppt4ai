@@ -28,6 +28,7 @@ export {
   getTextEditorSnapshot,
   insertParagraph,
   replaceText,
+  setTextEditorSelection,
 } from './editor/editor-state'
 export type { TextEditorSelection, TextEditorSnapshot } from './editor/editor-state'
 export type { Node as ProseMirrorNode } from 'prosemirror-model'

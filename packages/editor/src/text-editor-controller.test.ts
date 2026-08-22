@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { TextBody } from '@ppt4ai/model'
-import type { ImeBridgeEvent, ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
+import type { ImeBridgeEvent, ImeInputBridge, ImeInputBridgeOptions, TextEditorSnapshot } from '@ppt4ai/text'
 import { describe, expect, it } from 'vitest'
 import { createTextEditorController, type TextEditorControllerOptions } from './text-editor-controller'
 
@@ -130,6 +130,27 @@ describe('text editor controller', () => {
     controller.syncCaret({ x: 1, y: 2, width: 1, height: 3 })
 
     expect(events.caretRects).toEqual([])
+  })
+
+  it('publishes selection transactions and stops them after destroy', () => {
+    const events = { options: undefined as ImeInputBridgeOptions | undefined, focus: 0, destroy: 0, caretRects: [] as Array<{ x: number; y: number; width: number; height: number }> }
+    const snapshots: TextEditorSnapshot[] = []
+    const controller = createTextEditorController({
+      host: document.createElement('div'),
+      body,
+      bridgeFactory: createRecordingBridgeFactory(events),
+    })
+    const unsubscribe = controller.subscribe((snapshot) => snapshots.push(snapshot))
+
+    controller.setSelection({ anchor: 1, head: 3 })
+
+    expect(snapshots.at(-1)?.selection).toEqual({ anchor: 1, head: 3 })
+    expect(snapshots.at(-1)).not.toBe(controller.getSnapshot())
+    controller.destroy()
+    controller.setSelection({ anchor: 1, head: 1 })
+    unsubscribe()
+
+    expect(snapshots).toHaveLength(1)
   })
 })
 

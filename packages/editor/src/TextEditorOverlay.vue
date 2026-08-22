@@ -5,6 +5,7 @@ const props = defineProps<{
   active: boolean
   caret: ScreenRect
   selection: ScreenRect[]
+  composition?: ScreenRect[]
 }>()
 
 function rectStyle(rect: ScreenRect): Record<string, string> {
@@ -29,6 +30,13 @@ function rectStyle(rect: ScreenRect): Record<string, string> {
       :key="index"
       class="absolute bg-blue-400/35"
       data-text-selection
+      :style="rectStyle(rect)"
+    />
+    <div
+      v-for="(rect, index) in props.composition ?? []"
+      :key="`composition-${index}`"
+      class="absolute border-b-2 border-blue-700"
+      data-text-composition
       :style="rectStyle(rect)"
     />
     <div

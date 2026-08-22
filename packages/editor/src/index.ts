@@ -15,6 +15,8 @@ export type {
   SelectionOverlayOptions,
 } from './selection-overlay'
 export { default as TextEditorOverlay } from './TextEditorOverlay.vue'
+export { default as TextBoxEditor } from './TextBoxEditor.vue'
+export type { TextBoxEditorProps, TextBoxEditorResizePayload } from './text-box-editor'
 export {
   createTextInteraction,
   layoutRectToScreen,
