@@ -1,4 +1,4 @@
-import { type Color, type Element, type ElementDefaults, type Fill, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster } from '@ppt4ai/model'
+import { type Color, type Element, type ElementDefaults, type Fill, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TextBody, type TextBullet, type TextParagraph, type TextRun } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -127,6 +127,47 @@ function parseText(shape: XmlNode): { present: boolean; value: string } {
   return { present: true, value: parts.join('') + '\n'.repeat(lineBreaks) }
 }
 
+function parseBullet(paragraphProperties: XmlNode | undefined): TextBullet | undefined {
+  if (!paragraphProperties) return undefined
+  const character = child(paragraphProperties, 'buChar')
+  if (character) {
+    const value = attribute(character, 'char')
+    if (!value || Array.from(value).length !== 1) return undefined
+    const runProperties = child(character, 'rPr')
+    const fontFamily = runProperties ? attribute(runProperties, 'typeface') : undefined
+    return fontFamily ? { type: 'char', char: value, fontFamily } : { type: 'char', char: value }
+  }
+  const autoNumber = child(paragraphProperties, 'buAutoNum')
+  if (!autoNumber) return undefined
+  const type = attribute(autoNumber, 'type')
+  const scheme = type === 'alphaLcPeriod' || type === 'alphaLcParenRight'
+    ? 'alphaLower'
+    : type === 'alphaUcPeriod' || type === 'alphaUcParenRight'
+      ? 'alphaUpper'
+      : 'arabic'
+  const rawStart = attribute(autoNumber, 'startAt')
+  const startAt = rawStart === undefined ? undefined : parseNumber(rawStart)
+  if (startAt !== undefined && (!Number.isInteger(startAt) || startAt <= 0)) return undefined
+  return startAt === undefined ? { type: 'autoNum', scheme } : { type: 'autoNum', scheme, startAt }
+}
+
+function parseTextBody(shape: XmlNode): TextBody | undefined {
+  const body = findDescendants(shape, 'txBody')[0]
+  if (!body) return undefined
+  const paragraphs: TextParagraph[] = children(body, 'p').map((paragraphNode) => {
+    const runs: TextRun[] = []
+    for (const runNode of children(paragraphNode, 'r')) {
+      const textNode = child(runNode, 't')
+      if (!textNode) continue
+      const text = textContent(textNode)
+      if (text) runs.push({ text })
+    }
+    const attrs = parseBullet(child(paragraphNode, 'pPr'))
+    return attrs ? { runs, attrs: { bullet: attrs } } : { runs }
+  })
+  return paragraphs.length > 0 ? { paragraphs } : undefined
+}
+
 function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Element | undefined {
   const bounds = parseBounds(shape)
   if (requireBounds && !bounds) return undefined
@@ -135,6 +176,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   if (text.present) {
     if (!bounds) return undefined
     const element: Extract<Element, { kind: 'text' }> = { id, kind: 'text', bounds, text: text.value }
+    const body = parseTextBody(shape)
+    if (body) element.body = body
     if (placeholder) element.placeholder = placeholder
     const fill = parseFill(shape)
     if (fill) element.fill = fill

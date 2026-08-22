@@ -66,6 +66,11 @@ const files = {
   'ppt/slideMasters/slideMaster1.xml': `<p:sldMaster xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:solidFill><a:srgbClr val="000000"/></a:solidFill></p:spPr></p:sp></p:spTree></p:cSld></p:sldMaster>`,
 }
 
+const bulletFiles = {
+  ...files,
+  'ppt/slides/slide1.xml': '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="3" name="Body"/><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="4000000" cy="2000000"/></a:xfrm></p:spPr><p:txBody><a:p><a:pPr><a:buChar char="•"><a:rPr typeface="Wingdings"/></a:buChar></a:pPr><a:r><a:t>First</a:t></a:r></a:p><a:p><a:pPr><a:buAutoNum type="arabicPeriod" startAt="3"/></a:pPr><a:r><a:t>Second</a:t></a:r></a:p><a:p><a:pPr><a:buAutoNum type="alphaUcPeriod"/></a:pPr><a:r><a:t>Third</a:t></a:r></a:p><a:p><a:pPr><a:buAutoNum type="unsupportedFormat"/></a:pPr><a:r><a:t>Fourth</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>',
+}
+
 describe('importPptx', () => {
   it('keeps the relationship XML tree addressable', () => {
     const root = parseXml(files['ppt/_rels/presentation.xml.rels'])
@@ -121,5 +126,36 @@ describe('importPptx', () => {
     expect(imported.slides.sld_2).toMatchObject({ layoutId: 'lyt_1', masterId: 'mst_1' })
     expect(imported.slides.sld_1?.elementIds).toEqual(['el_1'])
     expect(imported.slides.sld_2?.elementIds).toEqual(['el_2'])
+  })
+
+  it('imports structured character and auto-number bullets without marker text', async () => {
+    const imported = await importPptx(createStoredZip(bulletFiles))
+    const element = imported.elements[imported.slides.sld_1!.elementIds[0]!]
+    if (!element || element.kind !== 'text') throw new Error('expected text element')
+
+    expect(element.text).toBe('FirstSecondThirdFourth')
+    expect(element.body).toEqual({
+      paragraphs: [
+        { runs: [{ text: 'First' }], attrs: { bullet: { type: 'char', char: '•', fontFamily: 'Wingdings' } } },
+        { runs: [{ text: 'Second' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic', startAt: 3 } } },
+        { runs: [{ text: 'Third' }], attrs: { bullet: { type: 'autoNum', scheme: 'alphaUpper' } } },
+        { runs: [{ text: 'Fourth' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic' } } },
+      ],
+    })
+    expect(element.body?.paragraphs.flatMap((paragraph) => paragraph.runs).map((run) => run.text)).not.toContain('•')
+    expect(structuredClone(imported)).toEqual(imported)
+  })
+
+  it('omits malformed marker values instead of inserting them into text', async () => {
+    const malformedFiles = {
+      ...bulletFiles,
+      'ppt/slides/slide1.xml': bulletFiles['ppt/slides/slide1.xml'].replace('char="•"', 'char=""').replace('startAt="3"', 'startAt="0"'),
+    }
+    const imported = await importPptx(createStoredZip(malformedFiles))
+    const element = imported.elements[imported.slides.sld_1!.elementIds[0]!]
+    if (!element || element.kind !== 'text') throw new Error('expected text element')
+    expect(element.text).toBe('FirstSecondThirdFourth')
+    expect(element.body?.paragraphs[0]?.attrs).toBeUndefined()
+    expect(element.body?.paragraphs[1]?.attrs).toBeUndefined()
   })
 })
