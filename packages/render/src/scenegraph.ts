@@ -1,6 +1,6 @@
 import { createPresetPath, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { resolveInheritedElement, type Element, type Fill, type Ppt4aiDocument, type Rect } from '@ppt4ai/model'
+import { resolveInheritedElement, resolveTableCellStyle, type Element, type Fill, type Ppt4aiDocument, type Rect, type ResolvedTableCellStyle } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -42,6 +42,7 @@ export interface SceneTableNode {
 
 export interface SceneTableLayoutCell extends TableLayoutCell {
   textLayout: TextLayout
+  resolvedStyle: ResolvedTableCellStyle
 }
 
 export interface SceneTableLayout extends Omit<TableLayout, 'cells'> {
@@ -77,7 +78,7 @@ function createTextNode(element: Extract<Element, { kind: 'text' }>): SceneTextN
   return node
 }
 
-function createTableNode(element: Extract<Element, { kind: 'table' }>): SceneTableNode {
+function createTableNode(element: Extract<Element, { kind: 'table' }>, tableStyles?: Ppt4aiDocument['tableStyles']): SceneTableNode {
   const tableLayout = layoutTable(element)
   const node: SceneTableNode = {
     id: element.id,
@@ -85,10 +86,15 @@ function createTableNode(element: Extract<Element, { kind: 'table' }>): SceneTab
     bounds: { ...element.bounds },
     layout: {
       ...tableLayout,
-      cells: tableLayout.cells.map((cell) => ({
-        ...cell,
-        textLayout: layoutText({ bounds: cell.bounds, body: cell.body }),
-      })),
+      cells: tableLayout.cells.map((cell) => {
+        const sourceCell = element.rows[cell.row]?.cells.find((candidate) => candidate.column === cell.column)
+        if (!sourceCell) throw new Error(`table layout references missing cell: ${element.id}[${cell.row},${cell.column}]`)
+        return {
+          ...cell,
+          resolvedStyle: resolveTableCellStyle(element, sourceCell, cell.row, cell.column, tableStyles),
+          textLayout: layoutText({ bounds: cell.bounds, body: cell.body }),
+        }
+      }),
     },
   }
   if (element.fill) node.fill = structuredClone(element.fill)
@@ -96,14 +102,14 @@ function createTableNode(element: Extract<Element, { kind: 'table' }>): SceneTab
   return node
 }
 
-function createNode(element: Element): SceneNode | undefined {
+function createNode(element: Element, tableStyles?: Ppt4aiDocument['tableStyles']): SceneNode | undefined {
   switch (element.kind) {
     case 'shape':
       return createShapeNode(element)
     case 'text':
       return createTextNode(element)
     case 'table':
-      return createTableNode(element)
+      return createTableNode(element, tableStyles)
     case 'group':
       return undefined
     default:
@@ -132,7 +138,7 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
       for (const childId of element.childIds) appendElement(childId)
       return
     }
-    const node = createNode(resolveInheritedElement(element, layout, master))
+    const node = createNode(resolveInheritedElement(element, layout, master), value.tableStyles)
     if (node) nodes.push(node)
   }
   for (const elementId of slide.elementIds) appendElement(elementId)

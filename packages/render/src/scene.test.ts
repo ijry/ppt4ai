@@ -187,9 +187,21 @@ describe('documentToSceneGraph', () => {
           columns: [1000000, 2000000],
           rows: [
             { height: 500000, cells: [{ column: 0, colSpan: 2, body: { paragraphs: [{ runs: [{ text: 'Header' }] }] } }] },
-            { height: 1500000, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Left' }] }] } }, { column: 1, body: { paragraphs: [{ runs: [] }] } }] },
+            { height: 1500000, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Left' }] }] } }, { column: 1, body: { paragraphs: [{ runs: [] }] }, fill: { color: { type: 'srgb', v: '00FF00' } } }] },
           ],
+          style: { styleId: 'style-1', firstRow: true, firstColumn: true, bandRow: true },
           placeholder: 'table',
+        },
+      },
+      tableStyles: {
+        'style-1': {
+          id: 'style-1',
+          regions: {
+            wholeTable: { fill: { color: { type: 'srgb', v: 'FFFFFF' } }, borders: { bottom: { color: { type: 'srgb', v: '111111' }, width: 1000, style: 'solid' } } },
+            band1H: { fill: { color: { type: 'srgb', v: 'EEEEEE' } } },
+            firstRow: { fill: { color: { type: 'srgb', v: 'FF0000' } } },
+            firstCol: { borders: { left: { color: { type: 'srgb', v: '0000FF' }, width: 2000, style: 'dash' } } },
+          },
         },
       },
       layouts: {
@@ -224,6 +236,13 @@ describe('documentToSceneGraph', () => {
     if (!tableNode || tableNode.kind !== 'table') throw new Error('expected table node')
     expect(tableNode.layout.cells[0]).toMatchObject({
       body: { paragraphs: [{ runs: [{ text: 'Header' }] }] },
+      resolvedStyle: {
+        fill: { color: { type: 'srgb', v: 'FF0000' } },
+        borders: {
+          bottom: { color: { type: 'srgb', v: '111111' }, width: 1000, style: 'solid' },
+          left: { color: { type: 'srgb', v: '0000FF' }, width: 2000, style: 'dash' },
+        },
+      },
       textLayout: {
         bounds: { x: 2000000, y: 2000000, w: 3000000, h: 500000 },
         lines: [{ runs: [{ text: 'Header' }] }],
@@ -233,6 +252,17 @@ describe('documentToSceneGraph', () => {
     expect(tableNode.layout.cells[1]?.textLayout).toMatchObject({
       bounds: { x: 2000000, y: 2500000, w: 1000000, h: 1500000 },
       lines: [{ runs: [{ text: 'Left' }] }],
+    })
+    expect(tableNode.layout.cells[1]?.resolvedStyle).toEqual({
+      fill: { color: { type: 'srgb', v: 'EEEEEE' } },
+      borders: {
+        bottom: { color: { type: 'srgb', v: '111111' }, width: 1000, style: 'solid' },
+        left: { color: { type: 'srgb', v: '0000FF' }, width: 2000, style: 'dash' },
+      },
+    })
+    expect(tableNode.layout.cells[2]?.resolvedStyle).toEqual({
+      fill: { color: { type: 'srgb', v: '00FF00' } },
+      borders: { bottom: { color: { type: 'srgb', v: '111111' }, width: 1000, style: 'solid' } },
     })
     expect(tableNode.layout.cells[2]?.textLayout).toMatchObject({
       bounds: { x: 3000000, y: 2500000, w: 2000000, h: 1500000 },
