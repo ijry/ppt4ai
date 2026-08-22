@@ -30,6 +30,86 @@ const minimalDocument: Ppt4aiDocument = {
 }
 
 describe('ppt4ai file model', () => {
+  it('validates table grid spans, cell bodies, borders, and clone safety', () => {
+    const tableDocument = {
+      ...minimalDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: ['tbl_1'] } },
+      elements: {
+        tbl_1: {
+          id: 'tbl_1',
+          kind: 'table',
+          bounds: { x: 100, y: 200, w: 3000, h: 2000 },
+          columns: [1000, 2000],
+          rows: [{
+            height: 1000,
+            cells: [{
+              column: 0,
+              colSpan: 2,
+              body: { paragraphs: [{ runs: [{ text: 'A' }] }] },
+              borders: {
+                left: { color: { type: 'srgb', v: '000000' }, width: 1, style: 'solid' },
+              },
+            }],
+          }, {
+            height: 1000,
+            cells: [
+              { column: 0, body: { paragraphs: [{ runs: [{ text: 'B' }] }] } },
+              { column: 1, body: { paragraphs: [{ runs: [{ text: 'C' }] }] } },
+            ],
+          }],
+        },
+      },
+    } as unknown as Ppt4aiDocument
+
+    expect(validateDocument(tableDocument)).toEqual({ valid: true })
+    expect(structuredClone(tableDocument)).toEqual(tableDocument)
+
+    const broken = structuredClone(tableDocument) as unknown as Record<string, any>
+    broken.elements.tbl_1.columns = [0, 2000]
+    broken.elements.tbl_1.rows[0].cells[0].colSpan = 3
+    broken.elements.tbl_1.rows[1].cells[0].column = 0.5
+    broken.elements.tbl_1.rows[1].cells[1].borders = {
+      top: { color: { type: 'srgb', v: '000000' }, width: -1, style: 'wavy' },
+    }
+
+    expect(validateDocument(broken as Ppt4aiDocument)).toEqual({
+      valid: false,
+      errors: [
+        'elements.tbl_1.columns[0] must be positive',
+        'elements.tbl_1.rows[0].cells[0] exceeds table columns',
+        'elements.tbl_1.rows[1].cells[0].column must be a non-negative integer',
+        'elements.tbl_1.rows[1].cells[1].borders.top.width must be non-negative',
+        'elements.tbl_1.rows[1].cells[1].borders.top.style must be solid, dash, dot, or none',
+      ],
+    })
+  })
+
+  it('rejects table row spans that exceed rows or overlap occupied cells', () => {
+    const baseTable: any = {
+      id: 'tbl_1',
+      kind: 'table' as const,
+      bounds: { x: 0, y: 0, w: 2000, h: 2000 },
+      columns: [1000, 1000],
+      rows: [
+        { height: 1000, cells: [{ column: 0, rowSpan: 2, body: { paragraphs: [{ runs: [{ text: 'A' }] }] } }] },
+        { height: 1000, cells: [{ column: 1, body: { paragraphs: [{ runs: [{ text: 'B' }] }] } }] },
+      ],
+    }
+    const overflow = structuredClone(baseTable)
+    overflow.rows[0].cells[0]!.rowSpan = 3
+    const overlap = structuredClone(baseTable)
+    overlap.rows[1].cells[0]!.column = 0
+
+    expect(validateDocument({ ...minimalDocument, slides: { sld_1: { id: 'sld_1', elementIds: ['tbl_1'] } }, elements: { tbl_1: overflow } })).toEqual({
+      valid: false,
+      errors: ['elements.tbl_1.rows[0].cells[0] exceeds table rows'],
+    })
+    expect(validateDocument({ ...minimalDocument, slides: { sld_1: { id: 'sld_1', elementIds: ['tbl_1'] } }, elements: { tbl_1: overlap } })).toEqual({
+      valid: false,
+      errors: ['elements.tbl_1.rows[1].cells[0] overlaps another cell'],
+    })
+  })
+
   it('accepts JSON-safe text bodies and body-only text elements', () => {
     const body = {
       bodyPr: {

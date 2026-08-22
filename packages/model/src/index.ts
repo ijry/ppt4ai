@@ -93,6 +93,44 @@ export interface TextElement {
   placeholder?: string
 }
 
+export interface TableBorder {
+  color: Color
+  width?: number
+  style?: 'solid' | 'dash' | 'dot' | 'none'
+}
+
+export interface TableCellBorders {
+  left?: TableBorder
+  right?: TableBorder
+  top?: TableBorder
+  bottom?: TableBorder
+}
+
+export interface TableCell {
+  column: number
+  rowSpan?: number
+  colSpan?: number
+  body: TextBody
+  fill?: Fill
+  borders?: TableCellBorders
+}
+
+export interface TableRow {
+  height: number
+  cells: TableCell[]
+}
+
+export interface TableElement {
+  id: string
+  kind: 'table'
+  bounds: Rect
+  columns: number[]
+  rows: TableRow[]
+  fill?: Fill
+  stroke?: Fill
+  placeholder?: string
+}
+
 export interface GroupElement {
   id: string
   kind: 'group'
@@ -100,7 +138,7 @@ export interface GroupElement {
   childIds: string[]
 }
 
-export type Element = ShapeElement | TextElement | GroupElement
+export type Element = ShapeElement | TextElement | TableElement | GroupElement
 
 export interface ElementDefaults {
   bounds?: Rect
@@ -185,6 +223,8 @@ const writingModes = new Set(['horizontal', 'vertical'])
 const wraps = new Set(['square', 'none'])
 const underlines = new Set(['none', 'single'])
 const bulletSchemes = new Set(['arabic', 'alphaLower', 'alphaUpper'])
+const tableBorderStyles = new Set(['solid', 'dash', 'dot', 'none'])
+const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
 
 function validateFiniteNumber(value: unknown, path: string, errors: string[], predicate: (value: number) => boolean, message: string): void {
   if (typeof value !== 'number' || !Number.isFinite(value) || !predicate(value)) errors.push(`${path} ${message}`)
@@ -261,6 +301,87 @@ function validateTextBullet(value: unknown, path: string, errors: string[]): voi
   errors.push(`${path}.type must be char or autoNum`)
 }
 
+function validateTableBorder(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const border = value as Record<string, unknown>
+  const color = border.color
+  if (!color || typeof color !== 'object' || Array.isArray(color)) errors.push(`${path}.color must be an object`)
+  else {
+    const colorValue = color as Record<string, unknown>
+    if (typeof colorValue.type !== 'string' || !colorTypes.has(colorValue.type)) errors.push(`${path}.color.type must be a supported color type`)
+    if (typeof colorValue.v !== 'string' || colorValue.v.length === 0) errors.push(`${path}.color.v must be a non-empty string`)
+  }
+  if ('width' in border) validateFiniteNumber(border.width, `${path}.width`, errors, (number) => number >= 0, 'must be non-negative')
+  if ('style' in border && (typeof border.style !== 'string' || !tableBorderStyles.has(border.style))) errors.push(`${path}.style must be solid, dash, dot, or none`)
+}
+
+function validateTableCell(value: unknown, path: string, rowIndex: number, rowCount: number, columnCount: number, occupied: Map<string, string>, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const cell = value as Record<string, unknown>
+  const column = cell.column
+  const rowSpan = cell.rowSpan ?? 1
+  const colSpan = cell.colSpan ?? 1
+  const validColumn = typeof column === 'number' && Number.isInteger(column) && column >= 0
+  const validRowSpan = typeof rowSpan === 'number' && Number.isInteger(rowSpan) && rowSpan > 0
+  const validColSpan = typeof colSpan === 'number' && Number.isInteger(colSpan) && colSpan > 0
+  if (!validColumn) errors.push(`${path}.column must be a non-negative integer`)
+  if (!validRowSpan) errors.push(`${path}.rowSpan must be a positive integer`)
+  if (!validColSpan) errors.push(`${path}.colSpan must be a positive integer`)
+  if (validColumn && validColSpan && column + colSpan > columnCount) errors.push(`${path} exceeds table columns`)
+  if (validRowSpan && rowIndex + rowSpan > rowCount) errors.push(`${path} exceeds table rows`)
+  if (validColumn && validRowSpan && validColSpan && column + colSpan <= columnCount) {
+    for (let row = rowIndex; row < rowIndex + rowSpan; row += 1) {
+      for (let gridColumn = column; gridColumn < column + colSpan; gridColumn += 1) {
+        const key = `${row}:${gridColumn}`
+        const existing = occupied.get(key)
+        if (existing) errors.push(`${path} overlaps another cell`)
+        else occupied.set(key, path)
+      }
+    }
+  }
+  if (!('body' in cell)) errors.push(`${path}.body must be an object`)
+  else if (!validateTextBody(cell.body).valid) {
+    const result = validateTextBody(cell.body)
+    if (!result.valid) for (const error of result.errors) errors.push(`${path}.body.${error}`)
+  }
+  if ('borders' in cell && cell.borders !== undefined) {
+    if (!cell.borders || typeof cell.borders !== 'object' || Array.isArray(cell.borders)) errors.push(`${path}.borders must be an object`)
+    else {
+      const borders = cell.borders as Record<string, unknown>
+      for (const side of ['left', 'right', 'top', 'bottom']) if (side in borders && borders[side] !== undefined) validateTableBorder(borders[side], `${path}.borders.${side}`, errors)
+    }
+  }
+}
+
+function validateTableElement(value: TableElement, path: string, errors: string[]): void {
+  if (!Array.isArray(value.columns) || value.columns.length === 0) errors.push(`${path}.columns must be non-empty`)
+  else value.columns.forEach((column, index) => validateFiniteNumber(column, `${path}.columns[${index}]`, errors, (number) => number > 0, 'must be positive'))
+  if (!Array.isArray(value.rows) || value.rows.length === 0) {
+    errors.push(`${path}.rows must be non-empty`)
+    return
+  }
+  const occupied = new Map<string, string>()
+  value.rows.forEach((row, rowIndex) => {
+    const rowPath = `${path}.rows[${rowIndex}]`
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      errors.push(`${rowPath} must be an object`)
+      return
+    }
+    validateFiniteNumber(row.height, `${rowPath}.height`, errors, (number) => number > 0, 'must be positive')
+    if (!Array.isArray(row.cells)) {
+      errors.push(`${rowPath}.cells must be an array`)
+      return
+    }
+    row.cells.forEach((cell, cellIndex) => validateTableCell(cell, `${rowPath}.cells[${cellIndex}]`, rowIndex, value.rows.length, value.columns.length, occupied, errors))
+  })
+}
+
 export function validateTextBody(value: unknown): TextModelValidation {
   const errors: string[] = []
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { valid: false, errors: ['body must be an object'] }
@@ -333,6 +454,8 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
         childIds.add(childId)
         if (!value.elements[childId]) errors.push(`group ${elementId} references missing child: ${childId}`)
       }
+    } else if (element.kind === 'table') {
+      validateTableElement(element, `elements.${elementId}`, errors)
     }
   }
 
