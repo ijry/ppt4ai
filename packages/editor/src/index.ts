@@ -19,6 +19,18 @@ export { default as TextBoxEditor } from './TextBoxEditor.vue'
 export type { TextBoxEditorProps, TextBoxEditorResizePayload } from './text-box-editor'
 export { default as TextFormattingToolbar } from './TextFormattingToolbar.vue'
 export type { TextFormattingToolbarEmit, TextFormattingToolbarProps } from './text-formatting-toolbar'
+export { default as TableEditorOverlay } from './TableEditorOverlay.vue'
+export {
+  createTableEditorOverlay,
+  selectedTableCells,
+  tableCellAtPoint,
+} from './table-editor-overlay'
+export type {
+  TableCellPoint,
+  TableCellSelection,
+  TableEditorCell,
+  TableEditorOverlayModel,
+} from './table-editor-overlay'
 export {
   createTextInteraction,
   layoutRectToScreen,

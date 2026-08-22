@@ -96,4 +96,11 @@ describe('table editor overlay geometry', () => {
 
     expect(structuredClone(selection)).toEqual(selection)
   })
+
+  it('exports the table overlay through the editor entry point', async () => {
+    const entry = await import('./index')
+
+    expect(entry.TableEditorOverlay).toBeDefined()
+    expect(entry.createTableEditorOverlay).toBe(createTableEditorOverlay)
+  })
 })
