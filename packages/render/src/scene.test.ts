@@ -7,9 +7,7 @@ const minimalDocument: Ppt4aiDocument = {
   version: 1,
   id: 'dck_1',
   page: { w: 12192000, h: 6858000 },
-  slides: {
-    sld_1: { id: 'sld_1', elementIds: ['el_shape'] },
-  },
+      slides: { sld_1: { id: 'sld_1', elementIds: ['el_shape', 'el_table'], layoutId: 'lyt_1' } },
   elements: {
     el_shape: {
       id: 'el_shape',
@@ -174,5 +172,54 @@ describe('documentToSceneGraph', () => {
     }
 
     expect(documentToSceneGraph(groupedDocument).nodes.map((node) => node.id)).toEqual(['el_shape', 'el_text'])
+  })
+
+  it('converts tables into clone-safe layout nodes in slide order', () => {
+    const tableDocument: Ppt4aiDocument = {
+      ...minimalDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: ['el_shape', 'el_table'], layoutId: 'lyt_1' } },
+      elements: {
+        ...minimalDocument.elements,
+        el_table: {
+          id: 'el_table',
+          kind: 'table',
+          bounds: { x: 2000000, y: 2000000, w: 3000000, h: 2000000 },
+          columns: [1000000, 2000000],
+          rows: [
+            { height: 500000, cells: [{ column: 0, colSpan: 2, body: { paragraphs: [{ runs: [{ text: 'Header' }] }] } }] },
+            { height: 1500000, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Left' }] }] } }, { column: 1, body: { paragraphs: [{ runs: [{ text: 'Right' }] }] } }] },
+          ],
+          placeholder: 'table',
+        },
+      },
+      layouts: {
+        lyt_1: {
+          id: 'lyt_1',
+          masterId: 'mst_1',
+          defaults: { table: { fill: { color: { type: 'srgb', v: 'FFFFFF' } }, stroke: { color: { type: 'srgb', v: '000000' } } } },
+        },
+      },
+      masters: { mst_1: { id: 'mst_1' } },
+    }
+
+    const graph = documentToSceneGraph(tableDocument)
+    expect(graph.nodes.map((node) => node.kind)).toEqual(['shape', 'table'])
+    expect(graph.nodes[1]).toMatchObject({
+      id: 'el_table',
+      kind: 'table',
+      bounds: { x: 2000000, y: 2000000, w: 3000000, h: 2000000 },
+      fill: { color: { type: 'srgb', v: 'FFFFFF' } },
+      stroke: { color: { type: 'srgb', v: '000000' } },
+      layout: {
+        columns: [1000000, 2000000],
+        rows: [500000, 1500000],
+        cells: [
+          { row: 0, column: 0, rowSpan: 1, colSpan: 2, bounds: { x: 2000000, y: 2000000, w: 3000000, h: 500000 } },
+          { row: 1, column: 0, rowSpan: 1, colSpan: 1, bounds: { x: 2000000, y: 2500000, w: 1000000, h: 1500000 } },
+          { row: 1, column: 1, rowSpan: 1, colSpan: 1, bounds: { x: 3000000, y: 2500000, w: 2000000, h: 1500000 } },
+        ],
+      },
+    })
+    expect(structuredClone(graph)).toEqual(graph)
   })
 })

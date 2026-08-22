@@ -3,5 +3,6 @@ export {
   type SceneGraph,
   type SceneNode,
   type SceneShapeNode,
+  type SceneTableNode,
   type SceneTextNode,
 } from './scenegraph'

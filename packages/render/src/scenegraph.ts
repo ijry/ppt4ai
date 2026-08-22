@@ -1,4 +1,5 @@
 import { createPresetPath, type PathCommand } from '@ppt4ai/geometry'
+import { layoutTable, type TableLayout } from '@ppt4ai/layout'
 import { resolveInheritedElement, type Element, type Fill, type Ppt4aiDocument, type Rect } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout } from '@ppt4ai/text'
 
@@ -30,7 +31,16 @@ export interface SceneTextNode {
   stroke?: Fill
 }
 
-export type SceneNode = SceneShapeNode | SceneTextNode
+export interface SceneTableNode {
+  id: string
+  kind: 'table'
+  bounds: Rect
+  layout: TableLayout
+  fill?: Fill
+  stroke?: Fill
+}
+
+export type SceneNode = SceneShapeNode | SceneTextNode | SceneTableNode
 
 function createShapeNode(element: Extract<Element, { kind: 'shape' }>): SceneShapeNode {
   const node: SceneShapeNode = {
@@ -59,12 +69,26 @@ function createTextNode(element: Extract<Element, { kind: 'text' }>): SceneTextN
   return node
 }
 
+function createTableNode(element: Extract<Element, { kind: 'table' }>): SceneTableNode {
+  const node: SceneTableNode = {
+    id: element.id,
+    kind: 'table',
+    bounds: { ...element.bounds },
+    layout: layoutTable(element),
+  }
+  if (element.fill) node.fill = structuredClone(element.fill)
+  if (element.stroke) node.stroke = structuredClone(element.stroke)
+  return node
+}
+
 function createNode(element: Element): SceneNode | undefined {
   switch (element.kind) {
     case 'shape':
       return createShapeNode(element)
     case 'text':
       return createTextNode(element)
+    case 'table':
+      return createTableNode(element)
     case 'group':
       return undefined
     default:
