@@ -8,6 +8,8 @@ import {
   getTextEditorSnapshot,
   insertParagraph,
   replaceText,
+  setTextBullet,
+  clearTextBullet,
 } from '../index'
 
 const body: TextBody = { paragraphs: [{ runs: [{ text: 'AB', marks: { bold: true } }] }] }
@@ -51,6 +53,43 @@ describe('ProseMirror text editor state', () => {
     const selected = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 1, 3)))
     const deletedSelection = deleteBackward(selected)
     expect(getTextEditorSnapshot(deletedSelection).body).toEqual({ paragraphs: [{ runs: [] }] })
+  })
+
+  it('sets and clears bullets on every selected paragraph without changing text', () => {
+    const state = createTextEditorState({ paragraphs: [{ runs: [{ text: 'AB' }] }, { runs: [{ text: 'CD' }], attrs: { level: 1 } }] })
+    const selected = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 1, state.doc.content.size - 1)))
+    const listed = setTextBullet(selected, { type: 'autoNum', scheme: 'arabic', startAt: 3 })
+
+    expect(getTextEditorSnapshot(listed).body).toEqual({
+      paragraphs: [
+        { runs: [{ text: 'AB' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic', startAt: 3 } } },
+        { runs: [{ text: 'CD' }], attrs: { level: 1, bullet: { type: 'autoNum', scheme: 'arabic', startAt: 3 } } },
+      ],
+    })
+    expect(listed.doc.textContent).toBe(selected.doc.textContent)
+
+    const cleared = clearTextBullet(listed)
+    expect(getTextEditorSnapshot(cleared).body).toEqual({ paragraphs: [{ runs: [{ text: 'AB' }] }, { runs: [{ text: 'CD' }], attrs: { level: 1 } }] })
+  })
+
+  it('targets a collapsed cursor paragraph, preserves reverse selection, and rejects invalid bullets', () => {
+    let state = createTextEditorState({ paragraphs: [{ runs: [{ text: 'AB' }] }, { runs: [{ text: 'CD' }] }] })
+    state = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 5)))
+    const listed = setTextBullet(state, { type: 'char', char: '•' })
+    expect(getTextEditorSnapshot(listed).body.paragraphs.map((paragraph) => paragraph.attrs?.bullet)).toEqual([
+      undefined,
+      { type: 'char', char: '•' },
+    ])
+    expect(listed.selection.anchor).toBe(state.selection.anchor)
+    expect(listed.selection.head).toBe(state.selection.head)
+
+    const reverse = state.apply(state.tr.setSelection(TextSelection.create(state.doc, 6, 2)))
+    const reverseListed = setTextBullet(reverse, { type: 'char', char: '•' })
+    expect(reverseListed.selection.anchor).toBe(reverse.selection.anchor)
+    expect(reverseListed.selection.head).toBe(reverse.selection.head)
+
+    expect(() => setTextBullet(state, { type: 'char', char: 'xx' })).toThrow()
+    expect(getTextEditorSnapshot(state).body.paragraphs[1]?.attrs).toBeUndefined()
   })
 
   it('keeps provisional composition out of the body and commits once on end', () => {

@@ -1,4 +1,4 @@
-import type { Fill, TextMarks } from '@ppt4ai/model'
+import { validateTextBody, type Fill, type TextBullet, type TextMarks } from '@ppt4ai/model'
 import type { Mark, Node as PMNode } from 'prosemirror-model'
 import { EditorState } from 'prosemirror-state'
 import { textEditorSchema } from './schema'
@@ -79,6 +79,31 @@ export function setTextAlignment(state: EditorState, align: 'left' | 'center' | 
   return changed ? state.apply(transaction) : state
 }
 
+export function setTextBullet(state: EditorState, bullet: TextBullet): EditorState {
+  validateBullet(bullet)
+  const transaction = state.tr
+  let changed = false
+  state.doc.descendants((node, position) => {
+    if (node.type !== textEditorSchema.nodes.paragraph || !paragraphIntersectsSelection(state, node, position)) return
+    if (JSON.stringify(node.attrs.bullet) === JSON.stringify(bullet)) return
+    transaction.setNodeMarkup(position, undefined, { ...node.attrs, bullet: structuredClone(bullet) })
+    changed = true
+  })
+  return changed ? state.apply(transaction) : state
+}
+
+export function clearTextBullet(state: EditorState): EditorState {
+  const transaction = state.tr
+  let changed = false
+  state.doc.descendants((node, position) => {
+    if (node.type !== textEditorSchema.nodes.paragraph || !paragraphIntersectsSelection(state, node, position)) return
+    if (node.attrs.bullet === null) return
+    transaction.setNodeMarkup(position, undefined, { ...node.attrs, bullet: null })
+    changed = true
+  })
+  return changed ? state.apply(transaction) : state
+}
+
 export function getTextFormattingState(state: EditorState): TextFormattingState {
   const markSets = collectMarkSets(state)
   const marks = markSets.length === 0 ? undefined : markSets
@@ -119,6 +144,11 @@ function validatePatch(patch: TextMarksPatch): void {
     if (key === 'baseline' && (typeof value !== 'number' || !Number.isFinite(value))) throw new TypeError('baseline must be finite')
     if (key === 'color' && !isFill(value)) throw new TypeError('color must be a valid fill')
   }
+}
+
+function validateBullet(bullet: TextBullet): void {
+  const validation = validateTextBody({ paragraphs: [{ runs: [{ text: 'x' }], attrs: { bullet } }] })
+  if (!validation.valid) throw new TypeError(validation.errors.join('; '))
 }
 
 function isFill(value: unknown): value is Fill {

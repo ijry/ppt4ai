@@ -25,6 +25,7 @@ const body: TextBody = {
         lineSpacing: 1.25,
         spaceBefore: 40,
         spaceAfter: 60,
+        bullet: { type: 'char', char: '•', fontFamily: 'Arial' },
       },
       runs: [
         { text: 'Hello', marks: { fontFamily: 'Arial', fontSize: 24, bold: true } },
@@ -54,6 +55,7 @@ describe('TextBody ProseMirror conversion', () => {
             lineSpacing: 1.25,
             spaceBefore: 40,
             spaceAfter: 60,
+            bullet: { type: 'char', char: '•', fontFamily: 'Arial' },
           },
           content: [
             {
@@ -79,6 +81,7 @@ describe('TextBody ProseMirror conversion', () => {
             lineSpacing: null,
             spaceBefore: null,
             spaceAfter: null,
+            bullet: null,
           },
         },
       ],

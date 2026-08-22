@@ -17,6 +17,7 @@ export const textEditorSchema = new Schema({
         lineSpacing: { default: null },
         spaceBefore: { default: null },
         spaceAfter: { default: null },
+        bullet: { default: null },
       },
     },
     text: { group: 'inline' },

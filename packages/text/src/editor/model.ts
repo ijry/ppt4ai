@@ -15,6 +15,7 @@ const paragraphAttrNames: readonly (keyof TextParagraphAttrs)[] = [
   'lineSpacing',
   'spaceBefore',
   'spaceAfter',
+  'bullet',
 ]
 
 export class TextEditorModelError extends Error {

@@ -23,8 +23,10 @@ export { proseMirrorToTextBody, TextEditorModelError, textBodyToProseMirror } fr
 export { textEditorSchema } from './editor/schema'
 export {
   getTextFormattingState,
+  clearTextBullet,
   setTextMarks,
   setTextAlignment,
+  setTextBullet,
   toggleTextMark,
 } from './editor/formatting'
 export type { TextFormattingState, TextMarkName, TextMarksPatch, TextToggleState } from './editor/formatting'
