@@ -62,6 +62,7 @@ export type TextAutofit =
 export interface TextBodyProperties {
   insets?: { left: number; top: number; right: number; bottom: number }
   verticalAlign?: 'top' | 'middle' | 'bottom'
+  vertical?: 'horizontal' | 'vertical'
   wrap?: 'square' | 'none'
   autofit?: TextAutofit
 }
@@ -180,6 +181,7 @@ export type TextModelValidation =
 
 const textAlignments = new Set(['left', 'center', 'right'])
 const verticalAlignments = new Set(['top', 'middle', 'bottom'])
+const writingModes = new Set(['horizontal', 'vertical'])
 const wraps = new Set(['square', 'none'])
 const underlines = new Set(['none', 'single'])
 const bulletSchemes = new Set(['arabic', 'alphaLower', 'alphaUpper'])
@@ -280,6 +282,7 @@ export function validateTextBody(value: unknown): TextModelValidation {
         }
       }
       if ('verticalAlign' in bodyPr && (typeof bodyPr.verticalAlign !== 'string' || !verticalAlignments.has(bodyPr.verticalAlign))) errors.push('bodyPr.verticalAlign must be top, middle, or bottom')
+      if ('vertical' in bodyPr && (typeof bodyPr.vertical !== 'string' || !writingModes.has(bodyPr.vertical))) errors.push('bodyPr.vertical must be horizontal or vertical')
       if ('wrap' in bodyPr && (typeof bodyPr.wrap !== 'string' || !wraps.has(bodyPr.wrap))) errors.push('bodyPr.wrap must be square or none')
       if ('autofit' in bodyPr) {
         if (!bodyPr.autofit || typeof bodyPr.autofit !== 'object' || Array.isArray(bodyPr.autofit)) errors.push('bodyPr.autofit must be an object')

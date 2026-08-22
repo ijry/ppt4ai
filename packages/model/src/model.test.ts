@@ -54,6 +54,32 @@ describe('ppt4ai file model', () => {
     expect(structuredClone(element)).toEqual(element)
   })
 
+  it('accepts horizontal and vertical writing modes as clone-safe body properties', () => {
+    const vertical = { bodyPr: { vertical: 'vertical' as const }, paragraphs: [{ runs: [{ text: '中文' }] }] }
+    const horizontal = { bodyPr: { vertical: 'horizontal' as const }, paragraphs: [{ runs: [{ text: 'text' }] }] }
+
+    expect(validateTextBody(vertical)).toEqual({ valid: true })
+    expect(validateTextBody(horizontal)).toEqual({ valid: true })
+    expect(structuredClone(vertical)).toEqual(vertical)
+  })
+
+  it('reports a deterministic path for invalid writing modes', () => {
+    expect(validateTextBody({
+      bodyPr: { vertical: 'diagonal' },
+      paragraphs: [{ runs: [{ text: 'invalid' }] }],
+    })).toEqual({
+      valid: false,
+      errors: ['bodyPr.vertical must be horizontal or vertical'],
+    })
+    expect(validateTextBody({
+      bodyPr: { vertical: 90 },
+      paragraphs: [{ runs: [{ text: 'invalid' }] }],
+    })).toEqual({
+      valid: false,
+      errors: ['bodyPr.vertical must be horizontal or vertical'],
+    })
+  })
+
   it('accepts clone-safe character and automatic numbering bullets', () => {
     const body = {
       paragraphs: [
