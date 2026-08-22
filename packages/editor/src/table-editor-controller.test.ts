@@ -5,7 +5,10 @@ import { createTableEditorController } from './table-editor-controller'
 
 function makeTableDocument(): Ppt4aiDocument {
   return {
+    format: 'ppt4ai',
     version: 1,
+    id: 'doc_table_controller',
+    page: { w: 120, h: 80 },
     slides: {
       slide_1: { id: 'slide_1', elementIds: ['el_table'] },
     },
@@ -15,10 +18,10 @@ function makeTableDocument(): Ppt4aiDocument {
         id: 'el_table',
         kind: 'table',
         bounds: { x: 0, y: 0, w: 120, h: 80 },
-        columns: [{ w: 60 }, { w: 60 }],
+        columns: [60, 60],
         rows: [
-          { h: 40, cells: [{ column: 0, textBody: { paragraphs: [{ runs: [{ text: 'A' }] }] }, rowSpan: 1, colSpan: 2 }] },
-          { h: 40, cells: [{ column: 0, textBody: { paragraphs: [{ runs: [{ text: 'B' }] }] } }, { column: 1, textBody: { paragraphs: [{ runs: [{ text: 'C' }] }] } }] },
+          { height: 40, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'A' }] }] }, rowSpan: 1, colSpan: 2 }] },
+          { height: 40, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'B' }] }] } }, { column: 1, body: { paragraphs: [{ runs: [{ text: 'C' }] }] } }] },
         ],
       },
     },

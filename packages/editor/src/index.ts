@@ -31,6 +31,8 @@ export type {
   TableEditorCell,
   TableEditorOverlayModel,
 } from './table-editor-overlay'
+export { createTableEditorController } from './table-editor-controller'
+export type { TableEditorController, TableEditorControllerOptions } from './table-editor-controller'
 export {
   createTextInteraction,
   layoutRectToScreen,
