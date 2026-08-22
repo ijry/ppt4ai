@@ -22,6 +22,19 @@ const zhCN = {
         right: '右对齐',
       },
     },
+    tableFormatting: {
+      fillColor: '单元格填充颜色',
+      clearFill: '清除单元格填充',
+      borderColor: '边框颜色',
+      borderWidth: '边框宽度',
+      borderStyle: '边框样式',
+      apply: '应用',
+      applyBorders: '应用边框',
+      clear: '清除',
+      clearBorders: '清除选中边框',
+      side: { left: '左边框', right: '右边框', top: '上边框', bottom: '下边框' },
+      styles: { solid: '实线', dash: '虚线', dot: '点线' },
+    },
   },
 } as const
 
