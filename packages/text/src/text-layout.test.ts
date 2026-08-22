@@ -82,6 +82,92 @@ function layoutBody(text: string, bodyPr: TextBody['bodyPr'] = {}, width = 10000
 }
 
 describe('deterministic text layout', () => {
+  it('renders a character marker outside text runs and aligns wrapped content', () => {
+    const layout = layoutText({
+      bounds: { x: 0, y: 0, w: 1000000, h: 1000000 },
+      body: {
+        paragraphs: [{
+          runs: [{ text: 'one two three' }],
+          attrs: { bullet: { type: 'char', char: '•' } },
+        }],
+      },
+    })
+
+    expect(layout.lines[0]?.marker).toEqual({ text: '• ', x: 0, width: measureText('• ') })
+    expect(layout.lines[0]?.runs.map((run) => run.text).join('')).not.toContain('•')
+    expect(layout.lines[0]?.marker?.x).toBeLessThan(layout.lines[0]?.x ?? 0)
+    expect(layout.lines.slice(1).every((line) => line.marker === undefined)).toBe(true)
+    expect(layout.lines.slice(1).every((line) => line.x === layout.lines[0]?.x)).toBe(true)
+    expect(layout.contentBounds.w).toBeGreaterThan(layout.lines[0]?.width ?? 0)
+  })
+
+  it('continues and resets Arabic and alphabetic numbering deterministically', () => {
+    const arabic = layoutText({
+      bounds,
+      body: {
+        paragraphs: [
+          { runs: [{ text: 'A' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic', startAt: 3 } } },
+          { runs: [{ text: 'B' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic' } } },
+          { runs: [{ text: 'C' }] },
+          { runs: [{ text: 'D' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic' } } },
+        ],
+      },
+    })
+    expect(arabic.lines.map((line) => line.marker?.text)).toEqual(['3 ', '4 ', undefined, '1 '])
+
+    const lower = layoutText({
+      bounds,
+      body: {
+        paragraphs: Array.from({ length: 27 }, (_, index) => ({
+          runs: [{ text: String(index + 1) }],
+          attrs: { bullet: { type: 'autoNum', scheme: 'alphaLower' as const } },
+        })),
+      },
+    })
+    expect(lower.lines[0]?.marker?.text).toBe('a ')
+    expect(lower.lines[25]?.marker?.text).toBe('z ')
+    expect(lower.lines[26]?.marker?.text).toBe('aa ')
+
+    const nested = layoutText({
+      bounds,
+      body: {
+        paragraphs: [
+          { runs: [{ text: 'A' }], attrs: { level: 0, bullet: { type: 'autoNum', scheme: 'arabic' } } },
+          { runs: [{ text: 'B' }], attrs: { level: 1, bullet: { type: 'autoNum', scheme: 'arabic' } } },
+          { runs: [{ text: 'C' }], attrs: { level: 1, bullet: { type: 'autoNum', scheme: 'arabic' } } },
+          { runs: [{ text: 'D' }], attrs: { level: 0, bullet: { type: 'autoNum', scheme: 'arabic' } } },
+        ],
+      },
+    })
+    expect(nested.lines.map((line) => line.marker?.text)).toEqual(['1 ', '1 ', '2 ', '2 '])
+  })
+
+  it('supports marker-only paragraphs, bullet fonts, alignment, and autofit scaling', () => {
+    const markerOnly = layoutText({
+      bounds,
+      body: { paragraphs: [{ runs: [], attrs: { bullet: { type: 'char', char: '•', fontFamily: 'Wingdings' } } }] },
+    })
+    expect(markerOnly.lines[0]?.runs).toEqual([])
+    expect(markerOnly.lines[0]?.marker).toEqual({ text: '• ', x: 0, width: measureText('• ', { fontFamily: 'Wingdings' }) , marks: { fontFamily: 'Wingdings' } })
+
+    const normal = layoutText({
+      bounds: { x: 0, y: 0, w: 1000000, h: 400000 },
+      body: { paragraphs: [{ runs: [{ text: 'A' }], attrs: { bullet: { type: 'char', char: '•' } } }, { runs: [{ text: 'B' }] }] },
+    })
+    const shrink = layoutText({
+      bounds: { x: 0, y: 0, w: 1000000, h: 400000 },
+      body: { bodyPr: { autofit: { type: 'shrink', minFontScale: 50000 } }, paragraphs: [{ runs: [{ text: 'A' }], attrs: { bullet: { type: 'char', char: '•' } } }, { runs: [{ text: 'B' }] }] },
+    })
+    const centered = layoutText({
+      bounds,
+      body: { paragraphs: [{ runs: [{ text: 'A' }], attrs: { align: 'center', bullet: { type: 'char', char: '•' } } }] },
+    })
+    expect(shrink.fontScale).toBeLessThan(normal.fontScale)
+    expect(shrink.lines[0]?.marker?.width).toBeLessThan(normal.lines[0]?.marker?.width ?? 0)
+    expect(centered.lines[0]?.marker?.x).toBe(0)
+    expect(centered.lines[0]?.x).toBeGreaterThan(0)
+  })
+
   it('creates explicit paragraph lines and preserves run marks', () => {
     const layout = layoutText({
       bounds,

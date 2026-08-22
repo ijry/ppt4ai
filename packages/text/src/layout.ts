@@ -1,7 +1,14 @@
-import type { Rect, TextBody, TextMarks, TextParagraph } from '@ppt4ai/model'
+import type { Rect, TextBody, TextBullet, TextBulletScheme, TextMarks, TextParagraph } from '@ppt4ai/model'
 import { DEFAULT_FONT_SIZE, measureText } from './measure'
 
 export interface TextLayoutRun {
+  text: string
+  x: number
+  width: number
+  marks?: TextMarks
+}
+
+export interface TextLayoutMarker {
   text: string
   x: number
   width: number
@@ -15,6 +22,7 @@ export interface TextLayoutLine {
   width: number
   height: number
   runs: TextLayoutRun[]
+  marker?: TextLayoutMarker
 }
 
 export interface TextLayout {
@@ -45,6 +53,12 @@ interface PendingLine {
   align: 'left' | 'center' | 'right'
   height: number
   tokens: Token[]
+  marker?: TextLayoutMarker
+}
+
+interface NumberingState {
+  readonly schemes: Map<number, TextBulletScheme>
+  readonly values: Map<number, number>
 }
 
 const DEFAULT_FONT_SCALE = 100000
@@ -174,13 +188,62 @@ function createRuns(tokens: Token[], lineX: number): TextLayoutRun[] {
   return runs
 }
 
+function alphaNumber(value: number, uppercase: boolean): string {
+  let remaining = value
+  let result = ''
+  while (remaining > 0) {
+    remaining -= 1
+    result = String.fromCharCode((uppercase ? 65 : 97) + (remaining % 26)) + result
+    remaining = Math.floor(remaining / 26)
+  }
+  return result
+}
+
+function markerMarks(paragraph: TextParagraph, bullet: TextBullet): TextMarks | undefined {
+  const firstMarks = paragraph.runs[0]?.marks
+  const marks = firstMarks ? structuredClone(firstMarks) : undefined
+  if (bullet.type !== 'char' || bullet.fontFamily === undefined) return marks
+  return { ...(marks ?? {}), fontFamily: bullet.fontFamily }
+}
+
+function markerText(bullet: TextBullet, value: number | undefined): string {
+  if (bullet.type === 'char') return bullet.char + ' '
+  if (bullet.scheme === 'arabic') return String(value ?? 1) + ' '
+  return alphaNumber(value ?? 1, bullet.scheme === 'alphaUpper') + ' '
+}
+
+function resolveMarker(paragraph: TextParagraph, state: NumberingState, fontScale: number, markerX: number): TextLayoutMarker | undefined {
+  const bullet = paragraph.attrs?.bullet
+  if (!bullet) {
+    state.schemes.clear()
+    state.values.clear()
+    return undefined
+  }
+  let value: number | undefined
+  if (bullet.type === 'autoNum') {
+    const level = paragraph.attrs?.level ?? 0
+    if (state.schemes.get(level) !== bullet.scheme) state.values.delete(level)
+    value = bullet.startAt ?? ((state.values.get(level) ?? 0) + 1)
+    state.schemes.set(level, bullet.scheme)
+    state.values.set(level, value)
+  } else {
+    state.schemes.clear()
+    state.values.clear()
+  }
+  const text = markerText(bullet, value)
+  const marks = markerMarks(paragraph, bullet)
+  const marker: TextLayoutMarker = { text, x: markerX, width: measureText(text, marks, fontScale) }
+  if (marks) marker.marks = marks
+  return marker
+}
+
 function positionLine(pending: PendingLine, y: number): TextLayoutLine {
   const width = tokensWidth(pending.tokens)
   const alignmentOffset = pending.align === 'center'
     ? Math.round((pending.availableWidth - width) / 2)
     : pending.align === 'right' ? pending.availableWidth - width : 0
   const x = pending.baseX + alignmentOffset
-  return {
+  const line: TextLayoutLine = {
     paragraphIndex: pending.paragraphIndex,
     x,
     y,
@@ -188,28 +251,36 @@ function positionLine(pending: PendingLine, y: number): TextLayoutLine {
     height: pending.height,
     runs: createRuns(pending.tokens, x),
   }
+  if (pending.marker) line.marker = structuredClone(pending.marker)
+  return line
 }
 
 function layoutAtScale(input: TextLayoutInput, fontScale: number): TextLayout {
   const insets = input.body.bodyPr?.insets ?? { left: 0, top: 0, right: 0, bottom: 0 }
   const wrap = input.body.bodyPr?.wrap ?? 'square'
   const pendingLines: Array<PendingLine & { y: number }> = []
+  const numbering: NumberingState = { schemes: new Map(), values: new Map() }
   let cursorY = input.bounds.y + insets.top
   for (const [paragraphIndex, paragraph] of input.body.paragraphs.entries()) {
     const attrs = paragraph.attrs
     const marginLeft = attrs?.marginLeft ?? 0
     const indent = attrs?.indent ?? 0
-    const availableWidth = Math.max(0, input.bounds.w - insets.left - insets.right - marginLeft - indent)
+    const paragraphBaseX = input.bounds.x + insets.left + marginLeft + indent
+    const marker = resolveMarker(paragraph, numbering, fontScale, paragraphBaseX)
+    const markerWidth = marker?.width ?? 0
+    const availableWidth = Math.max(0, input.bounds.w - insets.left - insets.right - marginLeft - indent - markerWidth)
     const height = lineHeight(paragraph, fontScale)
     cursorY += attrs?.spaceBefore ?? 0
-    for (const tokens of wrapTokens(paragraphTokens(paragraph, fontScale), availableWidth, wrap)) {
+    const lines = wrapTokens(paragraphTokens(paragraph, fontScale), availableWidth, wrap)
+    for (const [lineIndex, tokens] of lines.entries()) {
       pendingLines.push({
         paragraphIndex,
-        baseX: input.bounds.x + insets.left + marginLeft + indent,
+        baseX: paragraphBaseX + markerWidth,
         availableWidth,
         align: attrs?.align ?? 'left',
         height,
         tokens,
+        ...(lineIndex === 0 && marker ? { marker } : {}),
         y: cursorY,
       })
       cursorY += height
@@ -224,8 +295,13 @@ function layoutAtScale(input: TextLayoutInput, fontScale: number): TextLayout {
     ? Math.round(remainingHeight / 2)
     : verticalAlign === 'bottom' ? remainingHeight : 0
   const lines = pendingLines.map((line) => positionLine(line, line.y + verticalOffset))
-  const contentX = lines.length > 0 ? Math.min(...lines.map((line) => line.x)) : input.bounds.x + insets.left
-  const contentWidth = lines.length > 0 ? Math.max(...lines.map((line) => line.x + line.width)) - contentX : 0
+  const extents = lines.flatMap((line) => {
+    const lineExtents = [{ x: line.x, end: line.x + line.width }]
+    if (line.marker) lineExtents.push({ x: line.marker.x, end: line.marker.x + line.marker.width })
+    return lineExtents
+  })
+  const contentX = extents.length > 0 ? Math.min(...extents.map((extent) => extent.x)) : input.bounds.x + insets.left
+  const contentWidth = extents.length > 0 ? Math.max(...extents.map((extent) => extent.end)) - contentX : 0
   return {
     bounds: { ...input.bounds },
     lines,
