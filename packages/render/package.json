@@ -20,6 +20,7 @@
   "dependencies": {
     "@ppt4ai/model": "workspace:*",
     "@ppt4ai/geometry": "workspace:*",
-    "@ppt4ai/layout": "workspace:*"
+    "@ppt4ai/layout": "workspace:*",
+    "@ppt4ai/text": "workspace:*"
   }
 }

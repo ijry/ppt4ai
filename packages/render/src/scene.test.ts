@@ -95,15 +95,21 @@ describe('documentToSceneGraph', () => {
       },
     }
 
-    expect(documentToSceneGraph(slideDocument).nodes).toEqual([
-      {
-        id: 'el_text',
-        kind: 'text',
+    const nodes = documentToSceneGraph(slideDocument).nodes
+    expect(nodes).toHaveLength(2)
+    expect(nodes[0]).toMatchObject({
+      id: 'el_text',
+      kind: 'text',
+      bounds: { x: 2000000, y: 4000000, w: 5000000, h: 800000 },
+      text: 'Hello',
+      layout: {
         bounds: { x: 2000000, y: 4000000, w: 5000000, h: 800000 },
-        text: 'Hello',
+        fontScale: 100000,
+        overflow: false,
       },
-      expect.objectContaining({ id: 'el_shape', kind: 'shape' }),
-    ])
+    })
+    expect(nodes[0]?.kind === 'text' ? nodes[0].layout.lines[0]?.runs[0]?.text : undefined).toBe('Hello')
+    expect(nodes[1]).toEqual(expect.objectContaining({ id: 'el_shape', kind: 'shape' }))
   })
 
   it('resolves layout and master defaults before creating scene nodes', () => {
@@ -136,15 +142,14 @@ describe('documentToSceneGraph', () => {
       },
     }
 
-    expect(documentToSceneGraph(inheritedDocument).nodes).toEqual([
-      {
-        id: 'el_text',
-        kind: 'text',
-        bounds: { x: 2000000, y: 4000000, w: 5000000, h: 800000 },
-        text: 'Inherited',
-        fill: { color: { type: 'srgb', v: 'FFFFFF' } },
-      },
-    ])
+    expect(documentToSceneGraph(inheritedDocument).nodes[0]).toMatchObject({
+      id: 'el_text',
+      kind: 'text',
+      bounds: { x: 2000000, y: 4000000, w: 5000000, h: 800000 },
+      text: 'Inherited',
+      fill: { color: { type: 'srgb', v: 'FFFFFF' } },
+      layout: { lines: [{ runs: [{ text: 'Inherited' }] }] },
+    })
   })
 
   it('expands flat groups in child order', () => {

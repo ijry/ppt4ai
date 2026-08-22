@@ -1,5 +1,6 @@
 import { createPresetPath, type PathCommand } from '@ppt4ai/geometry'
 import { resolveInheritedElement, type Element, type Fill, type Ppt4aiDocument, type Rect } from '@ppt4ai/model'
+import { layoutText, normalizeTextElement, type TextLayout } from '@ppt4ai/text'
 
 export interface SceneGraph {
   slideId: string
@@ -24,6 +25,7 @@ export interface SceneTextNode {
   kind: 'text'
   bounds: Rect
   text: string
+  layout: TextLayout
   fill?: Fill
   stroke?: Fill
 }
@@ -44,11 +46,13 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>): SceneSha
 }
 
 function createTextNode(element: Extract<Element, { kind: 'text' }>): SceneTextNode {
+  const body = normalizeTextElement(element)
   const node: SceneTextNode = {
     id: element.id,
     kind: 'text',
     bounds: element.bounds,
-    text: element.text,
+    text: element.text ?? body.paragraphs.map((paragraph) => paragraph.runs.map((run) => run.text).join('')).join('\n'),
+    layout: layoutText({ bounds: element.bounds, body }),
   }
   if (element.fill) node.fill = element.fill
   if (element.stroke) node.stroke = element.stroke

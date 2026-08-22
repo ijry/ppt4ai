@@ -17,6 +17,53 @@ export interface Fill {
   color: Color
 }
 
+export interface TextMarks {
+  fontFamily?: string
+  fontSize?: number
+  bold?: boolean
+  italic?: boolean
+  underline?: 'none' | 'single'
+  color?: Fill
+  baseline?: number
+}
+
+export interface TextRun {
+  text: string
+  marks?: TextMarks
+}
+
+export interface TextParagraphAttrs {
+  align?: 'left' | 'center' | 'right'
+  level?: number
+  indent?: number
+  marginLeft?: number
+  lineSpacing?: number
+  spaceBefore?: number
+  spaceAfter?: number
+}
+
+export interface TextParagraph {
+  runs: TextRun[]
+  attrs?: TextParagraphAttrs
+}
+
+export type TextAutofit =
+  | { type: 'none' }
+  | { type: 'shrink'; minFontScale?: number }
+  | { type: 'resize'; maxHeight?: number }
+
+export interface TextBodyProperties {
+  insets?: { left: number; top: number; right: number; bottom: number }
+  verticalAlign?: 'top' | 'middle' | 'bottom'
+  wrap?: 'square' | 'none'
+  autofit?: TextAutofit
+}
+
+export interface TextBody {
+  bodyPr?: TextBodyProperties
+  paragraphs: TextParagraph[]
+}
+
 export interface ShapeElement {
   id: string
   kind: 'shape'
@@ -31,7 +78,8 @@ export interface TextElement {
   id: string
   kind: 'text'
   bounds: Rect
-  text: string
+  text?: string
+  body?: TextBody
   fill?: Fill
   stroke?: Fill
   placeholder?: string
@@ -52,6 +100,7 @@ export interface ElementDefaults {
   fill?: Fill
   stroke?: Fill
   text?: string
+  body?: TextBody
 }
 
 export interface SlideLayout {
@@ -117,6 +166,104 @@ export function resolveInheritedElement(element: Element, layout?: SlideLayout, 
 export type DocumentValidation =
   | { valid: true }
   | { valid: false; errors: string[] }
+
+export type TextModelValidation =
+  | { valid: true }
+  | { valid: false; errors: string[] }
+
+const textAlignments = new Set(['left', 'center', 'right'])
+const verticalAlignments = new Set(['top', 'middle', 'bottom'])
+const wraps = new Set(['square', 'none'])
+const underlines = new Set(['none', 'single'])
+
+function validateFiniteNumber(value: unknown, path: string, errors: string[], predicate: (value: number) => boolean, message: string): void {
+  if (typeof value !== 'number' || !Number.isFinite(value) || !predicate(value)) errors.push(`${path} ${message}`)
+}
+
+function validateTextMarks(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const marks = value as Record<string, unknown>
+  if ('fontFamily' in marks && typeof marks.fontFamily !== 'string') errors.push(`${path}.fontFamily must be a string`)
+  if ('fontSize' in marks) validateFiniteNumber(marks.fontSize, `${path}.fontSize`, errors, (number) => number > 0, 'must be positive')
+  for (const key of ['bold', 'italic']) {
+    if (key in marks && typeof marks[key] !== 'boolean') errors.push(`${path}.${key} must be boolean`)
+  }
+  if ('underline' in marks && (typeof marks.underline !== 'string' || !underlines.has(marks.underline))) errors.push(`${path}.underline must be none or single`)
+  if ('baseline' in marks) validateFiniteNumber(marks.baseline, `${path}.baseline`, errors, () => true, 'must be finite')
+}
+
+function validateTextParagraph(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const paragraph = value as Record<string, unknown>
+  if (!Array.isArray(paragraph.runs)) {
+    errors.push(`${path}.runs must be an array`)
+  } else {
+    paragraph.runs.forEach((run, index) => {
+      const runPath = `${path}.runs[${index}]`
+      if (!run || typeof run !== 'object' || Array.isArray(run)) {
+        errors.push(`${runPath} must be an object`)
+        return
+      }
+      const runValue = run as Record<string, unknown>
+      if (typeof runValue.text !== 'string' || runValue.text.length === 0) errors.push(`${runPath}.text must be non-empty`)
+      if ('marks' in runValue && runValue.marks !== undefined) validateTextMarks(runValue.marks, `${runPath}.marks`, errors)
+    })
+  }
+  if (!('attrs' in paragraph) || paragraph.attrs === undefined) return
+  if (!paragraph.attrs || typeof paragraph.attrs !== 'object' || Array.isArray(paragraph.attrs)) {
+    errors.push(`${path}.attrs must be an object`)
+    return
+  }
+  const attrs = paragraph.attrs as Record<string, unknown>
+  if ('align' in attrs && (typeof attrs.align !== 'string' || !textAlignments.has(attrs.align))) errors.push(`${path}.attrs.align must be left, center, or right`)
+  if ('level' in attrs) validateFiniteNumber(attrs.level, `${path}.attrs.level`, errors, (number) => number >= 0, 'must be non-negative')
+  for (const key of ['indent', 'marginLeft', 'spaceBefore', 'spaceAfter']) {
+    if (key in attrs) validateFiniteNumber(attrs[key], `${path}.attrs.${key}`, errors, (number) => number >= 0, 'must be non-negative')
+  }
+  if ('lineSpacing' in attrs) validateFiniteNumber(attrs.lineSpacing, `${path}.attrs.lineSpacing`, errors, (number) => number > 0, 'must be positive')
+}
+
+export function validateTextBody(value: unknown): TextModelValidation {
+  const errors: string[] = []
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { valid: false, errors: ['body must be an object'] }
+  const body = value as Record<string, unknown>
+  if (!Array.isArray(body.paragraphs)) errors.push('paragraphs must be an array')
+  else {
+    if (body.paragraphs.length === 0) errors.push('paragraphs must be non-empty')
+    body.paragraphs.forEach((paragraph, index) => validateTextParagraph(paragraph, `paragraphs[${index}]`, errors))
+  }
+  if ('bodyPr' in body && body.bodyPr !== undefined) {
+    if (!body.bodyPr || typeof body.bodyPr !== 'object' || Array.isArray(body.bodyPr)) errors.push('bodyPr must be an object')
+    else {
+      const bodyPr = body.bodyPr as Record<string, unknown>
+      if ('insets' in bodyPr) {
+        if (!bodyPr.insets || typeof bodyPr.insets !== 'object' || Array.isArray(bodyPr.insets)) errors.push('bodyPr.insets must be an object')
+        else {
+          const insets = bodyPr.insets as Record<string, unknown>
+          for (const key of ['left', 'top', 'right', 'bottom']) validateFiniteNumber(insets[key], `bodyPr.insets.${key}`, errors, (number) => number >= 0, 'must be non-negative')
+        }
+      }
+      if ('verticalAlign' in bodyPr && (typeof bodyPr.verticalAlign !== 'string' || !verticalAlignments.has(bodyPr.verticalAlign))) errors.push('bodyPr.verticalAlign must be top, middle, or bottom')
+      if ('wrap' in bodyPr && (typeof bodyPr.wrap !== 'string' || !wraps.has(bodyPr.wrap))) errors.push('bodyPr.wrap must be square or none')
+      if ('autofit' in bodyPr) {
+        if (!bodyPr.autofit || typeof bodyPr.autofit !== 'object' || Array.isArray(bodyPr.autofit)) errors.push('bodyPr.autofit must be an object')
+        else {
+          const autofit = bodyPr.autofit as Record<string, unknown>
+          if (autofit.type !== 'none' && autofit.type !== 'shrink' && autofit.type !== 'resize') errors.push('bodyPr.autofit.type must be none, shrink, or resize')
+          if (autofit.type === 'shrink' && 'minFontScale' in autofit) validateFiniteNumber(autofit.minFontScale, 'bodyPr.autofit.minFontScale', errors, (number) => number >= 1 && number <= 100000, 'must be between 1 and 100000')
+          if (autofit.type === 'resize' && 'maxHeight' in autofit) validateFiniteNumber(autofit.maxHeight, 'bodyPr.autofit.maxHeight', errors, (number) => number > 0, 'must be positive')
+        }
+      }
+    }
+  }
+  return errors.length === 0 ? { valid: true } : { valid: false, errors }
+}
 
 export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
   const errors: string[] = []

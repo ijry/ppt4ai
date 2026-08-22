@@ -168,8 +168,15 @@ importers:
       '@ppt4ai/model':
         specifier: workspace:*
         version: link:../model
+      '@ppt4ai/text':
+        specifier: workspace:*
+        version: link:../text
 
-  packages/text: {}
+  packages/text:
+    dependencies:
+      '@ppt4ai/model':
+        specifier: workspace:*
+        version: link:../model
 
 packages:
 

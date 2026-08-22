@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { resolveInheritedElement, validateDocument, type Ppt4aiDocument, type SlideLayout, type SlideMaster } from './index'
+import {
+  resolveInheritedElement,
+  validateDocument,
+  validateTextBody,
+  type Ppt4aiDocument,
+  type SlideLayout,
+  type SlideMaster,
+  type TextElement,
+} from './index'
 
 const minimalDocument: Ppt4aiDocument = {
   format: 'ppt4ai',
@@ -22,6 +30,65 @@ const minimalDocument: Ppt4aiDocument = {
 }
 
 describe('ppt4ai file model', () => {
+  it('accepts JSON-safe text bodies and body-only text elements', () => {
+    const body = {
+      bodyPr: {
+        insets: { left: 100, top: 200, right: 300, bottom: 400 },
+        verticalAlign: 'middle' as const,
+        wrap: 'square' as const,
+        autofit: { type: 'shrink' as const, minFontScale: 60000 },
+      },
+      paragraphs: [{
+        attrs: { align: 'center' as const, level: 1, lineSpacing: 120000, spaceAfter: 500 },
+        runs: [{ text: 'Hello', marks: { fontFamily: 'Arial', fontSize: 20, bold: true } }],
+      }],
+    }
+    const element: TextElement = {
+      id: 'el_text',
+      kind: 'text',
+      bounds: { x: 0, y: 0, w: 1000, h: 1000 },
+      body,
+    }
+
+    expect(validateTextBody(body)).toEqual({ valid: true })
+    expect(structuredClone(element)).toEqual(element)
+  })
+
+  it('reports deterministic paths for invalid text body values', () => {
+    expect(validateTextBody({
+      bodyPr: {
+        insets: { left: -1, top: 0, right: 0, bottom: 0 },
+        autofit: { type: 'shrink', minFontScale: 0 },
+      },
+      paragraphs: [{
+        attrs: { level: -1, lineSpacing: 0, spaceBefore: -1 },
+        runs: [{ text: '', marks: { fontSize: 0, baseline: Number.NaN } }],
+      }],
+    })).toEqual({
+      valid: false,
+      errors: [
+        'paragraphs[0].runs[0].text must be non-empty',
+        'paragraphs[0].runs[0].marks.fontSize must be positive',
+        'paragraphs[0].runs[0].marks.baseline must be finite',
+        'paragraphs[0].attrs.level must be non-negative',
+        'paragraphs[0].attrs.spaceBefore must be non-negative',
+        'paragraphs[0].attrs.lineSpacing must be positive',
+        'bodyPr.insets.left must be non-negative',
+        'bodyPr.autofit.minFontScale must be between 1 and 100000',
+      ],
+    })
+  })
+
+  it('requires at least one paragraph and validates resize maximum height', () => {
+    expect(validateTextBody({ bodyPr: { autofit: { type: 'resize', maxHeight: -1 } }, paragraphs: [] })).toEqual({
+      valid: false,
+      errors: [
+        'paragraphs must be non-empty',
+        'bodyPr.autofit.maxHeight must be positive',
+      ],
+    })
+  })
+
   it('accepts a minimal JSON file and rejects broken slide order', () => {
     expect(validateDocument(minimalDocument)).toEqual({ valid: true })
     expect(validateDocument({ ...minimalDocument, slideOrder: ['missing'] })).toEqual({
