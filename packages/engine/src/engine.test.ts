@@ -141,6 +141,52 @@ describe('EditorEngine', () => {
     expect(new EditorEngine(makeTableDocument()).dispatch({ type: 'setTableCellText', body: { paragraphs: [{ runs: [{ text: 'Ignored' }] }] } }).history).toEqual({ undoDepth: 0, redoDepth: 0 })
   })
 
+  it('applies fill and independent borders to the selected cell range atomically', () => {
+    const engine = new EditorEngine(makeTableDocument())
+    engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 0 })
+    engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 1, column: 1, extend: true })
+
+    const fill = { color: { type: 'srgb' as const, v: '00FF00' } }
+    const withFill = engine.dispatch({ type: 'setTableCellFill', fill })
+    expect(withFill.document.elements.el_table).toMatchObject({
+      rows: [
+        { cells: [{ fill },] },
+        { cells: [{ fill }, { fill }] },
+      ],
+    })
+    expect(withFill.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+
+    const border = { color: { type: 'srgb' as const, v: '0000FF' }, width: 1000, style: 'solid' as const }
+    const withBorder = engine.dispatch({ type: 'setTableCellBorders', borders: { left: border, bottom: border } })
+    expect(withBorder.document.elements.el_table).toMatchObject({
+      rows: [
+        { cells: [{ borders: { left: border, bottom: border } }] },
+        { cells: [{ borders: { left: border, bottom: border } }, { borders: { left: border, bottom: border } }] },
+      ],
+    })
+    expect(withBorder.history).toEqual({ undoDepth: 2, redoDepth: 0 })
+
+    const cleared = engine.dispatch({ type: 'setTableCellFill', fill: null })
+    expect(cleared.document.elements.el_table).toMatchObject({ rows: [{ cells: [{}] }, { cells: [{}, {}] }] })
+    expect(engine.dispatch({ type: 'undo' }).document.elements.el_table).toMatchObject({ rows: [{ cells: [{}] }, { cells: [{ fill }, { fill }] }] })
+    expect(engine.dispatch({ type: 'redo' }).document.elements.el_table).toMatchObject({ rows: [{ cells: [{}] }, { cells: [{}, {}] }] })
+  })
+
+  it('preserves unmentioned borders and rejects invalid style payloads', () => {
+    const engine = new EditorEngine(makeTableDocument())
+    engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 1, column: 0 })
+    const before = engine.getState()
+    const border = { color: { type: 'srgb' as const, v: '111111' }, width: 500, style: 'dash' as const }
+
+    expect(engine.dispatch({ type: 'setTableCellBorders', borders: { top: border } }).document.elements.el_table).toMatchObject({ rows: [{}, { cells: [{ borders: { top: border } }, {}] }] })
+    expect(engine.dispatch({ type: 'setTableCellBorders', borders: { left: null } }).document.elements.el_table).toMatchObject({ rows: [{}, { cells: [{ borders: { top: border } }, {}] }] })
+    const historyDepth = engine.getState().history.undoDepth
+    expect(() => engine.dispatch({ type: 'setTableCellFill', fill: { color: { type: 'invalid' as never, v: '' } } })).toThrow()
+    expect(() => engine.dispatch({ type: 'setTableCellBorders', borders: { right: { color: { type: 'invalid' as never, v: '' } } } })).toThrow()
+    expect(engine.getState().history.undoDepth).toBe(historyDepth)
+    expect(engine.dispatch({ type: 'undo' }).document).toEqual(before.document)
+  })
+
   it('moves selected bounds and snaps to another element edge', () => {
     const engine = new EditorEngine(makeDocument(), { snap: { threshold: 100000 } })
     engine.dispatch({ type: 'select', elementIds: ['el_a'] })

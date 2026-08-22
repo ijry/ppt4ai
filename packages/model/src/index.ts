@@ -496,6 +496,7 @@ function validateTableCell(value: unknown, path: string, rowIndex: number, rowCo
     const result = validateTextBody(cell.body)
     if (!result.valid) for (const error of result.errors) errors.push(`${path}.body.${error}`)
   }
+  if ('fill' in cell && cell.fill !== undefined) validateFill(cell.fill, `${path}.fill`, errors)
   if ('borders' in cell && cell.borders !== undefined) {
     validateTableCellBorders(cell.borders, `${path}.borders`, errors)
   }

@@ -1,4 +1,4 @@
-import { validateTextBody, type Element, type Ppt4aiDocument, type Rect, type TableElement, type TextBody } from '@ppt4ai/model'
+import { validateDocument, validateTextBody, type Element, type Fill, type Ppt4aiDocument, type Rect, type TableBorder, type TableCellBorders, type TableElement, type TextBody } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -58,6 +58,8 @@ export type EngineCommand =
   | { type: 'select'; elementIds: string[]; additive?: boolean }
   | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
   | { type: 'setTableCellText'; body: TextBody }
+  | { type: 'setTableCellFill'; fill: Fill | null }
+  | { type: 'setTableCellBorders'; borders: Partial<Record<TableBorderSide, TableBorder | null>> }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'move'; dx: number; dy: number }
@@ -142,6 +144,10 @@ interface TableSourceCell {
   cellIndex: number
 }
 
+type TableBorderSide = 'left' | 'right' | 'top' | 'bottom'
+
+const tableBorderSides: TableBorderSide[] = ['left', 'right', 'top', 'bottom']
+
 function sourceCellAt(table: TableElement, row: number, column: number): TableSourceCell | undefined {
   for (let sourceRow = 0; sourceRow < table.rows.length; sourceRow += 1) {
     const cells = table.rows[sourceRow]?.cells ?? []
@@ -153,6 +159,26 @@ function sourceCellAt(table: TableElement, row: number, column: number): TableSo
     }
   }
   return undefined
+}
+
+function sourceCellsInSelection(table: TableElement, selection: TableCellSelection): TableSourceCell[] {
+  const minRow = Math.min(selection.anchorRow, selection.row)
+  const maxRow = Math.max(selection.anchorRow, selection.row)
+  const minColumn = Math.min(selection.anchorColumn, selection.column)
+  const maxColumn = Math.max(selection.anchorColumn, selection.column)
+  const sources: TableSourceCell[] = []
+  for (let row = 0; row < table.rows.length; row += 1) {
+    const cells = table.rows[row]?.cells ?? []
+    for (let cellIndex = 0; cellIndex < cells.length; cellIndex += 1) {
+      const cell = cells[cellIndex]!
+      const cellMaxRow = row + (cell.rowSpan ?? 1) - 1
+      const cellMaxColumn = cell.column + (cell.colSpan ?? 1) - 1
+      if (row <= maxRow && cellMaxRow >= minRow && cell.column <= maxColumn && cellMaxColumn >= minColumn) {
+        sources.push({ row, column: cell.column, cellIndex })
+      }
+    }
+  }
+  return sources
 }
 
 function validTableCellSelection(document: Ppt4aiDocument, selection: TableCellSelection | undefined): TableCellSelection | undefined {
@@ -273,6 +299,14 @@ export class EditorEngine {
         this.setTableCellText(command.body)
         break
       }
+      case 'setTableCellFill': {
+        this.setTableCellFill(command.fill)
+        break
+      }
+      case 'setTableCellBorders': {
+        this.setTableCellBorders(command.borders)
+        break
+      }
       case 'undo':
         this.applyHistoryEntry(this.undoStack, this.redoStack)
         break
@@ -329,6 +363,53 @@ export class EditorEngine {
     const source = sourceCellAt(table, selection.row, selection.column)
     if (!source) throw new Error('no table cell is selected')
     this.commit([{ path: ['elements', selection.elementId, 'rows', String(source.row), 'cells', String(source.cellIndex), 'body'], value: body }])
+  }
+
+  private selectedTableSourceCells(): { elementId: string; table: TableElement; sources: TableSourceCell[] } | undefined {
+    const selection = validTableCellSelection(this.document, this.tableCellSelection)
+    if (!selection) return undefined
+    const table = this.document.elements[selection.elementId]
+    if (!table || table.kind !== 'table') return undefined
+    return { elementId: selection.elementId, table, sources: sourceCellsInSelection(table, selection) }
+  }
+
+  private setTableCellFill(fill: Fill | null): void {
+    const selected = this.selectedTableSourceCells()
+    if (!selected) return
+    const changes = selected.sources.map((source) => ({
+      path: ['elements', selected.elementId, 'rows', String(source.row), 'cells', String(source.cellIndex), 'fill'],
+      value: fill ?? undefined,
+    }))
+    this.commitValidatedTableStyles(changes)
+  }
+
+  private setTableCellBorders(borders: Partial<Record<TableBorderSide, TableBorder | null>>): void {
+    const selected = this.selectedTableSourceCells()
+    if (!selected) return
+    const suppliedSides = tableBorderSides.filter((side) => Object.prototype.hasOwnProperty.call(borders, side))
+    if (suppliedSides.length === 0) return
+    const changes = selected.sources.map((source) => {
+      const cell = selected.table.rows[source.row]!.cells[source.cellIndex]!
+      const nextBorders: TableCellBorders = { ...cell.borders }
+      for (const side of suppliedSides) {
+        const border = borders[side]
+        if (border === null || border === undefined) delete nextBorders[side]
+        else nextBorders[side] = border
+      }
+      return {
+        path: ['elements', selected.elementId, 'rows', String(source.row), 'cells', String(source.cellIndex), 'borders'],
+        value: Object.keys(nextBorders).length > 0 ? nextBorders : undefined,
+      }
+    })
+    this.commitValidatedTableStyles(changes)
+  }
+
+  private commitValidatedTableStyles(changes: Array<{ path: string[]; value: unknown }>): void {
+    const patch = makePatch(this.document, changes)
+    if (patch.operations.length === 0) return
+    const validation = validateDocument(applyPatch(this.document, patch))
+    if (!validation.valid) throw new Error(`table cell style is invalid: ${validation.errors.join('; ')}`)
+    this.commit(changes)
   }
 
   private move(dx: number, dy: number): void {

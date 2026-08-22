@@ -152,6 +152,28 @@ describe('ppt4ai file model', () => {
     })
   })
 
+  it('validates explicit table cell fills', () => {
+    const table = {
+      id: 'tbl_1',
+      kind: 'table',
+      bounds: { x: 0, y: 0, w: 1000, h: 1000 },
+      columns: [1000],
+      rows: [{ height: 1000, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'A' }] }] }, fill: { color: { type: 'invalid', v: '' } } }] }],
+    } as unknown as TableElement
+
+    expect(validateDocument({
+      ...minimalDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: ['tbl_1'] } },
+      elements: { tbl_1: table },
+    } as unknown as Ppt4aiDocument)).toEqual({
+      valid: false,
+      errors: [
+        'elements.tbl_1.rows[0].cells[0].fill.color.type must be a supported color type',
+        'elements.tbl_1.rows[0].cells[0].fill.color.v must be a non-empty string',
+      ],
+    })
+  })
+
   it('rejects table row spans that exceed rows or overlap occupied cells', () => {
     const baseTable: any = {
       id: 'tbl_1',
