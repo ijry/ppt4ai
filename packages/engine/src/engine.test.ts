@@ -45,6 +45,52 @@ function makeTableDocument(): Ppt4aiDocument {
   return document
 }
 
+function makeStructureDocument(): Ppt4aiDocument {
+  const document = makeDocument()
+  document.slides.sld_1!.elementIds.push('el_table')
+  document.elements.el_table = {
+    id: 'el_table',
+    kind: 'table',
+    bounds: { x: 1000, y: 2000, w: 1000, h: 100 },
+    columns: [100, 200, 300, 400],
+    rows: [
+      {
+        height: 10,
+        cells: [
+          {
+            column: 0,
+            rowSpan: 3,
+            colSpan: 2,
+            body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] },
+            fill: { color: { type: 'srgb', v: 'ABCDEF' } },
+            borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
+          },
+          { column: 2, body: { paragraphs: [{ runs: [{ text: 'B' }] }] } },
+          { column: 3, body: { paragraphs: [{ runs: [{ text: 'C' }] }] } },
+        ],
+      },
+      { height: 20, cells: [{ column: 2, colSpan: 2, body: { paragraphs: [{ runs: [{ text: 'D' }] }] } }] },
+      {
+        height: 30,
+        cells: [
+          { column: 2, body: { paragraphs: [{ runs: [{ text: 'E' }] }] } },
+          { column: 3, body: { paragraphs: [{ runs: [{ text: 'F' }] }] } },
+        ],
+      },
+      {
+        height: 40,
+        cells: [
+          { column: 0, body: { paragraphs: [{ runs: [{ text: 'G' }] }] } },
+          { column: 1, body: { paragraphs: [{ runs: [{ text: 'H' }] }] } },
+          { column: 2, body: { paragraphs: [{ runs: [{ text: 'I' }] }] } },
+          { column: 3, body: { paragraphs: [{ runs: [{ text: 'J' }] }] } },
+        ],
+      },
+    ],
+  }
+  return document
+}
+
 describe('EditorEngine', () => {
   it('keeps selection separate from document history and clones state safely', () => {
     const engine = new EditorEngine(makeDocument())
@@ -185,6 +231,115 @@ describe('EditorEngine', () => {
     expect(() => engine.dispatch({ type: 'setTableCellBorders', borders: { right: { color: { type: 'invalid' as never, v: '' } } } })).toThrow()
     expect(engine.getState().history.undoDepth).toBe(historyDepth)
     expect(engine.dispatch({ type: 'undo' }).document).toEqual(before.document)
+  })
+
+  it('inserts rows and columns while preserving merged coverage and dimensions', () => {
+    const rowEngine = new EditorEngine(makeStructureDocument())
+    const withRow = rowEngine.dispatch({ type: 'insertTableRow', elementId: 'el_table', index: 1 })
+    expect(withRow.document.elements.el_table).toEqual(expect.objectContaining({
+      bounds: { x: 1000, y: 2000, w: 1000, h: 120 },
+      rows: [
+        expect.objectContaining({ cells: [expect.objectContaining({ column: 0, rowSpan: 4, colSpan: 2 })] }),
+        { height: 20, cells: [
+          { column: 2, body: { paragraphs: [{ runs: [] }] } },
+          { column: 3, body: { paragraphs: [{ runs: [] }] } },
+        ] },
+        expect.objectContaining({ height: 20, cells: [expect.objectContaining({ column: 2, colSpan: 2 })] }),
+        expect.anything(),
+        expect.anything(),
+      ],
+    }))
+
+    const columnEngine = new EditorEngine(makeStructureDocument())
+    const withColumns = columnEngine.dispatch({ type: 'insertTableColumn', elementId: 'el_table', index: 1, count: 2 })
+    expect(withColumns.document.elements.el_table).toEqual(expect.objectContaining({
+      bounds: { x: 1000, y: 2000, w: 1400, h: 100 },
+      columns: [100, 200, 200, 200, 300, 400],
+      rows: [
+        expect.objectContaining({ cells: [
+          expect.objectContaining({ column: 0, rowSpan: 3, colSpan: 4 }),
+          expect.objectContaining({ column: 4 }),
+          expect.objectContaining({ column: 5 }),
+        ] }),
+        expect.objectContaining({ cells: [expect.objectContaining({ column: 4, colSpan: 2 })] }),
+        expect.anything(),
+        expect.objectContaining({ cells: [
+          expect.objectContaining({ column: 0 }),
+          { column: 1, body: { paragraphs: [{ runs: [] }] } },
+          { column: 2, body: { paragraphs: [{ runs: [] }] } },
+          expect.objectContaining({ column: 3 }),
+          expect.objectContaining({ column: 4 }),
+          expect.objectContaining({ column: 5 }),
+        ] }),
+      ],
+    }))
+  })
+
+  it('deletes merged source rows and columns while migrating payloads', () => {
+    const rowEngine = new EditorEngine(makeStructureDocument())
+    const withoutSourceRow = rowEngine.dispatch({ type: 'deleteTableRow', elementId: 'el_table', index: 0 })
+    expect(withoutSourceRow.document.elements.el_table).toEqual(expect.objectContaining({
+      bounds: { x: 1000, y: 2000, w: 1000, h: 90 },
+      rows: [expect.objectContaining({ cells: [
+        {
+          column: 0,
+          rowSpan: 2,
+          colSpan: 2,
+          body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] },
+          fill: { color: { type: 'srgb', v: 'ABCDEF' } },
+          borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
+        },
+        expect.objectContaining({ column: 2, colSpan: 2 }),
+      ] })],
+    }))
+
+    const columnEngine = new EditorEngine(makeStructureDocument())
+    const withoutSourceColumn = columnEngine.dispatch({ type: 'deleteTableColumn', elementId: 'el_table', index: 0 })
+    expect(withoutSourceColumn.document.elements.el_table).toEqual(expect.objectContaining({
+      bounds: { x: 1000, y: 2000, w: 900, h: 100 },
+      columns: [200, 300, 400],
+      rows: [expect.objectContaining({ cells: [
+        {
+          column: 0,
+          rowSpan: 3,
+          body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] },
+          fill: { color: { type: 'srgb', v: 'ABCDEF' } },
+          borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
+        },
+        expect.objectContaining({ column: 1 }),
+        expect.objectContaining({ column: 2 }),
+      ] })],
+    }))
+    expect(() => new EditorEngine(makeStructureDocument()).dispatch({ type: 'deleteTableRow', elementId: 'el_table', index: 0, count: 4 })).toThrow('table must keep at least one row: el_table')
+    expect(() => new EditorEngine(makeStructureDocument()).dispatch({ type: 'deleteTableColumn', elementId: 'el_table', index: 0, count: 4 })).toThrow('table must keep at least one column: el_table')
+  })
+
+  it('migrates table selection and keeps structure operations atomic in history', () => {
+    const engine = new EditorEngine(makeStructureDocument())
+    engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 3, column: 3 })
+    const original = engine.getState().document
+
+    const inserted = engine.dispatch({ type: 'insertTableRow', elementId: 'el_table', index: 1 })
+    expect(inserted.tableCellSelection).toEqual({ elementId: 'el_table', anchorRow: 4, anchorColumn: 3, row: 4, column: 3 })
+    expect(inserted.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+
+    const deleted = engine.dispatch({ type: 'deleteTableColumn', elementId: 'el_table', index: 2, count: 2 })
+    expect(deleted.tableCellSelection).toEqual({ elementId: 'el_table', anchorRow: 4, anchorColumn: 1, row: 4, column: 1 })
+    expect(deleted.history).toEqual({ undoDepth: 2, redoDepth: 0 })
+    expect(engine.dispatch({ type: 'undo' }).tableCellSelection).toEqual(deleted.tableCellSelection)
+    expect(engine.dispatch({ type: 'undo' }).document).toEqual(original)
+    expect(engine.dispatch({ type: 'redo' }).history).toEqual({ undoDepth: 1, redoDepth: 1 })
+  })
+
+  it('rejects invalid table structure commands without side effects', () => {
+    const engine = new EditorEngine(makeStructureDocument())
+    const before = engine.getState()
+
+    expect(() => engine.dispatch({ type: 'insertTableRow', elementId: 'el_a', index: 0 })).toThrow('element is not a table: el_a')
+    expect(() => engine.dispatch({ type: 'insertTableRow', elementId: 'el_table', index: -1 })).toThrow('table row insertion index is outside table: el_table[-1]')
+    expect(() => engine.dispatch({ type: 'insertTableColumn', elementId: 'el_table', index: 1, count: 0 })).toThrow('table structure count must be a positive integer: el_table[0]')
+    expect(() => engine.dispatch({ type: 'deleteTableColumn', elementId: 'el_table', index: 3, count: 2 })).toThrow('table column deletion range is outside table: el_table[3,5)')
+    expect(engine.getState()).toEqual(before)
   })
 
   it('moves selected bounds and snaps to another element edge', () => {
