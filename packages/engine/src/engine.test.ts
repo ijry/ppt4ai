@@ -29,6 +29,22 @@ function makeDocument(): Ppt4aiDocument {
   }
 }
 
+function makeTableDocument(): Ppt4aiDocument {
+  const document = makeDocument()
+  document.slides.sld_1!.elementIds.push('el_table')
+  document.elements.el_table = {
+    id: 'el_table',
+    kind: 'table',
+    bounds: { x: 1000000, y: 3000000, w: 3000000, h: 2000000 },
+    columns: [1000000, 2000000],
+    rows: [
+      { height: 500000, cells: [{ column: 0, colSpan: 2, body: { paragraphs: [{ runs: [{ text: 'Header' }] }] } }] },
+      { height: 1500000, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Left' }] }] } }, { column: 1, body: { paragraphs: [{ runs: [{ text: 'Right' }] }] } }] },
+    ],
+  }
+  return document
+}
+
 describe('EditorEngine', () => {
   it('keeps selection separate from document history and clones state safely', () => {
     const engine = new EditorEngine(makeDocument())
@@ -48,6 +64,51 @@ describe('EditorEngine', () => {
 
     expect(engine.dispatch({ type: 'select', elementIds: ['el_a', 'missing'] }).selection).toEqual(['el_a'])
     expect(engine.dispatch({ type: 'select', elementIds: ['el_a', 'el_b'], additive: true }).selection).toEqual(['el_a', 'el_b'])
+  })
+
+  it('selects table cells while keeping element selection separate', () => {
+    const engine = new EditorEngine(makeTableDocument())
+
+    const merged = engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 1 })
+    expect(merged.selection).toEqual(['el_table'])
+    expect(merged.tableCellSelection).toEqual({ elementId: 'el_table', anchorRow: 0, anchorColumn: 0, row: 0, column: 0 })
+
+    expect(engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 1, column: 1, extend: true }).tableCellSelection).toEqual({
+      elementId: 'el_table',
+      anchorRow: 0,
+      anchorColumn: 0,
+      row: 1,
+      column: 1,
+    })
+    expect(structuredClone(engine.getState())).toEqual(engine.getState())
+  })
+
+  it('resets table cell anchors and clears cell selection for element selection', () => {
+    const document = makeTableDocument()
+    document.slides.sld_1!.elementIds.push('el_table_2')
+    document.elements.el_table_2 = structuredClone(document.elements.el_table!)
+    document.elements.el_table_2.id = 'el_table_2'
+    const engine = new EditorEngine(document)
+
+    engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 0 })
+    expect(engine.dispatch({ type: 'selectTableCell', elementId: 'el_table_2', row: 1, column: 1, extend: true }).tableCellSelection).toEqual({
+      elementId: 'el_table_2',
+      anchorRow: 1,
+      anchorColumn: 1,
+      row: 1,
+      column: 1,
+    })
+    expect(engine.dispatch({ type: 'select', elementIds: ['el_a'] }).tableCellSelection).toBeUndefined()
+  })
+
+  it('rejects invalid table cell coordinates without changing state', () => {
+    const engine = new EditorEngine(makeTableDocument())
+    const before = engine.getState()
+
+    expect(() => engine.dispatch({ type: 'selectTableCell', elementId: 'el_a', row: 0, column: 0 })).toThrow('element is not a table: el_a')
+    expect(() => engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: -1, column: 0 })).toThrow('table cell coordinate is outside table: el_table[-1,0]')
+    expect(() => engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0.5, column: 0 })).toThrow('table cell coordinate must use integers: el_table[0.5,0]')
+    expect(engine.getState()).toEqual(before)
   })
 
   it('moves selected bounds and snaps to another element edge', () => {

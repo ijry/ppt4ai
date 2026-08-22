@@ -1,4 +1,4 @@
-import type { Element, Ppt4aiDocument, Rect } from '@ppt4ai/model'
+import type { Element, Ppt4aiDocument, Rect, TableElement } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -38,6 +38,7 @@ export interface SnapGuide {
 export interface EngineState {
   document: Ppt4aiDocument
   selection: string[]
+  tableCellSelection?: TableCellSelection
   guides: SnapGuide[]
   history: {
     undoDepth: number
@@ -45,8 +46,17 @@ export interface EngineState {
   }
 }
 
+export interface TableCellSelection {
+  elementId: string
+  anchorRow: number
+  anchorColumn: number
+  row: number
+  column: number
+}
+
 export type EngineCommand =
   | { type: 'select'; elementIds: string[]; additive?: boolean }
+  | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'move'; dx: number; dy: number }
@@ -125,6 +135,33 @@ function validSelection(document: Ppt4aiDocument, elementIds: string[]): string[
   return [...new Set(elementIds)].filter((elementId) => Boolean(document.elements[elementId]))
 }
 
+interface TableSourceCell {
+  row: number
+  column: number
+  cellIndex: number
+}
+
+function sourceCellAt(table: TableElement, row: number, column: number): TableSourceCell | undefined {
+  for (let sourceRow = 0; sourceRow < table.rows.length; sourceRow += 1) {
+    const cells = table.rows[sourceRow]?.cells ?? []
+    for (let cellIndex = 0; cellIndex < cells.length; cellIndex += 1) {
+      const cell = cells[cellIndex]!
+      if (sourceRow <= row && row < sourceRow + (cell.rowSpan ?? 1) && cell.column <= column && column < cell.column + (cell.colSpan ?? 1)) {
+        return { row: sourceRow, column: cell.column, cellIndex }
+      }
+    }
+  }
+  return undefined
+}
+
+function validTableCellSelection(document: Ppt4aiDocument, selection: TableCellSelection | undefined): TableCellSelection | undefined {
+  if (!selection) return undefined
+  const element = document.elements[selection.elementId]
+  if (!element || element.kind !== 'table') return undefined
+  if (!sourceCellAt(element, selection.anchorRow, selection.anchorColumn) || !sourceCellAt(element, selection.row, selection.column)) return undefined
+  return selection
+}
+
 function elementBounds(element: Element): Rect {
   return element.bounds
 }
@@ -193,6 +230,7 @@ function nearestSnap(
 export class EditorEngine {
   private document: Ppt4aiDocument
   private selection: string[] = []
+  private tableCellSelection: TableCellSelection | undefined
   private guides: SnapGuide[] = []
   private undoStack: HistoryEntry[] = []
   private redoStack: HistoryEntry[] = []
@@ -211,6 +249,7 @@ export class EditorEngine {
     return clone({
       document: this.document,
       selection: this.selection,
+      ...(this.tableCellSelection ? { tableCellSelection: this.tableCellSelection } : {}),
       guides: this.guides,
       history: { undoDepth: this.undoStack.length, redoDepth: this.redoStack.length },
     })
@@ -222,6 +261,11 @@ export class EditorEngine {
       case 'select': {
         const next = validSelection(this.document, command.elementIds)
         this.selection = command.additive ? validSelection(this.document, [...this.selection, ...next]) : next
+        this.tableCellSelection = undefined
+        break
+      }
+      case 'selectTableCell': {
+        this.selectTableCell(command.elementId, command.row, command.column, command.extend)
         break
       }
       case 'undo':
@@ -247,6 +291,27 @@ export class EditorEngine {
         break
     }
     return this.getState()
+  }
+
+  private selectTableCell(elementId: string, row: number, column: number, extend = false): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`table element does not exist: ${elementId}`)
+    if (element.kind !== 'table') throw new Error(`element is not a table: ${elementId}`)
+    if (!Number.isInteger(row) || !Number.isInteger(column)) throw new Error(`table cell coordinate must use integers: ${elementId}[${row},${column}]`)
+    if (row < 0 || row >= element.rows.length || column < 0 || column >= element.columns.length) {
+      throw new Error(`table cell coordinate is outside table: ${elementId}[${row},${column}]`)
+    }
+    const source = sourceCellAt(element, row, column)
+    if (!source) throw new Error(`table cell coordinate is outside table: ${elementId}[${row},${column}]`)
+    const previous = extend && this.tableCellSelection?.elementId === elementId ? this.tableCellSelection : undefined
+    this.selection = [elementId]
+    this.tableCellSelection = {
+      elementId,
+      anchorRow: previous?.anchorRow ?? source.row,
+      anchorColumn: previous?.anchorColumn ?? source.column,
+      row: source.row,
+      column: source.column,
+    }
   }
 
   private move(dx: number, dy: number): void {
@@ -353,6 +418,7 @@ export class EditorEngine {
     const patch = source === this.undoStack ? entry.inverse : entry.patch
     this.document = applyPatch(this.document, patch)
     this.selection = validSelection(this.document, this.selection)
+    this.tableCellSelection = validTableCellSelection(this.document, this.tableCellSelection)
     target.push(entry)
   }
 
