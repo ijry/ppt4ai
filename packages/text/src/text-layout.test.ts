@@ -82,6 +82,67 @@ function layoutBody(text: string, bodyPr: TextBody['bodyPr'] = {}, width = 10000
 }
 
 describe('deterministic text layout', () => {
+  it('lays out vertical text in right-to-left columns with deterministic cell orientation', () => {
+    const layout = layoutText({
+      bounds: { x: 0, y: 0, w: 1000000, h: 400000 },
+      body: {
+        bodyPr: { vertical: 'vertical' },
+        paragraphs: [{ runs: [{ text: '中文A1，' }] }],
+      },
+    })
+
+    expect(layout.vertical).toBe('vertical')
+    expect(layout.lines.length).toBeGreaterThan(1)
+    expect(layout.lines[0]?.x).toBeGreaterThan(layout.lines[1]?.x ?? 0)
+    expect(layout.lines.flatMap((line) => line.runs).map((run) => run.text).join('')).toBe('中文A1，')
+    expect(layout.lines.flatMap((line) => line.runs).map((run) => ({ text: run.text, orientation: run.orientation }))).toEqual([
+      { text: '中', orientation: 'upright' },
+      { text: '文', orientation: 'upright' },
+      { text: 'A', orientation: 'rotated' },
+      { text: '1', orientation: 'rotated' },
+      { text: '，', orientation: 'upright' },
+    ])
+  })
+
+  it('continues vertical automatic numbering without adding marker text to runs', () => {
+    const layout = layoutText({
+      bounds: { x: 0, y: 0, w: 1000000, h: 1000000 },
+      body: {
+        bodyPr: { vertical: 'vertical' },
+        paragraphs: [
+          { runs: [{ text: 'A' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic', startAt: 3 } } },
+          { runs: [{ text: 'B' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic' } } },
+        ],
+      },
+    })
+
+    expect(layout.lines.map((line) => line.marker?.text)).toEqual(['3 ', '4 '])
+    expect(layout.lines.flatMap((line) => line.runs).map((run) => run.text).join('')).toBe('AB')
+  })
+
+  it('keeps empty vertical paragraphs addressable and reports no-wrap overflow', () => {
+    const empty = layoutText({
+      bounds: { x: 0, y: 0, w: 1000000, h: 1000000 },
+      body: { bodyPr: { vertical: 'vertical' }, paragraphs: [{ runs: [] }] },
+    })
+    expect(empty.lines).toHaveLength(1)
+    expect(empty.lines[0]?.runs).toEqual([])
+
+    const noWrap = layoutText({
+      bounds: { x: 0, y: 0, w: 1000000, h: 300000 },
+      body: { bodyPr: { vertical: 'vertical', wrap: 'none' }, paragraphs: [{ runs: [{ text: '中文' }] }] },
+    })
+    expect(noWrap.lines).toHaveLength(1)
+    expect(noWrap.overflow).toBe(true)
+  })
+
+  it('aligns vertical columns on the cross-axis', () => {
+    const top = layoutBody('A', { vertical: 'vertical', verticalAlign: 'top' }, 1000000, 1000000)
+    const bottom = layoutBody('A', { vertical: 'vertical', verticalAlign: 'bottom' }, 1000000, 1000000)
+
+    expect(bottom.lines[0]?.x).toBeLessThan(top.lines[0]?.x ?? 0)
+  })
+
   it('renders a character marker outside text runs and aligns wrapped content', () => {
     const layout = layoutText({
       bounds: { x: 0, y: 0, w: 1000000, h: 1000000 },

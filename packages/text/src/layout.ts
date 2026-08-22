@@ -6,6 +6,9 @@ export interface TextLayoutRun {
   x: number
   width: number
   marks?: TextMarks
+  y?: number
+  height?: number
+  orientation?: 'upright' | 'rotated'
 }
 
 export interface TextLayoutMarker {
@@ -13,6 +16,9 @@ export interface TextLayoutMarker {
   x: number
   width: number
   marks?: TextMarks
+  y?: number
+  height?: number
+  orientation?: 'upright' | 'rotated'
 }
 
 export interface TextLayoutLine {
@@ -31,6 +37,7 @@ export interface TextLayout {
   fontScale: number
   overflow: boolean
   contentBounds: Rect
+  vertical?: 'vertical'
 }
 
 export interface TextLayoutInput {
@@ -255,7 +262,135 @@ function positionLine(pending: PendingLine, y: number): TextLayoutLine {
   return line
 }
 
+function verticalCellOrientation(text: string): 'upright' | 'rotated' {
+  return isCjkOrFullWidth(text) ? 'upright' : 'rotated'
+}
+
+function verticalRuns(tokens: Token[], x: number, y: number, columnWidth: number, fontScale: number): TextLayoutRun[] {
+  let cursorY = y
+  return tokens.map((token) => {
+    const height = token.width
+    const run: TextLayoutRun = {
+      text: token.text,
+      x,
+      y: cursorY,
+      width: columnWidth,
+      height,
+      orientation: verticalCellOrientation(token.text),
+    }
+    if (token.marks) run.marks = structuredClone(token.marks)
+    cursorY += height
+    return run
+  })
+}
+
+function wrapVerticalTokens(tokens: Token[], availableHeight: number, wrap: 'square' | 'none'): Token[][] {
+  if (tokens.length === 0) return [[]]
+  if (wrap === 'none') return [tokens]
+  const columns: Token[][] = []
+  let current: Token[] = []
+  let currentHeight = 0
+  const emit = (): void => {
+    if (current.length > 0) columns.push(current)
+    current = []
+    currentHeight = 0
+  }
+  for (const token of tokens) {
+    if (current.length > 0 && currentHeight + token.width > availableHeight) emit()
+    current.push(token)
+    currentHeight += token.width
+    if (availableHeight <= 0 || currentHeight >= availableHeight) emit()
+  }
+  if (current.length > 0) emit()
+  return columns.length > 0 ? columns : [[]]
+}
+
+function verticalMarker(source: TextLayoutMarker, columnX: number, y: number, columnWidth: number, fontScale: number): TextLayoutMarker {
+  const text = source.text
+  const marks = source.marks
+  const marker: TextLayoutMarker = {
+    text,
+    x: columnX,
+    y,
+    width: columnWidth,
+    height: measureText(text, marks, fontScale),
+    orientation: verticalCellOrientation(text[0] ?? ''),
+  }
+  if (marks) marker.marks = marks
+  return marker
+}
+
+function layoutVerticalAtScale(input: TextLayoutInput, fontScale: number): TextLayout {
+  const insets = input.body.bodyPr?.insets ?? { left: 0, top: 0, right: 0, bottom: 0 }
+  const wrap = input.body.bodyPr?.wrap ?? 'square'
+  const availableWidth = Math.max(0, input.bounds.w - insets.left - insets.right)
+  const availableHeight = Math.max(0, input.bounds.h - insets.top - insets.bottom)
+  const contentTop = input.bounds.y + insets.top
+  const contentRight = input.bounds.x + input.bounds.w - insets.right
+  const pendingColumns: Array<{ paragraphIndex: number; x: number; y: number; width: number; height: number; runs: TextLayoutRun[]; marker?: TextLayoutMarker }> = []
+  const numbering: NumberingState = { schemes: new Map(), values: new Map() }
+  let cursorX = contentRight
+  for (const [paragraphIndex, paragraph] of input.body.paragraphs.entries()) {
+    const attrs = paragraph.attrs
+    const columnWidth = lineHeight(paragraph, fontScale)
+    const marginTop = attrs?.marginLeft ?? 0
+    const indent = attrs?.indent ?? 0
+    const baseY = contentTop + marginTop + indent
+    const paragraphHeight = Math.max(0, availableHeight - marginTop - indent)
+    const bullet = attrs?.bullet
+    const resolvedMarker = resolveMarker(paragraph, numbering, fontScale, 0)
+    const markerHeight = resolvedMarker?.height ?? resolvedMarker?.width ?? 0
+    const tokens = paragraphTokens(paragraph, fontScale)
+    const firstHeight = Math.max(0, paragraphHeight - markerHeight)
+    const firstColumns = wrapVerticalTokens(tokens, firstHeight, wrap)
+    const columns = firstColumns.length === 0 ? [[]] : firstColumns
+    const paragraphColumns = columns.length
+    cursorX -= attrs?.spaceBefore ?? 0
+    for (const [columnIndex, columnTokens] of columns.entries()) {
+      const columnX = cursorX - columnWidth
+      const marker = columnIndex === 0 && resolvedMarker ? verticalMarker(resolvedMarker, columnX, baseY, columnWidth, fontScale) : undefined
+      const tokenY = baseY + (marker?.height ?? 0)
+      const runs = verticalRuns(columnTokens, columnX, tokenY, columnWidth, fontScale)
+      const occupiedHeight = Math.max(marker?.height ?? 0, runs.reduce((height, run) => Math.max(height, (run.y ?? baseY) + (run.height ?? 0) - baseY), 0))
+      pendingColumns.push({ paragraphIndex, x: columnX, y: baseY, width: columnWidth, height: occupiedHeight, runs, ...(marker ? { marker } : {}) })
+      cursorX = columnX
+    }
+    cursorX -= attrs?.spaceAfter ?? 0
+    if (paragraphColumns === 0) cursorX -= columnWidth
+  }
+  const contentWidth = Math.max(0, contentRight - cursorX)
+  const verticalAlign = input.body.bodyPr?.verticalAlign ?? 'top'
+  const remainingWidth = Math.max(0, availableWidth - contentWidth)
+  const offset = verticalAlign === 'middle' ? Math.round(remainingWidth / 2) : verticalAlign === 'bottom' ? remainingWidth : 0
+  const lines: TextLayoutLine[] = pendingColumns.map((column) => ({
+    paragraphIndex: column.paragraphIndex,
+    x: column.x - offset,
+    y: column.y,
+    width: column.width,
+    height: column.height,
+    runs: column.runs.map((run) => ({ ...run, x: run.x - offset })),
+    ...(column.marker ? { marker: { ...column.marker, x: column.marker.x - offset } } : {}),
+  }))
+  const contentX = lines.length > 0 ? Math.min(...lines.map((line) => line.x)) : contentRight - offset
+  const contentY = lines.length > 0 ? Math.min(...lines.map((line) => line.y)) : contentTop
+  const contentHeight = lines.length > 0 ? Math.max(...lines.map((line) => line.y + line.height)) - contentY : 0
+  const tokenOverflow = input.body.paragraphs.some((paragraph) => {
+    const tokens = paragraphTokens(paragraph, fontScale)
+    const totalHeight = tokens.reduce((height, token) => height + token.width, 0)
+    return tokens.some((token) => token.width > availableHeight) || (wrap === 'none' && totalHeight > availableHeight)
+  })
+  return {
+    bounds: { ...input.bounds },
+    lines,
+    fontScale,
+    overflow: contentWidth > availableWidth || tokenOverflow,
+    contentBounds: { x: contentX, y: contentY, w: contentWidth, h: contentHeight },
+    vertical: 'vertical',
+  }
+}
+
 function layoutAtScale(input: TextLayoutInput, fontScale: number): TextLayout {
+  if (input.body.bodyPr?.vertical === 'vertical') return layoutVerticalAtScale(input, fontScale)
   const insets = input.body.bodyPr?.insets ?? { left: 0, top: 0, right: 0, bottom: 0 }
   const wrap = input.body.bodyPr?.wrap ?? 'square'
   const pendingLines: Array<PendingLine & { y: number }> = []
@@ -338,6 +473,11 @@ export function layoutText(input: TextLayoutInput): TextLayout {
     return best
   }
   const insets = input.body.bodyPr?.insets ?? { left: 0, top: 0, right: 0, bottom: 0 }
+  if (input.body.bodyPr?.vertical === 'vertical') {
+    const requiredWidth = initial.contentBounds.w + insets.left + insets.right
+    const expandedWidth = Math.max(input.bounds.w, requiredWidth)
+    return layoutAtScale({ ...input, bounds: { ...input.bounds, w: expandedWidth } }, DEFAULT_FONT_SCALE)
+  }
   const requiredHeight = initial.contentBounds.h + insets.top + insets.bottom
   const expandedHeight = Math.max(input.bounds.h, requiredHeight)
   const height = autofit.maxHeight === undefined ? expandedHeight : Math.min(expandedHeight, autofit.maxHeight)
