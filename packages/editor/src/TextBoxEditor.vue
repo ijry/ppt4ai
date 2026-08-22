@@ -11,6 +11,7 @@ import {
   type ScreenRect,
   type TextEditorSelection,
   type TextEditorSnapshot,
+  type TextFormattingState,
 } from '@ppt4ai/text'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import SelectionOverlay from './SelectionOverlay.vue'
@@ -23,6 +24,7 @@ const props = defineProps<TextBoxEditorProps>()
 const emit = defineEmits<{
   (event: 'update:body', body: TextBody): void
   (event: 'update:selection', selection: TextEditorSelection): void
+  (event: 'update:formatting', state: TextFormattingState): void
   (event: 'resize-start', payload: TextBoxEditorResizePayload): void
   (event: 'resize', payload: TextBoxEditorResizePayload): void
   (event: 'resize-end', payload: TextBoxEditorResizePayload): void
@@ -89,12 +91,14 @@ function createController(): void {
   })
   controller.value = nextController
   snapshot.value = nextController.getSnapshot()
+  emit('update:formatting', nextController.getFormattingState())
   lastBody.value = JSON.stringify(snapshot.value.body)
   lastSelection.value = selectionKey(snapshot.value.selection)
   unsubscribe = nextController.subscribe((nextSnapshot) => {
     const previousBody = lastBody.value
     const previousSelection = lastSelection.value
     snapshot.value = nextSnapshot
+    emit('update:formatting', nextController.getFormattingState())
     lastBody.value = JSON.stringify(nextSnapshot.body)
     lastSelection.value = selectionKey(nextSnapshot.selection)
     if (previousSelection !== lastSelection.value) emit('update:selection', { ...nextSnapshot.selection })

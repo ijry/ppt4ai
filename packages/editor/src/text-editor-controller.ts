@@ -3,14 +3,21 @@ import {
   applyImeEvent,
   createImeInputBridge,
   createTextEditorState,
+  getTextFormattingState,
   getTextEditorSnapshot,
+  setTextAlignment,
+  setTextMarks,
   setTextEditorSelection,
+  toggleTextMark,
   type ImeBridgeEvent,
   type ImeInputBridge,
   type ImeInputBridgeOptions,
   type ScreenRect,
   type TextEditorSelection,
   type TextEditorSnapshot,
+  type TextFormattingState,
+  type TextMarkName,
+  type TextMarksPatch,
 } from '@ppt4ai/text'
 
 export interface TextEditorControllerOptions {
@@ -21,6 +28,10 @@ export interface TextEditorControllerOptions {
 
 export interface TextEditorController {
   getSnapshot(): TextEditorSnapshot
+  getFormattingState(): TextFormattingState
+  setMarks(patch: TextMarksPatch): void
+  toggleMark(name: TextMarkName): void
+  setAlignment(align: 'left' | 'center' | 'right'): void
   setSelection(selection: TextEditorSelection): void
   subscribe(listener: (snapshot: TextEditorSnapshot) => void): () => void
   syncCaret(rect: ScreenRect): void
@@ -41,6 +52,14 @@ export function createTextEditorController(options: TextEditorControllerOptions)
     for (const listener of listeners) listener(structuredClone(snapshot))
   }
 
+  const applyFormatting = (command: (current: typeof state) => typeof state): void => {
+    if (destroyed) return
+    const nextState = command(state)
+    if (nextState === state) return
+    state = nextState
+    publish()
+  }
+
   const dispatch = (event: ImeBridgeEvent): void => {
     if (destroyed) return
     state = applyImeEvent(state, event)
@@ -53,6 +72,16 @@ export function createTextEditorController(options: TextEditorControllerOptions)
 
   return {
     getSnapshot: () => getTextEditorSnapshot(state),
+    getFormattingState: () => structuredClone(getTextFormattingState(state)),
+    setMarks(patch): void {
+      applyFormatting((current) => setTextMarks(current, patch))
+    },
+    toggleMark(name): void {
+      applyFormatting((current) => toggleTextMark(current, name))
+    },
+    setAlignment(align): void {
+      applyFormatting((current) => setTextAlignment(current, align))
+    },
     setSelection(selection): void {
       if (destroyed) return
       const nextState = setTextEditorSelection(state, selection)

@@ -152,6 +152,35 @@ describe('text editor controller', () => {
 
     expect(snapshots).toHaveLength(1)
   })
+
+  it('publishes one snapshot for each formatting command and stays inert after destroy', () => {
+    const events = { options: undefined as ImeInputBridgeOptions | undefined, focus: 0, destroy: 0, caretRects: [] as Array<{ x: number; y: number; width: number; height: number }> }
+    const snapshots: TextEditorSnapshot[] = []
+    const controller = createTextEditorController({
+      host: document.createElement('div'),
+      body: { paragraphs: [{ runs: [{ text: 'AB' }] }] },
+      bridgeFactory: createRecordingBridgeFactory(events),
+    })
+    controller.setSelection({ anchor: 1, head: 3 })
+    controller.subscribe((snapshot) => snapshots.push(snapshot))
+
+    controller.setMarks({ bold: true })
+    expect(snapshots).toHaveLength(1)
+    expect(snapshots[0]?.body).toEqual({ paragraphs: [{ runs: [{ text: 'AB', marks: { bold: true } }] }] })
+    expect(controller.getFormattingState().bold).toBe(true)
+    controller.toggleMark('bold')
+    controller.setAlignment('center')
+    expect(snapshots).toHaveLength(3)
+    controller.setAlignment('center')
+    expect(snapshots).toHaveLength(3)
+    expect(structuredClone(controller.getFormattingState())).toEqual(controller.getFormattingState())
+
+    controller.destroy()
+    controller.setMarks({ italic: true })
+    controller.toggleMark('italic')
+    controller.setAlignment('right')
+    expect(snapshots).toHaveLength(3)
+  })
 })
 
 const _typeCheck: (options: TextEditorControllerOptions) => void = () => {}

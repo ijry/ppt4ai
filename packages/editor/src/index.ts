@@ -17,6 +17,8 @@ export type {
 export { default as TextEditorOverlay } from './TextEditorOverlay.vue'
 export { default as TextBoxEditor } from './TextBoxEditor.vue'
 export type { TextBoxEditorProps, TextBoxEditorResizePayload } from './text-box-editor'
+export { default as TextFormattingToolbar } from './TextFormattingToolbar.vue'
+export type { TextFormattingToolbarEmit, TextFormattingToolbarProps } from './text-formatting-toolbar'
 export {
   createTextInteraction,
   layoutRectToScreen,

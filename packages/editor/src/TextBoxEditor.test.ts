@@ -133,4 +133,28 @@ describe('TextBoxEditor', () => {
     app.unmount()
     host.remove()
   })
+
+  it('emits formatting state updates without mirroring text into the DOM', async () => {
+    const harness: BridgeHarness = { destroyCount: 0, caretRects: [] }
+    const formatting: unknown[] = []
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp({
+      setup: () => () => h(TextBoxEditor, {
+        body: { paragraphs: [{ runs: [{ text: 'AB' }] }] },
+        bounds,
+        transform,
+        active: true,
+        bridgeFactory: createBridgeFactory(harness),
+        'onUpdate:formatting': (state: unknown) => formatting.push(state),
+      }),
+    })
+    app.mount(host)
+    await nextTick()
+
+    expect(formatting.at(-1)).toEqual({ bold: false, italic: false, underline: false })
+    expect(host.querySelector('[data-text-box-editor]')?.textContent).toBe('')
+    app.unmount()
+    host.remove()
+  })
 })

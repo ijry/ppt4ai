@@ -22,6 +22,13 @@ export type { TextCaretRect, TextPoint, TextSelectionRect } from './position-map
 export { proseMirrorToTextBody, TextEditorModelError, textBodyToProseMirror } from './editor/model'
 export { textEditorSchema } from './editor/schema'
 export {
+  getTextFormattingState,
+  setTextMarks,
+  setTextAlignment,
+  toggleTextMark,
+} from './editor/formatting'
+export type { TextFormattingState, TextMarkName, TextMarksPatch, TextToggleState } from './editor/formatting'
+export {
   applyImeEvent,
   createTextEditorState,
   deleteBackward,

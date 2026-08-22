@@ -8,6 +8,20 @@ const enUS = {
     insert: {
       shape: 'Insert shape',
     },
+    textFormatting: {
+      bold: 'Bold',
+      italic: 'Italic',
+      underline: 'Underline',
+      fontFamily: 'Font family',
+      fontSize: 'Font size',
+      color: 'Text color',
+      mixed: 'Mixed',
+      align: {
+        left: 'Align left',
+        center: 'Align center',
+        right: 'Align right',
+      },
+    },
   },
 } as const
 
