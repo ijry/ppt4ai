@@ -70,6 +70,7 @@ describe('table editor overlay geometry', () => {
     const model = createTableEditorOverlay(table, { originX: 0, originY: 0, scale: 1 })
 
     expect(tableCellAtPoint(model, { x: 75, y: 25 })?.point).toEqual({ row: 0, column: 0 })
+    expect(tableCellAtPoint(model, { x: 100, y: 25 })?.point).toEqual({ row: 0, column: 0 })
   })
 
   it('selects source cells whose occupied spans intersect an inclusive reverse range', () => {

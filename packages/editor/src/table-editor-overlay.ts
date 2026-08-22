@@ -31,16 +31,15 @@ function assertCell(cell: SceneTableLayoutCell): void {
 function pointInRect(
   point: { x: number; y: number },
   rect: TableEditorCell['rect'],
-  isLast: boolean,
-  cells: TableEditorCell[],
+  outerBounds: TableEditorOverlayModel['bounds'],
 ): boolean {
   const right = rect.x + rect.width
   const bottom = rect.y + rect.height
-  const maxRight = Math.max(...cells.map((cell) => cell.rect.x + cell.rect.width))
-  const maxBottom = Math.max(...cells.map((cell) => cell.rect.y + cell.rect.height))
+  const maxRight = outerBounds.x + outerBounds.width
+  const maxBottom = outerBounds.y + outerBounds.height
   return point.x >= rect.x && point.y >= rect.y
-    && (point.x < right || (isLast && right === maxRight))
-    && (point.y < bottom || (isLast && bottom === maxBottom))
+    && (point.x < right || right === maxRight)
+    && (point.y < bottom || bottom === maxBottom)
 }
 
 export function createTableEditorOverlay(table: SceneTableNode, transform: TextViewportTransform): TableEditorOverlayModel {
@@ -61,7 +60,7 @@ export function createTableEditorOverlay(table: SceneTableNode, transform: TextV
 
 export function tableCellAtPoint(model: TableEditorOverlayModel, point: { x: number; y: number }): TableEditorCell | undefined {
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) throw new Error('point must be finite')
-  return model.cells.find((cell, index) => pointInRect(point, cell.rect, index === model.cells.length - 1, model.cells))
+  return model.cells.find((cell) => pointInRect(point, cell.rect, model.bounds))
 }
 
 export function selectedTableCells(cells: TableEditorCell[], selection: TableCellSelection): TableEditorCell[] {
