@@ -1,4 +1,4 @@
-import type { Element, Ppt4aiDocument, Rect, TableElement } from '@ppt4ai/model'
+import { validateTextBody, type Element, type Ppt4aiDocument, type Rect, type TableElement, type TextBody } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -57,6 +57,7 @@ export interface TableCellSelection {
 export type EngineCommand =
   | { type: 'select'; elementIds: string[]; additive?: boolean }
   | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
+  | { type: 'setTableCellText'; body: TextBody }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'move'; dx: number; dy: number }
@@ -268,6 +269,10 @@ export class EditorEngine {
         this.selectTableCell(command.elementId, command.row, command.column, command.extend)
         break
       }
+      case 'setTableCellText': {
+        this.setTableCellText(command.body)
+        break
+      }
       case 'undo':
         this.applyHistoryEntry(this.undoStack, this.redoStack)
         break
@@ -312,6 +317,18 @@ export class EditorEngine {
       row: source.row,
       column: source.column,
     }
+  }
+
+  private setTableCellText(body: TextBody): void {
+    const selection = validTableCellSelection(this.document, this.tableCellSelection)
+    if (!selection) return
+    const validation = validateTextBody(body)
+    if (!validation.valid) throw new Error(`table cell body is invalid: ${validation.errors.join('; ')}`)
+    const table = this.document.elements[selection.elementId]
+    if (!table || table.kind !== 'table') throw new Error('no table cell is selected')
+    const source = sourceCellAt(table, selection.row, selection.column)
+    if (!source) throw new Error('no table cell is selected')
+    this.commit([{ path: ['elements', selection.elementId, 'rows', String(source.row), 'cells', String(source.cellIndex), 'body'], value: body }])
   }
 
   private move(dx: number, dy: number): void {

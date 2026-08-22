@@ -111,6 +111,36 @@ describe('EditorEngine', () => {
     expect(engine.getState()).toEqual(before)
   })
 
+  it('replaces selected table cell text with validated clone-safe history', () => {
+    const engine = new EditorEngine(makeTableDocument())
+    engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 1, column: 1 })
+    const body = { paragraphs: [{ runs: [{ text: 'Updated' }] }] }
+
+    const updated = engine.dispatch({ type: 'setTableCellText', body })
+    expect(updated.document.elements.el_table).toMatchObject({
+      rows: [
+        {},
+        { cells: [{}, { body }] } as never,
+      ],
+    })
+    expect(updated.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    body.paragraphs[0]!.runs[0]!.text = 'Mutated'
+    expect(engine.getState().document.elements.el_table).toMatchObject({ rows: [{}, { cells: [{}, { body: { paragraphs: [{ runs: [{ text: 'Updated' }] }] } }] }] })
+
+    expect(engine.dispatch({ type: 'undo' }).document.elements.el_table).toMatchObject({ rows: [{}, { cells: [{}, { body: { paragraphs: [{ runs: [{ text: 'Right' }] }] } }] }] })
+    expect(engine.dispatch({ type: 'redo' }).document.elements.el_table).toMatchObject({ rows: [{}, { cells: [{}, { body: { paragraphs: [{ runs: [{ text: 'Updated' }] }] } }] }] })
+  })
+
+  it('rejects invalid table cell text without changing document or history', () => {
+    const engine = new EditorEngine(makeTableDocument())
+    engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 1, column: 1 })
+    const before = engine.getState()
+
+    expect(() => engine.dispatch({ type: 'setTableCellText', body: { paragraphs: [] } })).toThrow('table cell body is invalid:')
+    expect(engine.getState()).toEqual(before)
+    expect(new EditorEngine(makeTableDocument()).dispatch({ type: 'setTableCellText', body: { paragraphs: [{ runs: [{ text: 'Ignored' }] }] } }).history).toEqual({ undoDepth: 0, redoDepth: 0 })
+  })
+
   it('moves selected bounds and snaps to another element edge', () => {
     const engine = new EditorEngine(makeDocument(), { snap: { threshold: 100000 } })
     engine.dispatch({ type: 'select', elementIds: ['el_a'] })
