@@ -71,6 +71,14 @@ const bulletFiles = {
   'ppt/slides/slide1.xml': '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="3" name="Body"/><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="4000000" cy="2000000"/></a:xfrm></p:spPr><p:txBody><a:p><a:pPr><a:buChar char="•"><a:rPr typeface="Wingdings"/></a:buChar></a:pPr><a:r><a:t>First</a:t></a:r></a:p><a:p><a:pPr><a:buAutoNum type="arabicPeriod" startAt="3"/></a:pPr><a:r><a:t>Second</a:t></a:r></a:p><a:p><a:pPr><a:buAutoNum type="alphaUcPeriod"/></a:pPr><a:r><a:t>Third</a:t></a:r></a:p><a:p><a:pPr><a:buAutoNum type="unsupportedFormat"/></a:pPr><a:r><a:t>Fourth</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>',
 }
 
+function verticalFiles(value: string | undefined) {
+  const bodyPr = value === undefined ? '<a:bodyPr/>' : `<a:bodyPr vert="${value}"/>`
+  return {
+    ...files,
+    'ppt/slides/slide1.xml': `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="3" name="Body"/><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="4000000" cy="2000000"/></a:xfrm></p:spPr><p:txBody>${bodyPr}<a:p><a:r><a:t>Vertical text</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
+  }
+}
+
 describe('importPptx', () => {
   it('keeps the relationship XML tree addressable', () => {
     const root = parseXml(files['ppt/_rels/presentation.xml.rels'])
@@ -157,5 +165,21 @@ describe('importPptx', () => {
     expect(element.text).toBe('FirstSecondThirdFourth')
     expect(element.body?.paragraphs[0]?.attrs).toBeUndefined()
     expect(element.body?.paragraphs[1]?.attrs).toBeUndefined()
+  })
+
+  it.each(['vert270', 'vert', 'wordArtVert'])('imports %s as vertical body writing mode', async (value) => {
+    const imported = await importPptx(createStoredZip(verticalFiles(value)))
+    const element = imported.elements[imported.slides.sld_1!.elementIds[0]!]
+    if (!element || element.kind !== 'text') throw new Error('expected text element')
+    expect(element.text).toBe('Vertical text')
+    expect(element.body?.bodyPr).toEqual({ vertical: 'vertical' })
+    expect(structuredClone(imported)).toEqual(imported)
+  })
+
+  it.each(['horz', 'eaVert', 'mongolianVert', 'unknown', undefined])('ignores non-basic vertical value %s', async (value) => {
+    const imported = await importPptx(createStoredZip(verticalFiles(value)))
+    const element = imported.elements[imported.slides.sld_1!.elementIds[0]!]
+    if (!element || element.kind !== 'text') throw new Error('expected text element')
+    expect(element.body?.bodyPr).toBeUndefined()
   })
 })

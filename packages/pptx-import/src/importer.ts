@@ -154,6 +154,9 @@ function parseBullet(paragraphProperties: XmlNode | undefined): TextBullet | und
 function parseTextBody(shape: XmlNode): TextBody | undefined {
   const body = findDescendants(shape, 'txBody')[0]
   if (!body) return undefined
+  const bodyProperties = child(body, 'bodyPr')
+  const verticalValue = bodyProperties && attribute(bodyProperties, 'vert')
+  const vertical = verticalValue === 'vert270' || verticalValue === 'vert' || verticalValue === 'wordArtVert' ? 'vertical' as const : undefined
   const paragraphs: TextParagraph[] = children(body, 'p').map((paragraphNode) => {
     const runs: TextRun[] = []
     for (const runNode of children(paragraphNode, 'r')) {
@@ -165,7 +168,8 @@ function parseTextBody(shape: XmlNode): TextBody | undefined {
     const attrs = parseBullet(child(paragraphNode, 'pPr'))
     return attrs ? { runs, attrs: { bullet: attrs } } : { runs }
   })
-  return paragraphs.length > 0 ? { paragraphs } : undefined
+  if (paragraphs.length === 0) return undefined
+  return vertical ? { bodyPr: { vertical }, paragraphs } : { paragraphs }
 }
 
 function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Element | undefined {
