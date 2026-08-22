@@ -54,6 +54,44 @@ describe('ppt4ai file model', () => {
     expect(structuredClone(element)).toEqual(element)
   })
 
+  it('accepts clone-safe character and automatic numbering bullets', () => {
+    const body = {
+      paragraphs: [
+        { attrs: { bullet: { type: 'char' as const, char: '•', fontFamily: 'Arial' }, level: 0 }, runs: [{ text: 'one' }] },
+        { attrs: { bullet: { type: 'autoNum' as const, scheme: 'arabic' as const, startAt: 3 }, level: 0 }, runs: [{ text: 'three' }] },
+        { attrs: { bullet: { type: 'autoNum' as const, scheme: 'alphaLower' as const }, level: 1 }, runs: [{ text: 'a' }] },
+        { attrs: { bullet: { type: 'autoNum' as const, scheme: 'alphaUpper' as const } }, runs: [{ text: 'A' }] },
+      ],
+    }
+
+    expect(validateTextBody(body)).toEqual({ valid: true })
+    expect(structuredClone(body)).toEqual(body)
+  })
+
+  it('reports deterministic bullet validation paths', () => {
+    expect(validateTextBody({
+      paragraphs: [{
+        attrs: {
+          bullet: { type: 'char', char: 'ab', fontFamily: '' },
+          level: 1.5,
+        },
+        runs: [{ text: 'invalid' }],
+      }, {
+        attrs: { bullet: { type: 'autoNum', scheme: 'roman', startAt: 0 } },
+        runs: [{ text: 'invalid' }],
+      }],
+    })).toEqual({
+      valid: false,
+      errors: [
+        'paragraphs[0].attrs.level must be non-negative integer',
+        'paragraphs[0].attrs.bullet.char must contain exactly one Unicode code point',
+        'paragraphs[0].attrs.bullet.fontFamily must be non-empty',
+        'paragraphs[1].attrs.bullet.scheme must be arabic, alphaLower, or alphaUpper',
+        'paragraphs[1].attrs.bullet.startAt must be a positive integer',
+      ],
+    })
+  })
+
   it('reports deterministic paths for invalid text body values', () => {
     expect(validateTextBody({
       bodyPr: {
@@ -70,7 +108,7 @@ describe('ppt4ai file model', () => {
         'paragraphs[0].runs[0].text must be non-empty',
         'paragraphs[0].runs[0].marks.fontSize must be positive',
         'paragraphs[0].runs[0].marks.baseline must be finite',
-        'paragraphs[0].attrs.level must be non-negative',
+        'paragraphs[0].attrs.level must be non-negative integer',
         'paragraphs[0].attrs.spaceBefore must be non-negative',
         'paragraphs[0].attrs.lineSpacing must be positive',
         'bodyPr.insets.left must be non-negative',

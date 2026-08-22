@@ -32,6 +32,12 @@ export interface TextRun {
   marks?: TextMarks
 }
 
+export type TextBulletScheme = 'arabic' | 'alphaLower' | 'alphaUpper'
+
+export type TextBullet =
+  | { type: 'char'; char: string; fontFamily?: string }
+  | { type: 'autoNum'; scheme: TextBulletScheme; startAt?: number }
+
 export interface TextParagraphAttrs {
   align?: 'left' | 'center' | 'right'
   level?: number
@@ -40,6 +46,7 @@ export interface TextParagraphAttrs {
   lineSpacing?: number
   spaceBefore?: number
   spaceAfter?: number
+  bullet?: TextBullet
 }
 
 export interface TextParagraph {
@@ -175,6 +182,7 @@ const textAlignments = new Set(['left', 'center', 'right'])
 const verticalAlignments = new Set(['top', 'middle', 'bottom'])
 const wraps = new Set(['square', 'none'])
 const underlines = new Set(['none', 'single'])
+const bulletSchemes = new Set(['arabic', 'alphaLower', 'alphaUpper'])
 
 function validateFiniteNumber(value: unknown, path: string, errors: string[], predicate: (value: number) => boolean, message: string): void {
   if (typeof value !== 'number' || !Number.isFinite(value) || !predicate(value)) errors.push(`${path} ${message}`)
@@ -222,11 +230,33 @@ function validateTextParagraph(value: unknown, path: string, errors: string[]): 
   }
   const attrs = paragraph.attrs as Record<string, unknown>
   if ('align' in attrs && (typeof attrs.align !== 'string' || !textAlignments.has(attrs.align))) errors.push(`${path}.attrs.align must be left, center, or right`)
-  if ('level' in attrs) validateFiniteNumber(attrs.level, `${path}.attrs.level`, errors, (number) => number >= 0, 'must be non-negative')
+  if ('level' in attrs) {
+    validateFiniteNumber(attrs.level, `${path}.attrs.level`, errors, (number) => number >= 0 && Number.isInteger(number), 'must be non-negative integer')
+  }
   for (const key of ['indent', 'marginLeft', 'spaceBefore', 'spaceAfter']) {
     if (key in attrs) validateFiniteNumber(attrs[key], `${path}.attrs.${key}`, errors, (number) => number >= 0, 'must be non-negative')
   }
   if ('lineSpacing' in attrs) validateFiniteNumber(attrs.lineSpacing, `${path}.attrs.lineSpacing`, errors, (number) => number > 0, 'must be positive')
+  if ('bullet' in attrs && attrs.bullet !== undefined) validateTextBullet(attrs.bullet, `${path}.attrs.bullet`, errors)
+}
+
+function validateTextBullet(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const bullet = value as Record<string, unknown>
+  if (bullet.type === 'char') {
+    if (typeof bullet.char !== 'string' || Array.from(bullet.char).length !== 1) errors.push(`${path}.char must contain exactly one Unicode code point`)
+    if ('fontFamily' in bullet && (typeof bullet.fontFamily !== 'string' || bullet.fontFamily.length === 0)) errors.push(`${path}.fontFamily must be non-empty`)
+    return
+  }
+  if (bullet.type === 'autoNum') {
+    if (typeof bullet.scheme !== 'string' || !bulletSchemes.has(bullet.scheme)) errors.push(`${path}.scheme must be arabic, alphaLower, or alphaUpper`)
+    if ('startAt' in bullet && (typeof bullet.startAt !== 'number' || !Number.isFinite(bullet.startAt) || !Number.isInteger(bullet.startAt) || bullet.startAt <= 0)) errors.push(`${path}.startAt must be a positive integer`)
+    return
+  }
+  errors.push(`${path}.type must be char or autoNum`)
 }
 
 export function validateTextBody(value: unknown): TextModelValidation {
