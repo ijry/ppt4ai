@@ -2,7 +2,7 @@
 
 > **状态**：已确认（2026-08-22）
 > **类型**：总纲 —— 钉死架构边界、JSON 格式与建设顺序；每个阶段另有独立 spec
-> **决策来源**：2026-08-21 ~ 08-22 需求梳理会话，28 条决策逐条确认，见 §8 决策台账
+> **决策来源**：2026-08-21 ~ 08-22 需求梳理会话及后续修订，29 条决策逐条确认，见 §8 决策台账
 
 ---
 
@@ -91,7 +91,7 @@ ppt4ai/
 │  ├─ pptx-import/   @ppt4ai/pptx-import  pptxtojson fork
 │  ├─ pptx-export/   @ppt4ai/pptx-export  OOXML 写出 + 节点级 splice 回写
 │  ├─ engine/        @ppt4ai/engine       文档实例、命令总线、历史、选择、吸附、变换 —— 零 UI
-│  ├─ editor/        @ppt4ai/editor       ⭐ 主交付物：Vue3 + element-plus + unocss
+│  ├─ editor/        @ppt4ai/editor       ⭐ 主交付物：Vue 3 + UnoCSS，自研 UI 组件
 │  └─ player/        @ppt4ai/player       放映 / 演讲者视图（可独立引入）
 ├─ apps/playground/                       demo 站
 └─ docs/
@@ -101,7 +101,7 @@ ppt4ai/
 
 - `render` 内部再分 `scene/` 和 `paint/`。SceneGraph 是纯 JSON 中间产物 —— 这让最便宜且最高价值的测试成为可能：**改一行渲染逻辑，SceneGraph 快照 diff 立刻告诉你影响了什么**，不用截图比对。
 - `geometry` 独立，因为它同时被 render（绘制）、engine（命中测试）、pptx-import/export（几何编解码）需要，而它本身是纯数据 + 纯函数。
-- `engine` / `editor` 的切分是最关键的一刀：所有编辑语义（选择、吸附、变换、历史）在 engine 里，可在 node 中断言；`editor` 只做「把 engine 状态画成 element-plus 面板」。
+- `engine` / `editor` 的切分是最关键的一刀：所有编辑语义（选择、吸附、变换、历史）在 engine 里，可在 node 中断言；`editor` 只做「把 engine 状态呈现为 Vue 组件和 UnoCSS 样式」。
 - `player` 独立可引入 —— 只看不编辑的场景（分享链接、移动端预览）不该背整个编辑器的体积。
 - **交互层（变换手柄 / 选择框）在 `engine` 内隔离成界面清楚的模块**，见 §3.8。
 
@@ -130,7 +130,7 @@ AI / 脚本 ─┼─→ Command ──→ Engine ──→ 生成 Patch ──�
 - **TypeScript strict** 全程
 - **Vitest** 单测 + 快照
 - **Playwright** e2e 与视觉回归
-- **unocss + element-plus** 按需引入
+- **UnoCSS** 是唯一 UI 样式框架；按钮、菜单、面板、弹窗等交互组件由项目自行实现，不引入 Element Plus 或其他组件框架
 - **vue-i18n 从第一个 commit 起**，key 用语义化命名（`toolbar.insert.shape`），**不用 hash**
 
 i18n 早做几乎零成本、晚做极痛。PPTist 正是在这里永久缺失 —— 作者两次驳回社区 i18n PR，理由就是后补无法维护；其中一次的具体原因是 PR 用了 hash key。
@@ -653,7 +653,7 @@ pptx 导入被**提前**了，理由值得说明：
 | **2** | pptx 导入（至可渲染） | 打开真实 pptx 并正确显示；三级母版继承生效 |
 | **3** | engine 编辑交互 | 选择/变换/吸附/历史/z序/组合，全部可在 node 里断言 |
 | **4** | 文本（layout + ProseMirror + IME） | 中英混排、autofit、项目符号、竖排；换行位置与 PowerPoint 一致 |
-| **5** | editor UI 外壳 + i18n | element-plus 面板体系；zh-CN / en-US 双语 |
+| **5** | editor UI 外壳 + i18n | Vue 3 自研面板体系 + UnoCSS；zh-CN / en-US 双语 |
 | **6** | pptx 导出（含无损回写） | **逐字节往返测试通过**；PowerPoint 打开无修复提示 |
 | **7** | 表格 + 图片处理 | 合并单元格、真实 `tableStyles.xml`、裁剪/滤镜 |
 | **8** | 图表（lyCharts fork） | 8 种图表可编辑数据；⚠️ pptx 图表覆盖面受 lyCharts 追赶进度限制，见 §9 |
@@ -668,7 +668,7 @@ pptx 导入被**提前**了，理由值得说明：
 
 ## 8. 决策台账
 
-28 条决策，全部于 2026-08-22 确认。
+29 条决策，全部于 2026-08-22 确认。
 
 - **★** = 用户选择了**与建议不同**的方案
 - **▲** = 结论**与用户早先的口头意向相反**，已单独拍板确认
@@ -703,6 +703,7 @@ pptx 导入被**提前**了，理由值得说明：
 | 26 | ▲ 导出：**不 fork PptxGenJS**，自写 + 战术性 vendor | 其架构结构性敌对（不可覆写、渐变类型不可表达、ID 分配器自撞）。只 vendor `createExcelWorksheet`(507行) + `gen-utils.ts`(275行) + 样板 XML |
 | 27 | 导入：确认 fork pptxtojson，「留叶换脊」 | 存活 ~5400 行（以 shapePath.js 为主），重写 ~2400 行脊椎。先补测试 |
 | 28 | §5 动画/测试/路线图确认 | 动画存预设+参数、五层测试、导入提前到阶段 2、阶段 0 做 IME 预研 |
+| 29 | UI 层不采用 Element Plus，只使用 UnoCSS | 降低运行时体积与组件框架约束；按钮、菜单、面板和弹窗由项目按编辑器交互需求自行实现 |
 
 ### 8.1 会话中被证伪并修正的三条
 

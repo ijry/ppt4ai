@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/model" },
+    { "path": "packages/geometry" },
+    { "path": "packages/layout" },
+    { "path": "packages/text" },
+    { "path": "packages/render" },
+    { "path": "packages/charts" },
+    { "path": "packages/animate" },
+    { "path": "packages/pptx-import" },
+    { "path": "packages/pptx-export" },
+    { "path": "packages/engine" },
+    { "path": "packages/editor" },
+    { "path": "packages/player" }
+  ]
+}

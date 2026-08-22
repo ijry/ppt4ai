@@ -1,0 +1,32 @@
+{
+  "name": "@ppt4ai/editor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && vite build",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ppt4ai/engine": "workspace:*",
+    "@ppt4ai/render": "workspace:*",
+    "@ppt4ai/text": "workspace:*",
+    "vue": "3.5.41",
+    "vue-i18n": "11.2.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.8",
+    "unocss": "66.8.1",
+    "vue-tsc": "3.3.11"
+  }
+}
