@@ -37,7 +37,14 @@ export interface TextElement {
   placeholder?: string
 }
 
-export type Element = ShapeElement | TextElement
+export interface GroupElement {
+  id: string
+  kind: 'group'
+  bounds: Rect
+  childIds: string[]
+}
+
+export type Element = ShapeElement | TextElement | GroupElement
 
 export interface ElementDefaults {
   bounds?: Rect
@@ -84,7 +91,7 @@ export interface Ppt4aiDocument {
 }
 
 function elementKey(element: Element): string {
-  return element.placeholder ?? element.id
+  return element.kind === 'group' ? element.id : element.placeholder ?? element.id
 }
 
 function findDefaults(element: Element, layout?: SlideLayout, master?: SlideMaster): ElementDefaults[] {
@@ -139,6 +146,40 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
   for (const [elementId, element] of Object.entries(value.elements)) {
     if (element.id !== elementId) errors.push(`element key does not match id: ${elementId}`)
     if (element.bounds.w <= 0 || element.bounds.h <= 0) errors.push(`element ${elementId} bounds must be positive`)
+    if (element.kind === 'group') {
+      const childIds = new Set<string>()
+      for (const childId of element.childIds) {
+        if (childIds.has(childId)) errors.push(`group ${elementId} references duplicate child: ${childId}`)
+        childIds.add(childId)
+        if (!value.elements[childId]) errors.push(`group ${elementId} references missing child: ${childId}`)
+      }
+    }
+  }
+
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+  const path: string[] = []
+  const visitGroup = (groupId: string): void => {
+    if (visiting.has(groupId)) {
+      const cycleStart = path.indexOf(groupId)
+      errors.push(`group cycle detected: ${[...path.slice(cycleStart), groupId].join(' -> ')}`)
+      return
+    }
+    if (visited.has(groupId)) return
+    const element = value.elements[groupId]
+    if (!element || element.kind !== 'group') return
+    visiting.add(groupId)
+    path.push(groupId)
+    for (const childId of element.childIds) {
+      const child = value.elements[childId]
+      if (child?.kind === 'group') visitGroup(childId)
+    }
+    path.pop()
+    visiting.delete(groupId)
+    visited.add(groupId)
+  }
+  for (const [elementId, element] of Object.entries(value.elements)) {
+    if (element.kind === 'group') visitGroup(elementId)
   }
 
   return errors.length === 0 ? { valid: true } : { valid: false, errors }

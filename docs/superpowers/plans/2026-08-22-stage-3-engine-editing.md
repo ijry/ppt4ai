@@ -32,7 +32,7 @@
 - Extend `Element` and validation for group child references and duplicate child IDs.
 - Recursively expand group children in `documentToSceneGraph` while preserving child order and preventing cycles.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 it('validates and renders a flat group in child order', () => {
@@ -42,15 +42,15 @@ it('validates and renders a flat group in child order', () => {
 })
 ```
 
-- [ ] **Step 2: Run the focused tests and verify they fail**
+- [x] **Step 2: Run the focused tests and verify they fail**
 
 Run `pnpm exec vitest run packages/model/src/model.test.ts packages/render/src/scene.test.ts`. Expected: TypeScript/test failure because `group` is not yet an `Element` and SceneGraph only visits direct slide IDs.
 
-- [ ] **Step 3: Implement the model and recursive render expansion**
+- [x] **Step 3: Implement the model and recursive render expansion**
 
 Add the group union member, validate each child reference and duplicate child ID, then recursively create nodes for group children with a visited set so malformed cycles are skipped deterministically.
 
-- [ ] **Step 4: Run the focused tests and verify they pass**
+- [x] **Step 4: Run the focused tests and verify they pass**
 
 Run `pnpm exec vitest run packages/model/src/model.test.ts packages/render/src/scene.test.ts`.
 
@@ -67,7 +67,7 @@ Run `pnpm exec vitest run packages/model/src/model.test.ts packages/render/src/s
 - `EngineCommand` includes `select`, `undo`, and `redo` in this task.
 - `Patch`, `PatchOperation`, and explicit `PatchValue` presence markers are exported.
 
-- [ ] **Step 1: Write failing command and history tests**
+- [x] **Step 1: Write failing command and history tests**
 
 ```ts
 it('keeps selection separate from document history and clones state safely', () => {
@@ -78,15 +78,15 @@ it('keeps selection separate from document history and clones state safely', () 
 })
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [x] **Step 2: Run the test and verify it fails**
 
 Run `pnpm exec vitest run packages/engine/src/engine.test.ts`. Expected: failure because `EditorEngine` and command contracts do not exist.
 
-- [ ] **Step 3: Implement the session, patch primitives, and select/undo/redo**
+- [x] **Step 3: Implement the session, patch primitives, and select/undo/redo**
 
 Clone the input document at construction and on state reads. Implement path-based patch application with `{ present: false }` deletion, undo/redo stacks, and selection validation against existing element IDs. Selection commands do not enter history; undo and redo only apply document patches.
 
-- [ ] **Step 4: Run the test and verify it passes**
+- [x] **Step 4: Run the test and verify it passes**
 
 Run `pnpm exec vitest run packages/engine/src/engine.test.ts`.
 
@@ -101,7 +101,7 @@ Run `pnpm exec vitest run packages/engine/src/engine.test.ts`.
 - Commands `{ type: 'move'; dx: number; dy: number }` and `{ type: 'resize'; elementId: string; bounds: Rect }`.
 - `SnapGuide` exposes `axis`, `position`, `source`, and optional `elementId`.
 
-- [ ] **Step 1: Write failing move, resize, and snapping tests**
+- [x] **Step 1: Write failing move, resize, and snapping tests**
 
 ```ts
 it('moves selected bounds and snaps to another element edge', () => {
@@ -113,15 +113,15 @@ it('moves selected bounds and snaps to another element edge', () => {
 })
 ```
 
-- [ ] **Step 2: Run focused tests and verify they fail**
+- [x] **Step 2: Run focused tests and verify they fail**
 
 Run `pnpm exec vitest run packages/engine/src/engine.test.ts`. Expected: failure because transform commands and snap calculation are missing.
 
-- [ ] **Step 3: Implement transform patches and snapping**
+- [x] **Step 3: Implement transform patches and snapping**
 
 Compute the selection union, derive edge/center candidates from unselected elements and the configured grid, choose the nearest candidate per axis within threshold, emit guides, and patch every affected bounds in one transaction. Reject non-positive resize bounds without changing the document.
 
-- [ ] **Step 4: Run focused tests and verify they pass**
+- [x] **Step 4: Run focused tests and verify they pass**
 
 Run `pnpm exec vitest run packages/engine/src/engine.test.ts`.
 
@@ -135,7 +135,7 @@ Run `pnpm exec vitest run packages/engine/src/engine.test.ts`.
 - `{ type: 'zOrder'; action: 'front' | 'back' | 'forward' | 'backward' }`.
 - `{ type: 'group' }` and `{ type: 'ungroup'; groupId: string }`.
 
-- [ ] **Step 1: Write failing z-order and group tests**
+- [x] **Step 1: Write failing z-order and group tests**
 
 ```ts
 it('groups selected elements and restores order on undo and ungroup', () => {
@@ -148,15 +148,15 @@ it('groups selected elements and restores order on undo and ungroup', () => {
 })
 ```
 
-- [ ] **Step 2: Run focused tests and verify they fail**
+- [x] **Step 2: Run focused tests and verify they fail**
 
 Run `pnpm exec vitest run packages/engine/src/engine.test.ts`. Expected: failure because z-order and group commands are missing.
 
-- [ ] **Step 3: Implement z-order, group, ungroup, and recursive group bounds**
+- [x] **Step 3: Implement z-order, group, ungroup, and recursive group bounds**
 
 Use slide array order as z-order, preserve selected relative order during z-order operations, create a group patch that inserts one group ID at the first selected position, retain children in the flat element map, and ungroup by restoring child IDs at the group position. Group and child bounds updates must remain positive and cycle-free.
 
-- [ ] **Step 4: Run focused tests and verify they pass**
+- [x] **Step 4: Run focused tests and verify they pass**
 
 Run `pnpm exec vitest run packages/engine/src/engine.test.ts packages/model/src/model.test.ts packages/render/src/scene.test.ts`.
 
@@ -166,14 +166,14 @@ Run `pnpm exec vitest run packages/engine/src/engine.test.ts packages/model/src/
 - Modify: `进度.md`
 - Modify: `docs/superpowers/plans/2026-08-22-stage-3-engine-editing.md`
 
-- [ ] **Step 1: Run the full verification gates**
+- [x] **Step 1: Run the full verification gates**
 
 Run `pnpm check:boundaries`, `pnpm test`, `pnpm typecheck`, and `pnpm build`; all must pass.
 
-- [ ] **Step 2: Update progress and mark this plan complete**
+- [x] **Step 2: Update progress and mark this plan complete**
 
 Mark Stage 3 complete, Stage 4 as the next target, record the test count and gate results, and check every completed plan item.
 
-- [ ] **Step 3: Review and commit once**
+- [x] **Step 3: Review and commit once**
 
 Run `git diff --check`, verify no generated `dist` files are staged, then run exactly `git add packages/model packages/render packages/engine 进度.md docs/superpowers/plans/2026-08-22-stage-3-engine-editing.md && git commit -m "feat: add stage 3 editing engine"`.

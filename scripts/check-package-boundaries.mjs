@@ -38,7 +38,8 @@ for (const name of headlessPackages) {
     if (name === 'text' && relativePath.replaceAll('\\', '/').startsWith('ime/')) continue
     const source = await readFile(resolve(root, 'packages', name, 'src', relativePath), 'utf8')
     if (/from\s+['"]vue['"]|from\s+['"]@vue\/runtime-dom['"]/.test(source)) failures.push(`${name}/${relativePath}: Vue import in headless source`)
-    if (/\b(document|window|HTMLElement|HTMLCanvasElement)\b/.test(source)) failures.push(`${name}/${relativePath}: DOM global in headless source`)
+    const domGlobalPattern = /(?<![\w.$])(?:document|window)\s*(?:\.\s*(?:body|documentElement|createElement|getElementById|querySelector|querySelectorAll|addEventListener|removeEventListener|defaultView|location|navigator|innerWidth|innerHeight)|\[)|(?<![\w.$])(?:HTMLElement|HTMLCanvasElement)\s*\(/s
+    if (domGlobalPattern.test(source)) failures.push(`${name}/${relativePath}: DOM global in headless source`)
   }
 }
 

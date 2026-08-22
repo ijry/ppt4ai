@@ -146,4 +146,28 @@ describe('documentToSceneGraph', () => {
       },
     ])
   })
+
+  it('expands flat groups in child order', () => {
+    const groupedDocument: Ppt4aiDocument = {
+      ...minimalDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: ['grp_1'] } },
+      elements: {
+        ...minimalDocument.elements,
+        el_text: {
+          id: 'el_text',
+          kind: 'text',
+          bounds: { x: 6000000, y: 1000000, w: 1000000, h: 1000000 },
+          text: 'Grouped',
+        },
+        grp_1: {
+          id: 'grp_1',
+          kind: 'group',
+          bounds: { x: 1000000, y: 1000000, w: 6000000, h: 2000000 },
+          childIds: ['el_shape', 'el_text'],
+        },
+      },
+    }
+
+    expect(documentToSceneGraph(groupedDocument).nodes.map((node) => node.id)).toEqual(['el_shape', 'el_text'])
+  })
 })

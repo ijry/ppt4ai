@@ -61,6 +61,8 @@ function createNode(element: Element): SceneNode | undefined {
       return createShapeNode(element)
     case 'text':
       return createTextNode(element)
+    case 'group':
+      return undefined
     default:
       return undefined
   }
@@ -77,13 +79,20 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
   const layout = slide.layoutId ? value.layouts?.[slide.layoutId] : undefined
   const masterId = slide.masterId ?? layout?.masterId
   const master = masterId ? value.masters?.[masterId] : undefined
-  for (const elementId of slide.elementIds) {
+  const visited = new Set<string>()
+  const appendElement = (elementId: string): void => {
+    if (visited.has(elementId)) return
+    visited.add(elementId)
     const element = value.elements[elementId]
-    if (!element) continue
-
+    if (!element) return
+    if (element.kind === 'group') {
+      for (const childId of element.childIds) appendElement(childId)
+      return
+    }
     const node = createNode(resolveInheritedElement(element, layout, master))
     if (node) nodes.push(node)
   }
+  for (const elementId of slide.elementIds) appendElement(elementId)
 
   return {
     slideId,
