@@ -1,4 +1,4 @@
-import { type Color, type Element, type ElementDefaults, type Fill, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TextBody, type TextBullet, type TextParagraph, type TextRun } from '@ppt4ai/model'
+import { type Color, type Element, type ElementDefaults, type Fill, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TextBody, type TextBullet, type TextParagraph, type TextRun } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -101,6 +101,144 @@ function parseColor(node: XmlNode | undefined): Color | undefined {
 function parseFill(shape: XmlNode): Fill | undefined {
   const fill = findDescendants(shape, 'solidFill')[0]
   return fill ? (parseColor(fill) ? { color: parseColor(fill)! } : undefined) : undefined
+}
+
+function parseTableBorder(line: XmlNode | undefined): TableBorder | undefined {
+  if (!line) return undefined
+  const color = parseColor(child(line, 'solidFill'))
+  if (!color) return undefined
+  const widthValue = parseNumber(attribute(line, 'w'))
+  const width = widthValue !== undefined && widthValue > 0 ? widthValue : undefined
+  const dash = child(line, 'prstDash')
+  const dashValue = dash && attribute(dash, 'val')
+  const style = dashValue === 'dot' ? 'dot' : dashValue && dashValue !== 'solid' ? 'dash' : 'solid'
+  return { color, ...(width === undefined ? {} : { width }), style }
+}
+
+function parseTableCellBorders(properties: XmlNode): TableCellBorders | undefined {
+  const borders: TableCellBorders = {}
+  const left = parseTableBorder(child(properties, 'lnL'))
+  const right = parseTableBorder(child(properties, 'lnR'))
+  const top = parseTableBorder(child(properties, 'lnT'))
+  const bottom = parseTableBorder(child(properties, 'lnB'))
+  if (left) borders.left = left
+  if (right) borders.right = right
+  if (top) borders.top = top
+  if (bottom) borders.bottom = bottom
+  return Object.keys(borders).length === 0 ? undefined : borders
+}
+
+function parsePositiveInteger(value: string | undefined): number | undefined {
+  const number = parseNumber(value)
+  return number !== undefined && Number.isInteger(number) && number > 0 ? number : undefined
+}
+
+interface ImportedTableCell {
+  row: number
+  column: number
+  rowSpan: number
+  colSpan: number
+  cell: TableCell
+}
+
+function parseTable(frame: XmlNode, id: string): TableElement | undefined {
+  const bounds = parseBounds(frame)
+  const table = findDescendants(frame, 'tbl')[0]
+  if (!bounds || !table) return undefined
+  const grid = child(table, 'tblGrid')
+  const gridColumns = grid ? children(grid, 'gridCol').map((column) => parsePositiveInteger(attribute(column, 'w'))) : []
+  if (gridColumns.length === 0 || gridColumns.some((value) => value === undefined)) return undefined
+  const rows = children(table, 'tr')
+  if (rows.length === 0) return undefined
+
+  const occupied = new Map<string, ImportedTableCell>()
+  const parsedRows: Array<{ height: number; cells: TableCell[] }> = []
+  const columns = gridColumns as number[]
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const rowNode = rows[rowIndex]
+    if (!rowNode) return undefined
+    const height = parsePositiveInteger(attribute(rowNode, 'h'))
+    if (height === undefined) return undefined
+    const cells: TableCell[] = []
+    let cursor = 0
+    for (const cellNode of children(rowNode, 'tc')) {
+      const properties = child(cellNode, 'tcPr')
+      const hMerge = properties && attribute(properties, 'hMerge')
+      const vMerge = properties && attribute(properties, 'vMerge')
+      const mergeHorizontal = hMerge === '1' || hMerge === 'true'
+      const mergeVertical = vMerge === '1' || vMerge === 'true'
+
+      if (mergeVertical) {
+        let mergeColumn = cursor
+        while (mergeColumn < columns.length && !occupied.has(`${rowIndex}:${mergeColumn}`)) mergeColumn += 1
+        const origin = occupied.get(`${rowIndex}:${mergeColumn}`)
+        if (!origin || origin.row + origin.rowSpan < rowIndex) return undefined
+        if (origin.row + origin.rowSpan === rowIndex) origin.rowSpan += 1
+        if (origin.rowSpan > 1) origin.cell.rowSpan = origin.rowSpan
+        for (let column = origin.column; column < origin.column + origin.colSpan; column += 1) occupied.set(`${rowIndex}:${column}`, origin)
+        cursor = Math.max(cursor, origin.column + origin.colSpan)
+        continue
+      }
+
+      if (mergeHorizontal) {
+        const origin = occupied.get(`${rowIndex}:${Math.max(0, cursor - 1)}`)
+        if (!origin || origin.row !== rowIndex || origin.column + origin.colSpan !== cursor) return undefined
+        if (origin.column + origin.colSpan >= columns.length) return undefined
+        origin.colSpan += 1
+        if (origin.colSpan > 1) origin.cell.colSpan = origin.colSpan
+        occupied.set(`${rowIndex}:${cursor}`, origin)
+        cursor += 1
+        continue
+      }
+
+      while (cursor < columns.length && occupied.has(`${rowIndex}:${cursor}`)) cursor += 1
+      const column = cursor
+      const colSpan = parsePositiveInteger(properties && attribute(properties, 'gridSpan')) ?? 1
+      const rowSpan = parsePositiveInteger(properties && attribute(properties, 'rowSpan')) ?? 1
+      if (column + colSpan > columns.length || rowIndex + rowSpan > rows.length) return undefined
+      for (let row = rowIndex; row < rowIndex + rowSpan; row += 1) {
+        for (let gridColumn = column; gridColumn < column + colSpan; gridColumn += 1) {
+          if (occupied.has(`${row}:${gridColumn}`)) return undefined
+        }
+      }
+      const body = parseTextBody(cellNode) ?? { paragraphs: [{ runs: [] }] }
+      const cell: TableCell = { column, body }
+      const fill = properties ? parseFill(properties) : undefined
+      const borders = properties ? parseTableCellBorders(properties) : undefined
+      if (fill) cell.fill = fill
+      if (borders) cell.borders = borders
+      const parsed: ImportedTableCell = { row: rowIndex, column, rowSpan, colSpan, cell }
+      if (rowSpan > 1) cell.rowSpan = rowSpan
+      if (colSpan > 1) cell.colSpan = colSpan
+      cells.push(cell)
+      for (let row = rowIndex; row < rowIndex + rowSpan; row += 1) {
+        for (let gridColumn = column; gridColumn < column + colSpan; gridColumn += 1) occupied.set(`${row}:${gridColumn}`, parsed)
+      }
+      cursor = column + colSpan
+    }
+    parsedRows.push({ height, cells })
+  }
+
+  const tableFill = parseFill(child(table, 'tblPr') ?? table)
+  return {
+    id,
+    kind: 'table',
+    bounds,
+    columns,
+    rows: parsedRows,
+    ...(tableFill ? { fill: tableFill } : {}),
+  }
+}
+
+function findSlideElements(node: XmlNode): XmlNode[] {
+  const result: XmlNode[] = []
+  for (const current of node.children) {
+    const name = localName(current.name)
+    if (name === 'sp' || name === 'graphicFrame') result.push(current)
+    result.push(...findSlideElements(current))
+  }
+  return result
 }
 
 function parsePreset(shape: XmlNode): PresetGeometry {
@@ -322,9 +460,9 @@ export async function importPptx(input: Uint8Array): Promise<Ppt4aiDocument> {
     }
 
     const elementIds: string[] = []
-    for (const shape of findDescendants(slidePart.xml, 'sp')) {
+    for (const shape of findSlideElements(slidePart.xml)) {
       const id = `el_${elementCounter++}`
-      const element = parseElement(shape, id, true)
+      const element = localName(shape.name) === 'graphicFrame' ? parseTable(shape, id) : parseElement(shape, id, true)
       if (!element) continue
       elements[id] = element
       elementIds.push(id)

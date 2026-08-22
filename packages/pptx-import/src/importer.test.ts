@@ -79,6 +79,11 @@ function verticalFiles(value: string | undefined) {
   }
 }
 
+const tableFiles = {
+  ...files,
+  'ppt/slides/slide1.xml': `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="5" name="Table"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="500000" y="600000"/><a:ext cx="6000000" cy="3000000"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr><a:solidFill><a:srgbClr val="F2F2F2"/></a:solidFill></a:tblPr><a:tblGrid><a:gridCol w="1000000"/><a:gridCol w="2000000"/><a:gridCol w="3000000"/></a:tblGrid><a:tr h="700000"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>A</a:t></a:r></a:p></a:txBody><a:tcPr gridSpan="2"><a:solidFill><a:srgbClr val="FFF2CC"/></a:solidFill><a:lnL w="12700"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:lnL><a:lnR w="25400"><a:solidFill><a:srgbClr val="00FF00"/></a:solidFill></a:lnR><a:lnT w="38100"><a:solidFill><a:srgbClr val="0000FF"/></a:solidFill></a:lnT><a:lnB w="50800"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:lnB></a:tcPr></a:tc><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>B</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr><a:tr h="800000"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>C</a:t></a:r></a:p></a:txBody><a:tcPr rowSpan="2"/></a:tc><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>D</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc><a:tc><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr hMerge="1"/></a:tc></a:tr><a:tr h="900000"><a:tc><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr vMerge="1"/></a:tc><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>E</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>F</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame><p:sp><p:nvSpPr><p:cNvPr id="3" name="Title"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="1000000" y="4000000"/><a:ext cx="4000000" cy="1000000"/></a:xfrm></p:spPr><p:txBody><a:p><a:r><a:t>Neighbor</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`,
+}
+
 describe('importPptx', () => {
   it('keeps the relationship XML tree addressable', () => {
     const root = parseXml(files['ppt/_rels/presentation.xml.rels'])
@@ -181,5 +186,41 @@ describe('importPptx', () => {
     const element = imported.elements[imported.slides.sld_1!.elementIds[0]!]
     if (!element || element.kind !== 'text') throw new Error('expected text element')
     expect(element.body?.bodyPr).toBeUndefined()
+  })
+
+  it('imports table grids, normalized merges, cell styling, and borders', async () => {
+    const imported = await importPptx(createStoredZip(tableFiles))
+    expect(imported.slideOrder).toEqual(['sld_1'])
+    expect(imported.slides.sld_1?.elementIds).toEqual(['el_1', 'el_2'])
+    const element = imported.elements.el_1
+    expect(element).toMatchObject({
+      id: 'el_1',
+      kind: 'table',
+      bounds: { x: 500000, y: 600000, w: 6000000, h: 3000000 },
+      columns: [1000000, 2000000, 3000000],
+      rows: [
+        { height: 700000, cells: [{ column: 0, colSpan: 2, body: { paragraphs: [{ runs: [{ text: 'A' }] }] }, fill: { color: { type: 'srgb', v: 'FFF2CC' } }, borders: { left: { color: { type: 'srgb', v: 'FF0000' }, width: 12700, style: 'solid' }, right: { color: { type: 'srgb', v: '00FF00' }, width: 25400, style: 'solid' }, top: { color: { type: 'srgb', v: '0000FF' }, width: 38100, style: 'solid' }, bottom: { color: { type: 'srgb', v: '000000' }, width: 50800, style: 'solid' } } }, { column: 2, body: { paragraphs: [{ runs: [{ text: 'B' }] }] } }],
+        },
+        { height: 800000, cells: [{ column: 0, rowSpan: 2, body: { paragraphs: [{ runs: [{ text: 'C' }] }] } }, { column: 1, colSpan: 2, body: { paragraphs: [{ runs: [{ text: 'D' }] }] } }],
+        },
+        { height: 900000, cells: [{ column: 1, body: { paragraphs: [{ runs: [{ text: 'E' }] }] } }, { column: 2, body: { paragraphs: [{ runs: [{ text: 'F' }] }] } }],
+        },
+      ],
+      fill: { color: { type: 'srgb', v: 'F2F2F2' } },
+    })
+    expect(imported.elements.el_2).toMatchObject({ kind: 'text', text: 'Neighbor' })
+    expect(imported.source?.entries['ppt/slides/slide1.xml']).toContain('hMerge="1"')
+    expect(structuredClone(imported)).toEqual(imported)
+  })
+
+  it('ignores unusable tables while importing neighboring elements', async () => {
+    const malformedTableFiles = {
+      ...tableFiles,
+      'ppt/slides/slide1.xml': tableFiles['ppt/slides/slide1.xml'].replace('w="1000000"', 'w="invalid"'),
+    }
+    const imported = await importPptx(createStoredZip(malformedTableFiles))
+    expect(imported.slides.sld_1?.elementIds).toEqual(['el_2'])
+    expect(imported.elements.el_2).toMatchObject({ kind: 'text', text: 'Neighbor' })
+    expect(structuredClone(imported)).toEqual(imported)
   })
 })
