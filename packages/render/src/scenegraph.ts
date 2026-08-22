@@ -1,5 +1,5 @@
 import { createPresetPath, type PathCommand } from '@ppt4ai/geometry'
-import type { Element, Fill, Ppt4aiDocument, Rect } from '@ppt4ai/model'
+import { resolveInheritedElement, type Element, type Fill, type Ppt4aiDocument, type Rect } from '@ppt4ai/model'
 
 export interface SceneGraph {
   slideId: string
@@ -24,6 +24,8 @@ export interface SceneTextNode {
   kind: 'text'
   bounds: Rect
   text: string
+  fill?: Fill
+  stroke?: Fill
 }
 
 export type SceneNode = SceneShapeNode | SceneTextNode
@@ -42,12 +44,15 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>): SceneSha
 }
 
 function createTextNode(element: Extract<Element, { kind: 'text' }>): SceneTextNode {
-  return {
+  const node: SceneTextNode = {
     id: element.id,
     kind: 'text',
     bounds: element.bounds,
     text: element.text,
   }
+  if (element.fill) node.fill = element.fill
+  if (element.stroke) node.stroke = element.stroke
+  return node
 }
 
 function createNode(element: Element): SceneNode | undefined {
@@ -69,11 +74,14 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
   if (!slide) throw new Error(`input references missing slide: ${slideId}`)
 
   const nodes: SceneNode[] = []
+  const layout = slide.layoutId ? value.layouts?.[slide.layoutId] : undefined
+  const masterId = slide.masterId ?? layout?.masterId
+  const master = masterId ? value.masters?.[masterId] : undefined
   for (const elementId of slide.elementIds) {
     const element = value.elements[elementId]
     if (!element) continue
 
-    const node = createNode(element)
+    const node = createNode(resolveInheritedElement(element, layout, master))
     if (node) nodes.push(node)
   }
 

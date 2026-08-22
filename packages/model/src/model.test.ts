@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateDocument, type Ppt4aiDocument } from './index'
+import { resolveInheritedElement, validateDocument, type Ppt4aiDocument, type SlideLayout, type SlideMaster } from './index'
 
 const minimalDocument: Ppt4aiDocument = {
   format: 'ppt4ai',
@@ -49,5 +49,33 @@ describe('ppt4ai file model', () => {
         'slide sld_1 references missing element: missing',
       ],
     })
+  })
+
+  it('resolves explicit properties over layout and master defaults', () => {
+    const element = {
+      id: 'el_title',
+      kind: 'text' as const,
+      bounds: { x: 1, y: 2, w: 3, h: 4 },
+      text: 'Slide title',
+      placeholder: 'title',
+    }
+    const master: SlideMaster = {
+      id: 'master_1',
+      defaults: { title: { fill: { color: { type: 'srgb', v: '000000' } } } },
+    }
+    const layout: SlideLayout = {
+      id: 'layout_1',
+      masterId: 'master_1',
+      defaults: { title: { fill: { color: { type: 'srgb', v: 'FFFFFF' } } } },
+    }
+
+    expect(resolveInheritedElement(element, layout, master)).toMatchObject({
+      fill: { color: { type: 'srgb', v: 'FFFFFF' } },
+    })
+    expect(resolveInheritedElement({ ...element, fill: { color: { type: 'srgb', v: 'FF0000' } } }, layout, master)).toMatchObject({
+      fill: { color: { type: 'srgb', v: 'FF0000' } },
+    })
+    const resolved = resolveInheritedElement(element, layout, master)
+    expect(structuredClone(resolved)).toEqual(resolved)
   })
 })

@@ -24,6 +24,7 @@ export interface ShapeElement {
   bounds: Rect
   fill?: Fill
   stroke?: Fill
+  placeholder?: string
 }
 
 export interface TextElement {
@@ -31,13 +32,37 @@ export interface TextElement {
   kind: 'text'
   bounds: Rect
   text: string
+  fill?: Fill
+  stroke?: Fill
+  placeholder?: string
 }
 
 export type Element = ShapeElement | TextElement
 
+export interface ElementDefaults {
+  bounds?: Rect
+  preset?: PresetGeometry
+  fill?: Fill
+  stroke?: Fill
+  text?: string
+}
+
+export interface SlideLayout {
+  id: string
+  masterId: string
+  defaults?: Record<string, ElementDefaults>
+}
+
+export interface SlideMaster {
+  id: string
+  defaults?: Record<string, ElementDefaults>
+}
+
 export interface Slide {
   id: string
   elementIds: string[]
+  layoutId?: string
+  masterId?: string
 }
 
 export interface Ppt4aiDocument {
@@ -51,6 +76,35 @@ export interface Ppt4aiDocument {
   slides: Record<string, Slide>
   elements: Record<string, Element>
   slideOrder: string[]
+  layouts?: Record<string, SlideLayout>
+  masters?: Record<string, SlideMaster>
+  source?: {
+    entries: Record<string, string>
+  }
+}
+
+function elementKey(element: Element): string {
+  return element.placeholder ?? element.id
+}
+
+function findDefaults(element: Element, layout?: SlideLayout, master?: SlideMaster): ElementDefaults[] {
+  const key = elementKey(element)
+  const defaults: ElementDefaults[] = []
+  const masterDefaults = master?.defaults?.[key]
+  const layoutDefaults = layout?.defaults?.[key]
+  if (masterDefaults) defaults.push(masterDefaults)
+  if (layoutDefaults) defaults.push(layoutDefaults)
+  return defaults
+}
+
+export function resolveInheritedElement(element: Element, layout?: SlideLayout, master?: SlideMaster): Element {
+  const resolved = Object.assign({}, ...findDefaults(element, layout, master), element)
+  return {
+    ...element,
+    ...resolved,
+    id: element.id,
+    kind: element.kind,
+  } as Element
 }
 
 export type DocumentValidation =

@@ -105,4 +105,45 @@ describe('documentToSceneGraph', () => {
       expect.objectContaining({ id: 'el_shape', kind: 'shape' }),
     ])
   })
+
+  it('resolves layout and master defaults before creating scene nodes', () => {
+    const inheritedDocument: Ppt4aiDocument = {
+      ...minimalDocument,
+      slides: {
+        sld_1: { id: 'sld_1', elementIds: ['el_text'], layoutId: 'lyt_1' },
+      },
+      elements: {
+        el_text: {
+          id: 'el_text',
+          kind: 'text',
+          bounds: { x: 2000000, y: 4000000, w: 5000000, h: 800000 },
+          text: 'Inherited',
+          placeholder: 'title',
+        },
+      },
+      layouts: {
+        lyt_1: {
+          id: 'lyt_1',
+          masterId: 'mst_1',
+          defaults: { title: { fill: { color: { type: 'srgb', v: 'FFFFFF' } } } },
+        },
+      },
+      masters: {
+        mst_1: {
+          id: 'mst_1',
+          defaults: { title: { fill: { color: { type: 'srgb', v: '000000' } } } },
+        },
+      },
+    }
+
+    expect(documentToSceneGraph(inheritedDocument).nodes).toEqual([
+      {
+        id: 'el_text',
+        kind: 'text',
+        bounds: { x: 2000000, y: 4000000, w: 5000000, h: 800000 },
+        text: 'Inherited',
+        fill: { color: { type: 'srgb', v: 'FFFFFF' } },
+      },
+    ])
+  })
 })
