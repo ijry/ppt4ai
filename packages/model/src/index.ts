@@ -106,6 +106,37 @@ export interface TableCellBorders {
   bottom?: TableBorder
 }
 
+export type TableStyleRegionName =
+  | 'wholeTable'
+  | 'band1H'
+  | 'band2H'
+  | 'band1V'
+  | 'band2V'
+  | 'firstRow'
+  | 'lastRow'
+  | 'firstCol'
+  | 'lastCol'
+
+export interface TableStyleRegion {
+  fill?: Fill
+  borders?: TableCellBorders
+}
+
+export interface TableStyle {
+  id: string
+  regions?: Partial<Record<TableStyleRegionName, TableStyleRegion>>
+}
+
+export interface TableStyleReference {
+  styleId?: string
+  firstRow?: boolean
+  lastRow?: boolean
+  firstColumn?: boolean
+  lastColumn?: boolean
+  bandRow?: boolean
+  bandColumn?: boolean
+}
+
 export interface TableCell {
   column: number
   rowSpan?: number
@@ -129,6 +160,7 @@ export interface TableElement {
   fill?: Fill
   stroke?: Fill
   placeholder?: string
+  style?: TableStyleReference
 }
 
 export interface GroupElement {
@@ -178,11 +210,17 @@ export interface Ppt4aiDocument {
   slides: Record<string, Slide>
   elements: Record<string, Element>
   slideOrder: string[]
+  tableStyles?: Record<string, TableStyle>
   layouts?: Record<string, SlideLayout>
   masters?: Record<string, SlideMaster>
   source?: {
     entries: Record<string, string>
   }
+}
+
+export interface ResolvedTableCellStyle {
+  fill?: Fill
+  borders: TableCellBorders
 }
 
 function elementKey(element: Element): string {
@@ -209,6 +247,45 @@ export function resolveInheritedElement(element: Element, layout?: SlideLayout, 
   } as Element
 }
 
+function mergeTableStyleRegion(target: ResolvedTableCellStyle, region: TableStyleRegion | undefined): ResolvedTableCellStyle {
+  if (!region) return target
+  return {
+    ...(target.fill ? { fill: target.fill } : {}),
+    ...(region.fill ? { fill: structuredClone(region.fill) } : {}),
+    borders: {
+      ...target.borders,
+      ...(region.borders ? structuredClone(region.borders) : {}),
+    },
+  }
+}
+
+export function resolveTableCellStyle(
+  table: TableElement,
+  cell: TableCell,
+  row: number,
+  column: number,
+  tableStyles?: Record<string, TableStyle>,
+): ResolvedTableCellStyle {
+  const style = table.style?.styleId ? tableStyles?.[table.style.styleId] : undefined
+  let resolved: ResolvedTableCellStyle = { borders: {} }
+  resolved = mergeTableStyleRegion(resolved, style?.regions?.wholeTable)
+  if (table.style?.bandRow) {
+    const bandRow = row - (table.style.firstRow ? 1 : 0)
+    if (bandRow >= 0) resolved = mergeTableStyleRegion(resolved, style?.regions?.[bandRow % 2 === 0 ? 'band1H' : 'band2H'])
+  }
+  if (table.style?.bandColumn) {
+    const bandColumn = column - (table.style.firstColumn ? 1 : 0)
+    if (bandColumn >= 0) resolved = mergeTableStyleRegion(resolved, style?.regions?.[bandColumn % 2 === 0 ? 'band1V' : 'band2V'])
+  }
+  if (table.style?.firstRow && row === 0) resolved = mergeTableStyleRegion(resolved, style?.regions?.firstRow)
+  if (table.style?.lastRow && row === table.rows.length - 1) resolved = mergeTableStyleRegion(resolved, style?.regions?.lastRow)
+  if (table.style?.firstColumn && column === 0) resolved = mergeTableStyleRegion(resolved, style?.regions?.firstCol)
+  if (table.style?.lastColumn && column === table.columns.length - 1) resolved = mergeTableStyleRegion(resolved, style?.regions?.lastCol)
+  if (cell.fill) resolved.fill = structuredClone(cell.fill)
+  if (cell.borders) resolved.borders = { ...resolved.borders, ...structuredClone(cell.borders) }
+  return resolved
+}
+
 export type DocumentValidation =
   | { valid: true }
   | { valid: false; errors: string[] }
@@ -224,6 +301,7 @@ const wraps = new Set(['square', 'none'])
 const underlines = new Set(['none', 'single'])
 const bulletSchemes = new Set(['arabic', 'alphaLower', 'alphaUpper'])
 const tableBorderStyles = new Set(['solid', 'dash', 'dot', 'none'])
+const tableStyleRegions = new Set<TableStyleRegionName>(['wholeTable', 'band1H', 'band2H', 'band1V', 'band2V', 'firstRow', 'lastRow', 'firstCol', 'lastCol'])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
 
 function validateFiniteNumber(value: unknown, path: string, errors: string[], predicate: (value: number) => boolean, message: string): void {
@@ -318,6 +396,74 @@ function validateTableBorder(value: unknown, path: string, errors: string[]): vo
   if ('style' in border && (typeof border.style !== 'string' || !tableBorderStyles.has(border.style))) errors.push(`${path}.style must be solid, dash, dot, or none`)
 }
 
+function validateFill(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const color = (value as Record<string, unknown>).color
+  if (!color || typeof color !== 'object' || Array.isArray(color)) {
+    errors.push(`${path}.color must be an object`)
+    return
+  }
+  const colorValue = color as Record<string, unknown>
+  if (typeof colorValue.type !== 'string' || !colorTypes.has(colorValue.type)) errors.push(`${path}.color.type must be a supported color type`)
+  if (typeof colorValue.v !== 'string' || colorValue.v.length === 0) errors.push(`${path}.color.v must be a non-empty string`)
+}
+
+function validateTableCellBorders(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const borders = value as Record<string, unknown>
+  for (const side of ['left', 'right', 'top', 'bottom']) if (side in borders && borders[side] !== undefined) validateTableBorder(borders[side], `${path}.${side}`, errors)
+}
+
+function validateTableStyleRegion(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const region = value as Record<string, unknown>
+  if ('fill' in region && region.fill !== undefined) validateFill(region.fill, `${path}.fill`, errors)
+  if ('borders' in region && region.borders !== undefined) validateTableCellBorders(region.borders, `${path}.borders`, errors)
+}
+
+function validateTableStyleReference(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const style = value as Record<string, unknown>
+  if ('styleId' in style && (typeof style.styleId !== 'string' || style.styleId.length === 0)) errors.push(`${path}.styleId must be a non-empty string`)
+  for (const flag of ['firstRow', 'lastRow', 'firstColumn', 'lastColumn', 'bandRow', 'bandColumn']) {
+    if (flag in style && typeof style[flag] !== 'boolean') errors.push(`${path}.${flag} must be a boolean`)
+  }
+  if ('regions' in style && style.regions !== undefined) {
+    if (!style.regions || typeof style.regions !== 'object' || Array.isArray(style.regions)) errors.push(`${path}.regions must be an object`)
+    else for (const regionName of Object.keys(style.regions)) {
+      if (!tableStyleRegions.has(regionName as TableStyleRegionName)) errors.push(`${path}.regions.${regionName} is not a supported table style region`)
+    }
+  }
+}
+
+function validateTableStyle(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const style = value as Record<string, unknown>
+  if (typeof style.id !== 'string' || style.id.length === 0) errors.push(`${path}.id must be a non-empty string`)
+  if ('regions' in style && style.regions !== undefined) {
+    if (!style.regions || typeof style.regions !== 'object' || Array.isArray(style.regions)) errors.push(`${path}.regions must be an object`)
+    else for (const [regionName, region] of Object.entries(style.regions)) {
+      if (!tableStyleRegions.has(regionName as TableStyleRegionName)) errors.push(`${path}.regions.${regionName} is not a supported table style region`)
+      else validateTableStyleRegion(region, `${path}.regions.${regionName}`, errors)
+    }
+  }
+}
+
 function validateTableCell(value: unknown, path: string, rowIndex: number, rowCount: number, columnCount: number, occupied: Map<string, string>, errors: string[]): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     errors.push(`${path} must be an object`)
@@ -351,15 +497,12 @@ function validateTableCell(value: unknown, path: string, rowIndex: number, rowCo
     if (!result.valid) for (const error of result.errors) errors.push(`${path}.body.${error}`)
   }
   if ('borders' in cell && cell.borders !== undefined) {
-    if (!cell.borders || typeof cell.borders !== 'object' || Array.isArray(cell.borders)) errors.push(`${path}.borders must be an object`)
-    else {
-      const borders = cell.borders as Record<string, unknown>
-      for (const side of ['left', 'right', 'top', 'bottom']) if (side in borders && borders[side] !== undefined) validateTableBorder(borders[side], `${path}.borders.${side}`, errors)
-    }
+    validateTableCellBorders(cell.borders, `${path}.borders`, errors)
   }
 }
 
 function validateTableElement(value: TableElement, path: string, errors: string[]): void {
+  if (value.style !== undefined) validateTableStyleReference(value.style, `${path}.style`, errors)
   if (!Array.isArray(value.columns) || value.columns.length === 0) errors.push(`${path}.columns must be non-empty`)
   else value.columns.forEach((column, index) => validateFiniteNumber(column, `${path}.columns[${index}]`, errors, (number) => number > 0, 'must be positive'))
   if (!Array.isArray(value.rows) || value.rows.length === 0) {
@@ -442,6 +585,11 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       elementIds.add(elementId)
       if (!value.elements[elementId]) errors.push(`slide ${slideId} references missing element: ${elementId}`)
     }
+  }
+
+  if (value.tableStyles !== undefined) {
+    if (!value.tableStyles || typeof value.tableStyles !== 'object' || Array.isArray(value.tableStyles)) errors.push('tableStyles must be an object')
+    else for (const [styleId, style] of Object.entries(value.tableStyles)) validateTableStyle(style, `tableStyles.${styleId}`, errors)
   }
 
   for (const [elementId, element] of Object.entries(value.elements)) {

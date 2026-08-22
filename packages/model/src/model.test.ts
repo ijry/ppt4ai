@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   resolveInheritedElement,
+  resolveTableCellStyle,
   validateDocument,
   validateTextBody,
   type Ppt4aiDocument,
+  type TableElement,
+  type TableStyle,
   type SlideLayout,
   type SlideMaster,
   type TextElement,
@@ -30,6 +33,71 @@ const minimalDocument: Ppt4aiDocument = {
 }
 
 describe('ppt4ai file model', () => {
+  it('resolves table style regions before explicit cell overrides', () => {
+    const emptyBody = () => ({ paragraphs: [{ runs: [] }] })
+    const table: TableElement = {
+      id: 'tbl_1',
+      kind: 'table' as const,
+      bounds: { x: 0, y: 0, w: 2000, h: 2000 },
+      columns: [1000, 1000],
+      rows: [
+        { height: 1000, cells: [{ column: 0, body: emptyBody() }, { column: 1, body: emptyBody() }] },
+        { height: 1000, cells: [{ column: 0, body: emptyBody() }, { column: 1, body: emptyBody(), fill: { color: { type: 'srgb', v: '00FF00' } } }] },
+      ],
+      style: { styleId: 'style-1', bandRow: true, firstRow: true, firstColumn: true },
+    }
+    const style: TableStyle = {
+      id: 'style-1',
+      regions: {
+        wholeTable: { fill: { color: { type: 'srgb', v: 'FFFFFF' } }, borders: { bottom: { color: { type: 'srgb', v: '111111' }, width: 1000, style: 'solid' as const } } },
+        band1H: { fill: { color: { type: 'srgb', v: 'EEEEEE' } } },
+        firstRow: { fill: { color: { type: 'srgb', v: 'FF0000' } } },
+        firstCol: { borders: { left: { color: { type: 'srgb', v: '0000FF' }, width: 2000, style: 'dash' as const } } },
+      },
+    }
+
+    expect(validateDocument({
+      ...minimalDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: ['tbl_1'] } },
+      elements: { tbl_1: table },
+      tableStyles: { 'style-1': style },
+    } as unknown as Ppt4aiDocument)).toEqual({ valid: true })
+    expect(structuredClone(style)).toEqual(style)
+    expect(resolveTableCellStyle(table, table.rows[0]!.cells[0]!, 0, 0, { 'style-1': style })).toEqual({
+      fill: { color: { type: 'srgb', v: 'FF0000' } },
+      borders: {
+        bottom: { color: { type: 'srgb', v: '111111' }, width: 1000, style: 'solid' },
+        left: { color: { type: 'srgb', v: '0000FF' }, width: 2000, style: 'dash' },
+      },
+    })
+    expect(resolveTableCellStyle(table, table.rows[1]!.cells[1]!, 1, 1, { 'style-1': style })).toEqual({
+      fill: { color: { type: 'srgb', v: '00FF00' } },
+      borders: { bottom: { color: { type: 'srgb', v: '111111' }, width: 1000, style: 'solid' } },
+    })
+    expect(resolveTableCellStyle({ ...table, style: { styleId: 'missing' } }, table.rows[0]!.cells[0]!, 0, 0, {})).toEqual({ borders: {} })
+  })
+
+  it('reports stable paths for invalid table style semantics', () => {
+    const table = {
+      id: 'tbl_1', kind: 'table', bounds: { x: 0, y: 0, w: 1000, h: 1000 }, columns: [1000],
+      rows: [{ height: 1000, cells: [{ column: 0, body: { paragraphs: [{ runs: [] }] } }] }],
+      style: { styleId: '', firstRow: 'yes' },
+    } as unknown as TableElement
+    expect(validateDocument({
+      ...minimalDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: ['tbl_1'] } },
+      elements: { tbl_1: table },
+      tableStyles: { style_1: { id: 'style_1', regions: { unsupported: {} } } as unknown as TableStyle },
+    } as unknown as Ppt4aiDocument)).toEqual({
+      valid: false,
+      errors: [
+        'tableStyles.style_1.regions.unsupported is not a supported table style region',
+        'elements.tbl_1.style.styleId must be a non-empty string',
+        'elements.tbl_1.style.firstRow must be a boolean',
+      ],
+    })
+  })
+
   it('validates table grid spans, cell bodies, borders, and clone safety', () => {
     const tableDocument = {
       ...minimalDocument,
