@@ -187,7 +187,7 @@ describe('documentToSceneGraph', () => {
           columns: [1000000, 2000000],
           rows: [
             { height: 500000, cells: [{ column: 0, colSpan: 2, body: { paragraphs: [{ runs: [{ text: 'Header' }] }] } }] },
-            { height: 1500000, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Left' }] }] } }, { column: 1, body: { paragraphs: [{ runs: [{ text: 'Right' }] }] } }] },
+            { height: 1500000, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Left' }] }] } }, { column: 1, body: { paragraphs: [{ runs: [] }] } }] },
           ],
           placeholder: 'table',
         },
@@ -219,6 +219,25 @@ describe('documentToSceneGraph', () => {
           { row: 1, column: 1, rowSpan: 1, colSpan: 1, bounds: { x: 3000000, y: 2500000, w: 2000000, h: 1500000 } },
         ],
       },
+    })
+    const tableNode = graph.nodes[1]
+    if (!tableNode || tableNode.kind !== 'table') throw new Error('expected table node')
+    expect(tableNode.layout.cells[0]).toMatchObject({
+      body: { paragraphs: [{ runs: [{ text: 'Header' }] }] },
+      textLayout: {
+        bounds: { x: 2000000, y: 2000000, w: 3000000, h: 500000 },
+        lines: [{ runs: [{ text: 'Header' }] }],
+        overflow: false,
+      },
+    })
+    expect(tableNode.layout.cells[1]?.textLayout).toMatchObject({
+      bounds: { x: 2000000, y: 2500000, w: 1000000, h: 1500000 },
+      lines: [{ runs: [{ text: 'Left' }] }],
+    })
+    expect(tableNode.layout.cells[2]?.textLayout).toMatchObject({
+      bounds: { x: 3000000, y: 2500000, w: 2000000, h: 1500000 },
+      lines: [{ runs: [] }],
+      overflow: false,
     })
     expect(structuredClone(graph)).toEqual(graph)
   })

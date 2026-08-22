@@ -1,5 +1,5 @@
 import { createPresetPath, type PathCommand } from '@ppt4ai/geometry'
-import { layoutTable, type TableLayout } from '@ppt4ai/layout'
+import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
 import { resolveInheritedElement, type Element, type Fill, type Ppt4aiDocument, type Rect } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout } from '@ppt4ai/text'
 
@@ -35,9 +35,17 @@ export interface SceneTableNode {
   id: string
   kind: 'table'
   bounds: Rect
-  layout: TableLayout
+  layout: SceneTableLayout
   fill?: Fill
   stroke?: Fill
+}
+
+export interface SceneTableLayoutCell extends TableLayoutCell {
+  textLayout: TextLayout
+}
+
+export interface SceneTableLayout extends Omit<TableLayout, 'cells'> {
+  cells: SceneTableLayoutCell[]
 }
 
 export type SceneNode = SceneShapeNode | SceneTextNode | SceneTableNode
@@ -70,11 +78,18 @@ function createTextNode(element: Extract<Element, { kind: 'text' }>): SceneTextN
 }
 
 function createTableNode(element: Extract<Element, { kind: 'table' }>): SceneTableNode {
+  const tableLayout = layoutTable(element)
   const node: SceneTableNode = {
     id: element.id,
     kind: 'table',
     bounds: { ...element.bounds },
-    layout: layoutTable(element),
+    layout: {
+      ...tableLayout,
+      cells: tableLayout.cells.map((cell) => ({
+        ...cell,
+        textLayout: layoutText({ bounds: cell.bounds, body: cell.body }),
+      })),
+    },
   }
   if (element.fill) node.fill = structuredClone(element.fill)
   if (element.stroke) node.stroke = structuredClone(element.stroke)
