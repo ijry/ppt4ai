@@ -32,7 +32,17 @@ export type {
   TableEditorOverlayModel,
 } from './table-editor-overlay'
 export { createTableEditorController } from './table-editor-controller'
-export type { TableEditorController, TableEditorControllerOptions } from './table-editor-controller'
+export type {
+  TableBorderPatch,
+  TableBorderSide,
+  TableEditorController,
+  TableEditorControllerOptions,
+} from './table-editor-controller'
+export { default as TableFormattingToolbar } from './TableFormattingToolbar.vue'
+export type {
+  TableFormattingToolbarEmit,
+  TableFormattingToolbarProps,
+} from './table-formatting-toolbar'
 export {
   createTextInteraction,
   layoutRectToScreen,
