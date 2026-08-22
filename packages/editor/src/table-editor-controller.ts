@@ -1,5 +1,9 @@
 import type { EditorEngine, EngineState } from '@ppt4ai/engine'
+import type { Fill, TableBorder } from '@ppt4ai/model'
 import type { TableCellPoint, TableCellSelection } from './table-editor-overlay'
+
+export type TableBorderSide = 'left' | 'right' | 'top' | 'bottom'
+export type TableBorderPatch = Partial<Record<TableBorderSide, TableBorder | null>>
 
 export interface TableEditorControllerOptions {
   engine: EditorEngine
@@ -10,6 +14,8 @@ export interface TableEditorController {
   getState(): EngineState
   select(selection: TableCellSelection): EngineState
   selectEnd(selection: TableCellSelection): EngineState
+  setFill(fill: Fill | null): EngineState
+  setBorders(borders: TableBorderPatch): EngineState
 }
 
 function assertPoint(point: TableCellPoint, name: 'anchor' | 'focus'): void {
@@ -56,5 +62,7 @@ export function createTableEditorController(options: TableEditorControllerOption
         extend: true,
       })
     },
+    setFill: (fill) => options.engine.dispatch({ type: 'setTableCellFill', fill }),
+    setBorders: (borders) => options.engine.dispatch({ type: 'setTableCellBorders', borders }),
   }
 }

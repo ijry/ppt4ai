@@ -94,4 +94,39 @@ describe('createTableEditorController', () => {
 
     expect(() => createTableEditorController({ engine, elementId: '' })).toThrow('elementId must be non-empty')
   })
+
+  it('dispatches atomic fill and border edits for the selected range', () => {
+    const engine = new EditorEngine(makeTableDocument())
+    const controller = createTableEditorController({ engine, elementId: 'el_table' })
+    controller.selectEnd({ anchor: { row: 0, column: 0 }, focus: { row: 1, column: 1 } })
+    const fill = { color: { type: 'srgb' as const, v: '00FF00' } }
+    const border = { color: { type: 'srgb' as const, v: '0000FF' }, width: 1000, style: 'solid' as const }
+
+    expect(controller.setFill(fill)).toMatchObject({
+      document: { elements: { el_table: { rows: [{ cells: [{ fill }] }, { cells: [{ fill }, { fill }] }] } } },
+      history: { undoDepth: 1, redoDepth: 0 },
+    })
+    expect(controller.setBorders({ left: border, bottom: border })).toMatchObject({
+      document: { elements: { el_table: { rows: [
+        { cells: [{ borders: { left: border, bottom: border } }] },
+        { cells: [{ borders: { left: border, bottom: border } }, { borders: { left: border, bottom: border } }] },
+      ] } } },
+      history: { undoDepth: 2, redoDepth: 0 },
+    })
+  })
+
+  it('clears explicit formatting and propagates validation errors', () => {
+    const engine = new EditorEngine(makeTableDocument())
+    const controller = createTableEditorController({ engine, elementId: 'el_table' })
+    controller.select({ anchor: { row: 1, column: 0 }, focus: { row: 1, column: 0 } })
+    controller.setFill({ color: { type: 'srgb', v: '00FF00' } })
+    controller.setBorders({ top: { color: { type: 'srgb', v: '111111' } } })
+
+    controller.setFill(null)
+    const cleared = controller.setBorders({ top: null })
+    expect(cleared.document.elements.el_table).toMatchObject({ rows: [{}, { cells: [{}, {}] }] })
+    const historyDepth = cleared.history.undoDepth
+    expect(() => controller.setFill({ color: { type: 'invalid' as never, v: '' } })).toThrow()
+    expect(controller.getState().history.undoDepth).toBe(historyDepth)
+  })
 })
