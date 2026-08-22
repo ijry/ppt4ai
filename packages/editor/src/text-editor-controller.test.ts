@@ -1,0 +1,88 @@
+// @vitest-environment happy-dom
+
+import type { TextBody } from '@ppt4ai/model'
+import type { ImeBridgeEvent, ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
+import { describe, expect, it } from 'vitest'
+import { createTextEditorController, type TextEditorControllerOptions } from './text-editor-controller'
+
+const body: TextBody = { paragraphs: [{ runs: [{ text: 'B' }] }] }
+
+function createFakeBridgeFactory(events: { options?: ImeInputBridgeOptions; focus: number; destroy: number }) {
+  return (options: ImeInputBridgeOptions): ImeInputBridge => {
+    events.options = options
+    return {
+      focus: () => { events.focus += 1 },
+      setCaretRect: () => {},
+      getCaretClientRect: () => new DOMRect(),
+      destroy: () => { events.destroy += 1 },
+    }
+  }
+}
+
+describe('text editor controller', () => {
+  it('connects bridge events to one editor state and delegates lifecycle methods', () => {
+    const events: { options?: ImeInputBridgeOptions; focus: number; destroy: number } = { focus: 0, destroy: 0 }
+    const host = document.createElement('div')
+    const controller = createTextEditorController({
+      host,
+      body,
+      bridgeFactory: createFakeBridgeFactory(events),
+    })
+
+    expect(controller.getSnapshot().body).toEqual(body)
+    expect(controller.getSnapshot().body).not.toBe(body)
+    controller.dispatch({ type: 'text-input', text: 'A' })
+    expect(controller.getSnapshot().body).toEqual({ paragraphs: [{ runs: [{ text: 'AB' }] }] })
+    controller.focus()
+    expect(events.focus).toBe(1)
+    controller.destroy()
+    controller.destroy()
+    expect(events.destroy).toBe(1)
+  })
+
+  it('handles composition updates and suppresses the duplicate committed input', () => {
+    const events: { options?: ImeInputBridgeOptions; focus: number; destroy: number } = { focus: 0, destroy: 0 }
+    const bridgeEvents: ImeBridgeEvent[] = []
+    const controller = createTextEditorController({
+      host: document.createElement('div'),
+      body: { paragraphs: [{ runs: [] }] },
+      bridgeFactory: (options) => {
+        events.options = options
+        return createFakeBridgeFactory(events)(options)
+      },
+    })
+
+    const callback = events.options?.onEvent
+    expect(callback).toBeDefined()
+    callback?.({ type: 'composition-start' })
+    callback?.({ type: 'composition-update', text: 'zhong' })
+    expect(controller.getSnapshot()).toMatchObject({
+      body: { paragraphs: [{ runs: [] }] },
+      composing: true,
+      compositionText: 'zhong',
+    })
+    callback?.({ type: 'composition-end', text: '中' })
+    callback?.({ type: 'text-input', text: '中' })
+    expect(controller.getSnapshot().body).toEqual({ paragraphs: [{ runs: [{ text: '中' }] }] })
+    bridgeEvents.push({ type: 'text-input', text: 'A' })
+    controller.dispatch(bridgeEvents[0]!)
+    expect(controller.getSnapshot().body).toEqual({ paragraphs: [{ runs: [{ text: '中A' }] }] })
+  })
+
+  it('ignores dispatch and bridge callbacks after destroy', () => {
+    const events: { options?: ImeInputBridgeOptions; focus: number; destroy: number } = { focus: 0, destroy: 0 }
+    const controller = createTextEditorController({
+      host: document.createElement('div'),
+      body,
+      bridgeFactory: createFakeBridgeFactory(events),
+    })
+    const callback = events.options?.onEvent
+    controller.destroy()
+    controller.dispatch({ type: 'text-input', text: 'A' })
+    callback?.({ type: 'text-input', text: 'A' })
+    expect(controller.getSnapshot().body).toEqual(body)
+  })
+})
+
+const _typeCheck: (options: TextEditorControllerOptions) => void = () => {}
+void _typeCheck

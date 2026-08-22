@@ -17,3 +17,15 @@ export { normalizeTextElement, TextModelError } from './normalize'
 export { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, measureText } from './measure'
 export { layoutText } from './layout'
 export type { TextLayout, TextLayoutInput, TextLayoutLine, TextLayoutRun } from './layout'
+export { proseMirrorToTextBody, TextEditorModelError, textBodyToProseMirror } from './editor/model'
+export { textEditorSchema } from './editor/schema'
+export {
+  applyImeEvent,
+  createTextEditorState,
+  deleteBackward,
+  getTextEditorSnapshot,
+  insertParagraph,
+  replaceText,
+} from './editor/editor-state'
+export type { TextEditorSelection, TextEditorSnapshot } from './editor/editor-state'
+export type { Node as ProseMirrorNode } from 'prosemirror-model'

@@ -16,6 +16,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ppt4ai/model": "workspace:*"
+    "@ppt4ai/model": "workspace:*",
+    "prosemirror-commands": "1.7.2",
+    "prosemirror-model": "1.25.11",
+    "prosemirror-state": "1.4.4"
   }
 }
