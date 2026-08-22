@@ -1,4 +1,4 @@
-import { type Color, type Element, type ElementDefaults, type Fill, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TextBody, type TextBullet, type TextParagraph, type TextRun } from '@ppt4ai/model'
+import { type Color, type Element, type ElementDefaults, type Fill, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TextBody, type TextBullet, type TextParagraph, type TextRun } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -128,6 +128,96 @@ function parseTableCellBorders(properties: XmlNode): TableCellBorders | undefine
   return Object.keys(borders).length === 0 ? undefined : borders
 }
 
+const tableStyleRegionNames: Record<string, TableStyleRegionName> = {
+  wholeTbl: 'wholeTable',
+  band1H: 'band1H',
+  band2H: 'band2H',
+  band1V: 'band1V',
+  band2V: 'band2V',
+  firstRow: 'firstRow',
+  lastRow: 'lastRow',
+  firstCol: 'firstCol',
+  lastCol: 'lastCol',
+}
+
+function parseDirectFill(node: XmlNode): Fill | undefined {
+  const fill = child(node, 'solidFill')
+  const color = parseColor(fill)
+  return color ? { color } : undefined
+}
+
+function parseStyleBorder(line: XmlNode | undefined): TableBorder | undefined {
+  if (!line) return undefined
+  const widthAttribute = attribute(line, 'w')
+  const width = widthAttribute === undefined ? undefined : parsePositiveInteger(widthAttribute)
+  if (widthAttribute !== undefined && width === undefined) return undefined
+  const color = parseColor(child(line, 'solidFill'))
+  if (!color) return undefined
+  const dashValue = attribute(child(line, 'prstDash') ?? line, 'val')
+  const style = dashValue === 'dot' ? 'dot' : dashValue && dashValue !== 'solid' ? 'dash' : 'solid'
+  return { color, ...(width === undefined ? {} : { width }), style }
+}
+
+function parseStyleRegion(node: XmlNode): TableStyleRegion | undefined {
+  const fill = parseDirectFill(node)
+  const borders: TableCellBorders = {}
+  const left = parseStyleBorder(child(node, 'lnL'))
+  const right = parseStyleBorder(child(node, 'lnR'))
+  const top = parseStyleBorder(child(node, 'lnT'))
+  const bottom = parseStyleBorder(child(node, 'lnB'))
+  if (left) borders.left = left
+  if (right) borders.right = right
+  if (top) borders.top = top
+  if (bottom) borders.bottom = bottom
+  if (!fill && Object.keys(borders).length === 0) return undefined
+  return { ...(fill ? { fill } : {}), ...(Object.keys(borders).length > 0 ? { borders } : {}) }
+}
+
+function parseTableStyles(xml: string): Record<string, TableStyle> {
+  const styles: Record<string, TableStyle> = {}
+  let root: XmlNode
+  try {
+    root = parseXml(xml)
+  } catch {
+    return styles
+  }
+  for (const node of findDescendants(root, 'tblStyle')) {
+    const id = attribute(node, 'styleId')?.trim()
+    if (!id || styles[id]) continue
+    const regions: NonNullable<TableStyle['regions']> = {}
+    for (const regionNode of node.children) {
+      const regionName = tableStyleRegionNames[localName(regionNode.name)]
+      if (!regionName) continue
+      const region = parseStyleRegion(regionNode)
+      if (region) regions[regionName] = region
+    }
+    if (Object.keys(regions).length > 0) styles[id] = { id, regions }
+  }
+  return styles
+}
+
+function parseBooleanAttribute(node: XmlNode, name: string): boolean | undefined {
+  const value = attribute(node, name)
+  if (value === '1' || value === 'true') return true
+  if (value === '0' || value === 'false') return false
+  return undefined
+}
+
+function parseTableStyleReference(properties: XmlNode | undefined): TableStyleReference | undefined {
+  if (!properties) return undefined
+  const style: TableStyleReference = {}
+  const styleId = attribute(properties, 'tableStyleId')?.trim()
+  if (styleId) style.styleId = styleId
+  const flags: Array<[string, keyof TableStyleReference]> = [
+    ['firstRow', 'firstRow'], ['lastRow', 'lastRow'], ['firstCol', 'firstColumn'], ['lastCol', 'lastColumn'], ['bandRow', 'bandRow'], ['bandCol', 'bandColumn'],
+  ]
+  for (const [attributeName, propertyName] of flags) {
+    const value = parseBooleanAttribute(properties, attributeName)
+    if (value !== undefined) style[propertyName] = value as never
+  }
+  return Object.keys(style).length === 0 ? undefined : style
+}
+
 function parsePositiveInteger(value: string | undefined): number | undefined {
   const number = parseNumber(value)
   return number !== undefined && Number.isInteger(number) && number > 0 ? number : undefined
@@ -220,7 +310,9 @@ function parseTable(frame: XmlNode, id: string): TableElement | undefined {
     parsedRows.push({ height, cells })
   }
 
-  const tableFill = parseFill(child(table, 'tblPr') ?? table)
+  const tableProperties = child(table, 'tblPr')
+  const tableFill = parseFill(tableProperties ?? table)
+  const style = parseTableStyleReference(tableProperties)
   return {
     id,
     kind: 'table',
@@ -228,6 +320,7 @@ function parseTable(frame: XmlNode, id: string): TableElement | undefined {
     columns,
     rows: parsedRows,
     ...(tableFill ? { fill: tableFill } : {}),
+    ...(style ? { style } : {}),
   }
 }
 
@@ -420,6 +513,8 @@ export async function importPptx(input: Uint8Array): Promise<Ppt4aiDocument> {
   let masterCounter = 1
   const layoutIdsByPath = new Map<string, string>()
   const masterIdsByPath = new Map<string, string>()
+  const tableStylesXml = entries['ppt/tableStyles.xml']
+  const tableStyles = tableStylesXml ? parseTableStyles(new TextDecoder().decode(tableStylesXml)) : {}
 
   for (let slideIndex = 0; slideIndex < slideRefs.length; slideIndex += 1) {
     const reference = slideRefs[slideIndex]
@@ -482,6 +577,7 @@ export async function importPptx(input: Uint8Array): Promise<Ppt4aiDocument> {
     slideOrder,
     layouts,
     masters,
+    ...(Object.keys(tableStyles).length > 0 ? { tableStyles } : {}),
     source: { entries: xmlEntries(entries) },
   }
 }

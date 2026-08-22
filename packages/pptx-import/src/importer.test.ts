@@ -213,6 +213,34 @@ describe('importPptx', () => {
     expect(structuredClone(imported)).toEqual(imported)
   })
 
+  it('imports custom table style definitions and table style flags', async () => {
+    const styleXml = '<a:tblStyleLst xmlns:a="a"><a:tblStyle styleId=" style-1 " name="First"><a:wholeTbl><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:lnB w="1000"><a:solidFill><a:srgbClr val="111111"/></a:solidFill></a:lnB></a:wholeTbl><a:band1H><a:solidFill><a:srgbClr val="EEEEEE"/></a:solidFill></a:band1H><a:firstRow><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:firstRow></a:tblStyle><a:tblStyle styleId="style-1" name="Duplicate"><a:wholeTbl><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:wholeTbl></a:tblStyle><a:tblStyle styleId="bad"><a:wholeTbl><a:solidFill><a:srgbClr/></a:solidFill><a:lnL w="bad"><a:solidFill><a:srgbClr val="123456"/></a:solidFill></a:lnL></a:wholeTbl></a:tblStyle></a:tblStyleLst>'
+    const styledFiles = {
+      ...tableFiles,
+      'ppt/tableStyles.xml': styleXml,
+      'ppt/slides/slide1.xml': tableFiles['ppt/slides/slide1.xml'].replace('<a:tblPr>', '<a:tblPr tableStyleId="style-1" firstRow="1" lastRow="0" firstCol="true" lastCol="false" bandRow="1" bandCol="0">'),
+    }
+    const imported = await importPptx(createStoredZip(styledFiles))
+    const table = imported.elements.el_1
+    expect(table).toMatchObject({
+      kind: 'table',
+      style: { styleId: 'style-1', firstRow: true, lastRow: false, firstColumn: true, lastColumn: false, bandRow: true, bandColumn: false },
+    })
+    expect(imported.tableStyles).toEqual({
+      'style-1': {
+        id: 'style-1',
+        regions: {
+          wholeTable: { fill: { color: { type: 'srgb', v: 'FFFFFF' } }, borders: { bottom: { color: { type: 'srgb', v: '111111' }, width: 1000, style: 'solid' } } },
+          band1H: { fill: { color: { type: 'srgb', v: 'EEEEEE' } } },
+          firstRow: { fill: { color: { type: 'srgb', v: 'FF0000' } } },
+        },
+      },
+    })
+    expect(imported.source?.entries['ppt/tableStyles.xml']).toBe(styleXml)
+    expect(imported.elements.el_2).toMatchObject({ kind: 'text', text: 'Neighbor' })
+    expect(structuredClone(imported)).toEqual(imported)
+  })
+
   it('ignores unusable tables while importing neighboring elements', async () => {
     const malformedTableFiles = {
       ...tableFiles,
