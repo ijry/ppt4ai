@@ -45,6 +45,24 @@ const enUS = {
     unnamed: 'Unnamed image ({id})',
     unknownDimensions: 'Unknown dimensions',
   },
+  playground: {
+    assetHost: {
+      title: 'Asset operation status',
+      selectedAsset: 'Selected asset',
+      selectedElement: 'Selected element',
+      undoDepth: 'Undo depth',
+      statusLabel: 'Latest operation',
+      status: {
+        idle: 'Waiting for an operation',
+        'asset-selected': 'Asset selected',
+        'asset-inserted': 'Image inserted',
+        'asset-replaced': 'Image replaced',
+        'asset-missing': 'Asset is missing',
+        'image-target-required': 'Select an image first',
+        'asset-operation-failed': 'Image operation failed',
+      },
+    },
+  },
 } as const
 
 export default enUS

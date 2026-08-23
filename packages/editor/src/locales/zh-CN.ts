@@ -45,6 +45,24 @@ const zhCN = {
     unnamed: '未命名图片（{id}）',
     unknownDimensions: '尺寸未知',
   },
+  playground: {
+    assetHost: {
+      title: '资产操作状态',
+      selectedAsset: '当前素材',
+      selectedElement: '当前元素',
+      undoDepth: '撤销深度',
+      statusLabel: '最近操作',
+      status: {
+        idle: '等待操作',
+        'asset-selected': '已选择素材',
+        'asset-inserted': '已插入图片',
+        'asset-replaced': '已替换图片',
+        'asset-missing': '素材不存在',
+        'image-target-required': '请先选择一张图片',
+        'asset-operation-failed': '图片操作失败',
+      },
+    },
+  },
 } as const
 
 export default zhCN
