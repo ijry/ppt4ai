@@ -48,6 +48,16 @@ export interface ImageCanvasRenderer {
   dispose(): void
 }
 
+type LoadOutcome =
+  | { status: 'ready'; image: DecodedImage }
+  | { status: 'failed'; code: 'missing-asset' | 'decode-failed'; message: string }
+
+interface CacheEntry {
+  promise: Promise<LoadOutcome>
+  image?: DecodedImage
+  closed: boolean
+}
+
 function unavailableDecoder(): Promise<DecodedImage> {
   return Promise.reject(new Error('No browser image decoder configured'))
 }
@@ -67,11 +77,44 @@ function renderIssue(node: SceneImageNode, code: ImageRenderIssue['code'], error
 
 export function createImageCanvasRenderer(options: ImageCanvasRendererOptions): ImageCanvasRenderer {
   const decoder = options.decoder ?? (() => unavailableDecoder())
+  const cache = new Map<string, CacheEntry>()
   let disposed = false
+
+  const closeEntry = (entry: CacheEntry, image: DecodedImage): void => {
+    if (entry.closed) return
+    entry.closed = true
+    entry.image = image
+    image.close?.()
+  }
+
+  const load = (node: SceneImageNode): CacheEntry => {
+    const existing = cache.get(node.assetId)
+    if (existing) return existing
+
+    const entry: CacheEntry = {
+      promise: Promise.resolve({ status: 'failed', code: 'decode-failed', message: 'not loaded' }),
+      closed: false,
+    }
+    entry.promise = options.adapter.get(node.assetId)
+      .then(async (data): Promise<LoadOutcome> => {
+        if (!data) return { status: 'failed', code: 'missing-asset', message: 'asset not found' }
+        try {
+          const image = await decoder(data, node.metadata?.mimeType)
+          entry.image = image
+          return { status: 'ready', image }
+        } catch (error) {
+          return { status: 'failed', code: 'decode-failed', message: errorMessage(error) }
+        }
+      })
+      .catch((error): LoadOutcome => ({ status: 'failed', code: 'decode-failed', message: errorMessage(error) }))
+    cache.set(node.assetId, entry)
+    return entry
+  }
 
   return {
     async render(scene, context, viewport = {}): Promise<ImageRenderResult> {
-      if (disposed) throw new Error('Image canvas renderer is disposed')
+      if (disposed) throw new Error('renderer is disposed')
+      if (viewport.signal?.aborted) return { drawnNodeIds: [], skippedNodeIds: [], issues: [] }
 
       const zoom = viewport.zoom ?? options.zoom ?? 1
       const devicePixelRatio = viewport.devicePixelRatio ?? options.devicePixelRatio ?? 1
@@ -90,30 +133,18 @@ export function createImageCanvasRenderer(options: ImageCanvasRendererOptions): 
       context.setTransform(backingScale, 0, 0, backingScale, 0, 0)
 
       const imageNodes = scene.nodes.filter((node): node is SceneImageNode => node.kind === 'image')
-      const loaded = await Promise.all(imageNodes.map(async (node) => {
-        if (viewport.signal?.aborted) return { node, image: undefined, issue: undefined }
-        try {
-          const data = await options.adapter.get(node.assetId)
-          if (!data) return { node, image: undefined, issue: renderIssue(node, 'missing-asset', `Asset not found: ${node.assetId}`) }
-          const image = await decoder(data, node.metadata?.mimeType)
-          return { node, image, issue: undefined }
-        } catch (error) {
-          return { node, image: undefined, issue: renderIssue(node, 'decode-failed', error) }
-        }
-      }))
+      const loaded = await Promise.all(imageNodes.map(async (node) => ({ node, outcome: await load(node).promise })))
 
       const result: ImageRenderResult = { drawnNodeIds: [], skippedNodeIds: [], issues: [] }
       for (const entry of loaded) {
         if (viewport.signal?.aborted) break
-        if (!entry.image) {
-          if (entry.issue) {
-            result.skippedNodeIds.push(entry.node.id)
-            result.issues.push(entry.issue)
-          }
+        if (entry.outcome.status === 'failed') {
+          result.skippedNodeIds.push(entry.node.id)
+          result.issues.push(renderIssue(entry.node, entry.outcome.code, entry.outcome.message))
           continue
         }
         try {
-          context.drawImage(entry.image.source, entry.node.bounds.x, entry.node.bounds.y, entry.node.bounds.w, entry.node.bounds.h)
+          context.drawImage(entry.outcome.image.source, entry.node.bounds.x, entry.node.bounds.y, entry.node.bounds.w, entry.node.bounds.h)
           result.drawnNodeIds.push(entry.node.id)
         } catch (error) {
           result.skippedNodeIds.push(entry.node.id)
@@ -123,10 +154,23 @@ export function createImageCanvasRenderer(options: ImageCanvasRendererOptions): 
       return result
     },
 
-    clearCache(): void {},
+    clearCache(): void {
+      const entries = [...cache.values()]
+      cache.clear()
+      for (const entry of entries) {
+        if (entry.image) {
+          closeEntry(entry, entry.image)
+          continue
+        }
+        void entry.promise.then((outcome) => {
+          if (outcome.status === 'ready') closeEntry(entry, outcome.image)
+        })
+      }
+    },
 
     dispose(): void {
       disposed = true
+      this.clearCache()
     },
   }
 }

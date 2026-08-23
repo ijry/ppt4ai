@@ -5,10 +5,13 @@ import { createImageCanvasRenderer, type DecodedImage, type ImageDecoder } from 
 
 class RecordingAdapter implements AssetAdapter {
   readonly getCalls: string[] = []
+  readonly assets = new Map<string, Uint8Array | undefined>()
 
   async get(assetId: string): Promise<Uint8Array | undefined> {
     this.getCalls.push(assetId)
-    return new Uint8Array([assetId.endsWith('a') ? 1 : 2])
+    return this.assets.has(assetId)
+      ? this.assets.get(assetId)
+      : new Uint8Array([assetId.endsWith('a') ? 1 : 2])
   }
 
   async put(_assetId: string, _data: Uint8Array, _metadata: AssetMetadata): Promise<void> {}
@@ -48,6 +51,31 @@ function createRecordingContext(): CanvasRenderingContext2D & {
   }
 }
 
+function createSceneWithImages(...images: Array<{ id: string; assetId: string }>): SceneGraph {
+  return {
+    slideId: 'slide-1',
+    page: { w: 9144000, h: 5143500 },
+    nodes: images.map((image, index) => ({
+      id: image.id,
+      kind: 'image' as const,
+      bounds: { x: index * 100, y: index * 100, w: 100, h: 100 },
+      assetId: image.assetId,
+      metadata: { id: image.assetId, mimeType: 'image/png' as const },
+    })),
+  }
+}
+
+function createDecoder(sourceByByte = new Map<number, { id: string }>()): ImageDecoder & { calls: number[] } {
+  const calls: number[] = []
+  const decoder = (async (data: Uint8Array): Promise<DecodedImage> => {
+    calls.push(data[0] ?? 0)
+    const source = sourceByByte.get(data[0] ?? 0) ?? { id: `decoded-${data[0] ?? 0}` }
+    return { source: source as unknown as CanvasImageSource, width: 100, height: 100 }
+  }) as ImageDecoder & { calls: number[] }
+  decoder.calls = calls
+  return decoder
+}
+
 describe('image canvas renderer', () => {
   it('paints image nodes in scene order with EMU and high-DPI scaling', async () => {
     const adapter = new RecordingAdapter()
@@ -72,5 +100,121 @@ describe('image canvas renderer', () => {
     ])
     expect(result).toEqual({ drawnNodeIds: ['image-a', 'image-b'], skippedNodeIds: [], issues: [] })
     expect(structuredClone(result)).toEqual(result)
+  })
+
+  it('deduplicates cached assets across duplicate nodes and renders', async () => {
+    const adapter = new RecordingAdapter()
+    const decoder = createDecoder()
+    const renderer = createImageCanvasRenderer({ adapter, decoder })
+    const scene = createSceneWithImages(
+      { id: 'image-a', assetId: 'asset-shared' },
+      { id: 'image-b', assetId: 'asset-shared' },
+    )
+
+    const first = await renderer.render(scene, createRecordingContext())
+    const second = await renderer.render(scene, createRecordingContext())
+
+    expect(first.drawnNodeIds).toEqual(['image-a', 'image-b'])
+    expect(second.drawnNodeIds).toEqual(['image-a', 'image-b'])
+    expect(adapter.getCalls).toEqual(['asset-shared'])
+    expect(decoder.calls).toHaveLength(1)
+  })
+
+  it('deduplicates in-flight loads across concurrent renders', async () => {
+    const adapter = new RecordingAdapter()
+    let release: (() => void) | undefined
+    const decoder = (async (data: Uint8Array): Promise<DecodedImage> => {
+      await new Promise<void>((resolve) => { release = resolve })
+      return { source: { id: data[0] } as unknown as CanvasImageSource, width: 1, height: 1 }
+    })
+    const renderer = createImageCanvasRenderer({ adapter, decoder })
+    const scene = createSceneWithImages({ id: 'image-a', assetId: 'asset-shared' })
+    const first = renderer.render(scene, createRecordingContext())
+    const second = renderer.render(scene, createRecordingContext())
+    await Promise.resolve()
+    release?.()
+
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2)
+    expect(adapter.getCalls).toEqual(['asset-shared'])
+  })
+
+  it('reports per-node load and draw failures without aborting other images', async () => {
+    const adapter = new RecordingAdapter()
+    adapter.assets.set('asset-missing', undefined)
+    adapter.assets.set('asset-bad', new Uint8Array([3]))
+    adapter.assets.set('asset-draw', new Uint8Array([4]))
+    adapter.assets.set('asset-good', new Uint8Array([5]))
+    const decoder: ImageDecoder = async (data) => {
+      if (data[0] === 3) throw new Error('bad bitmap')
+      return { source: { id: data[0] } as unknown as CanvasImageSource, width: 1, height: 1 }
+    }
+    const context = createRecordingContext()
+    context.drawImage = ((source: CanvasImageSource) => {
+      if ((source as unknown as { id: number }).id === 4) throw new Error('draw rejected')
+      context.draws.push({ source: source as unknown as { id: string }, bounds: { x: 0, y: 0, w: 1, h: 1 } })
+    }) as CanvasRenderingContext2D['drawImage']
+    const renderer = createImageCanvasRenderer({ adapter, decoder })
+
+    const result = await renderer.render(createSceneWithImages(
+      { id: 'image-missing', assetId: 'asset-missing' },
+      { id: 'image-bad', assetId: 'asset-bad' },
+      { id: 'image-draw', assetId: 'asset-draw' },
+      { id: 'image-good', assetId: 'asset-good' },
+    ), context)
+
+    expect(result.issues).toEqual([
+      { nodeId: 'image-missing', assetId: 'asset-missing', code: 'missing-asset', message: 'asset not found' },
+      { nodeId: 'image-bad', assetId: 'asset-bad', code: 'decode-failed', message: 'bad bitmap' },
+      { nodeId: 'image-draw', assetId: 'asset-draw', code: 'draw-failed', message: 'draw rejected' },
+    ])
+    expect(result.skippedNodeIds).toEqual(['image-missing', 'image-bad', 'image-draw'])
+    expect(result.drawnNodeIds).toEqual(['image-good'])
+  })
+
+  it('closes decoded resources on cache clear and retries failed entries', async () => {
+    const adapter = new RecordingAdapter()
+    adapter.assets.set('asset-bad', new Uint8Array([3]))
+    let closeCalls = 0
+    let decodeCalls = 0
+    const decoder: ImageDecoder = async (data) => {
+      decodeCalls += 1
+      if (data[0] === 3 && decodeCalls === 1) throw new Error('bad bitmap')
+      return { source: {} as CanvasImageSource, width: 1, height: 1, close: () => { closeCalls += 1 } }
+    }
+    const renderer = createImageCanvasRenderer({ adapter, decoder })
+    const scene = createSceneWithImages({ id: 'image-a', assetId: 'asset-a' }, { id: 'image-b', assetId: 'asset-bad' })
+
+    await renderer.render(scene, createRecordingContext())
+    await renderer.render(scene, createRecordingContext())
+    expect(decodeCalls).toBe(2)
+    renderer.clearCache()
+    expect(closeCalls).toBe(2)
+    await renderer.render(scene, createRecordingContext())
+    expect(decodeCalls).toBe(4)
+  })
+
+  it('disposes resources and rejects later renders', async () => {
+    let closeCalls = 0
+    const renderer = createImageCanvasRenderer({
+      adapter: new RecordingAdapter(),
+      decoder: async () => ({ source: {} as CanvasImageSource, width: 1, height: 1, close: () => { closeCalls += 1 } }),
+    })
+    await renderer.render(createSceneWithImages({ id: 'image-a', assetId: 'asset-a' }), createRecordingContext())
+    renderer.dispose()
+    expect(closeCalls).toBe(1)
+    await expect(renderer.render(createSceneWithImages({ id: 'image-a', assetId: 'asset-a' }), createRecordingContext()))
+      .rejects.toThrow('renderer is disposed')
+  })
+
+  it('returns an empty result for an already-aborted render', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const context = createRecordingContext()
+    const renderer = createImageCanvasRenderer({ adapter: new RecordingAdapter(), decoder: createDecoder() })
+
+    const result = await renderer.render(createSceneWithImages({ id: 'image-a', assetId: 'asset-a' }), context, { signal: controller.signal })
+
+    expect(result).toEqual({ drawnNodeIds: [], skippedNodeIds: [], issues: [] })
+    expect(context.draws).toEqual([])
   })
 })
