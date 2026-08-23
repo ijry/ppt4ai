@@ -1,5 +1,7 @@
 export type PresetGeometry = 'rect' | 'roundRect' | 'ellipse' | 'triangle'
 
+export { parseBitmapMetadata, type BitmapMetadata } from './bitmap-metadata'
+
 export interface Rect {
   x: number
   y: number
