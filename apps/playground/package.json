@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@ppt4ai/editor": "workspace:*",
+    "@ppt4ai/engine": "workspace:*",
+    "@ppt4ai/model": "workspace:*",
     "vue": "3.5.41",
     "vue-i18n": "11.2.8"
   },

@@ -38,6 +38,12 @@ importers:
       '@ppt4ai/editor':
         specifier: workspace:*
         version: link:../../packages/editor
+      '@ppt4ai/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      '@ppt4ai/model':
+        specifier: workspace:*
+        version: link:../../packages/model
       vue:
         specifier: 3.5.41
         version: 3.5.41(typescript@6.0.3)
