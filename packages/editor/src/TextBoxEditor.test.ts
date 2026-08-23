@@ -103,6 +103,7 @@ describe('TextBoxEditor', () => {
   it('keeps composition provisional text out of the body and commits once', async () => {
     const harness: BridgeHarness = { destroyCount: 0, caretRects: [] }
     const bodies: TextBody[] = []
+    const composing: boolean[] = []
     const host = document.createElement('div')
     document.body.append(host)
     const app = createApp({
@@ -113,6 +114,7 @@ describe('TextBoxEditor', () => {
         active: true,
         bridgeFactory: createBridgeFactory(harness),
         'onUpdate:body': (nextBody: TextBody) => bodies.push(nextBody),
+        'onUpdate:composing': (value: boolean) => composing.push(value),
       }),
     })
     app.mount(host)
@@ -123,12 +125,40 @@ describe('TextBoxEditor', () => {
     await nextTick()
     expect(host.querySelectorAll('[data-text-composition]').length).toBeGreaterThan(0)
     expect(bodies).toEqual([])
+    expect(composing).toEqual([true])
     expect(host.querySelector('[data-text-box-editor]')?.textContent).toBe('')
 
     harness.options?.onEvent({ type: 'composition-end', text: '中' })
     harness.options?.onEvent({ type: 'text-input', text: '中' })
     await nextTick()
     expect(bodies).toEqual([{ paragraphs: [{ runs: [{ text: '中' }] }] }])
+    expect(composing).toEqual([true, false])
+
+    app.unmount()
+    host.remove()
+  })
+
+  it('hides only the resize frame when the selection frame is disabled', async () => {
+    const harness: BridgeHarness = { destroyCount: 0, caretRects: [] }
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp({
+      setup: () => () => h(TextBoxEditor, {
+        body,
+        bounds,
+        transform,
+        active: true,
+        selectionFrame: 'none',
+        bridgeFactory: createBridgeFactory(harness),
+      }),
+    })
+    app.mount(host)
+    await nextTick()
+
+    expect(host.querySelector('[data-text-box-surface]')).not.toBeNull()
+    expect(host.querySelector('[data-text-caret]')).not.toBeNull()
+    expect(host.querySelector('[data-selection-border]')).toBeNull()
+    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(0)
 
     app.unmount()
     host.remove()

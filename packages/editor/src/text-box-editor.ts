@@ -9,8 +9,11 @@ export interface TextBoxEditorProps {
   readonly transform: TextViewportTransform
   readonly active: boolean
   readonly selection?: TextEditorSelection
+  readonly selectionFrame?: TextBoxEditorSelectionFrame
   readonly bridgeFactory?: (options: ImeInputBridgeOptions) => ImeInputBridge
 }
+
+export type TextBoxEditorSelectionFrame = 'resize' | 'none'
 
 export interface TextBoxEditorResizePayload {
   readonly handle: SelectionHandle

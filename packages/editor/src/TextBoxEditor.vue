@@ -23,6 +23,7 @@ import type { TextBoxEditorProps, TextBoxEditorResizePayload } from './text-box-
 const props = defineProps<TextBoxEditorProps>()
 const emit = defineEmits<{
   (event: 'update:body', body: TextBody): void
+  (event: 'update:composing', composing: boolean): void
   (event: 'update:selection', selection: TextEditorSelection): void
   (event: 'update:formatting', state: TextFormattingState): void
   (event: 'resize-start', payload: TextBoxEditorResizePayload): void
@@ -97,7 +98,9 @@ function createController(): void {
   unsubscribe = nextController.subscribe((nextSnapshot) => {
     const previousBody = lastBody.value
     const previousSelection = lastSelection.value
+    const previousComposing = snapshot.value?.composing ?? false
     snapshot.value = nextSnapshot
+    if (previousComposing !== nextSnapshot.composing) emit('update:composing', nextSnapshot.composing)
     emit('update:formatting', nextController.getFormattingState())
     lastBody.value = JSON.stringify(nextSnapshot.body)
     lastSelection.value = selectionKey(nextSnapshot.selection)
@@ -110,6 +113,7 @@ function createController(): void {
 
 function destroyController(): void {
   detachPointerListeners()
+  if (snapshot.value?.composing) emit('update:composing', false)
   unsubscribe?.()
   unsubscribe = undefined
   controller.value?.destroy()
@@ -214,7 +218,7 @@ onBeforeUnmount(destroyController)
       :composition="interaction.composition"
     />
     <SelectionOverlay
-      v-if="props.active"
+      v-if="props.active && props.selectionFrame !== 'none'"
       :active="true"
       :bounds="selectionBounds"
       @resize-start="emit('resize-start', $event)"
