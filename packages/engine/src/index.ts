@@ -57,7 +57,9 @@ export interface TableCellSelection {
 export type EngineCommand =
   | { type: 'select'; elementIds: string[]; additive?: boolean }
   | { type: 'insertImage'; slideId: string; element: ImageElement; asset: AssetMetadata }
+  | { type: 'insertImageReference'; slideId: string; element: ImageElement; assetId: string }
   | { type: 'replaceImageAsset'; elementId: string; asset: AssetMetadata }
+  | { type: 'replaceImageAssetReference'; elementId: string; assetId: string }
   | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
   | { type: 'setTableCellText'; body: TextBody }
   | { type: 'setTableCellFill'; fill: Fill | null }
@@ -574,8 +576,16 @@ export class EditorEngine {
         this.insertImage(command.slideId, command.element, command.asset)
         break
       }
+      case 'insertImageReference': {
+        this.insertImageReference(command.slideId, command.element, command.assetId)
+        break
+      }
       case 'replaceImageAsset': {
         this.replaceImageAsset(command.elementId, command.asset)
+        break
+      }
+      case 'replaceImageAssetReference': {
+        this.replaceImageAssetReference(command.elementId, command.assetId)
         break
       }
       case 'selectTableCell': {
@@ -922,6 +932,27 @@ export class EditorEngine {
     this.tableCellSelection = undefined
   }
 
+  private insertImageReference(slideId: string, element: ImageElement, assetId: string): void {
+    const slide = this.document.slides[slideId]
+    if (!slide) throw new Error(`slide does not exist: ${slideId}`)
+    if (this.document.elements[element.id]) throw new Error(`element already exists: ${element.id}`)
+    if (!this.document.assets?.[assetId]) throw new Error(`asset does not exist: ${assetId}`)
+    if (element.assetId !== assetId) throw new Error(`image element asset does not match reference: ${element.id}`)
+
+    const nextDocument = clone(this.document)
+    nextDocument.elements[element.id] = clone(element)
+    nextDocument.slides[slideId]!.elementIds = [...slide.elementIds, element.id]
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`image insertion is invalid: ${validation.errors.join('; ')}`)
+
+    this.commit([
+      { path: ['elements', element.id], value: nextDocument.elements[element.id] },
+      { path: ['slides', slideId, 'elementIds'], value: nextDocument.slides[slideId]!.elementIds },
+    ])
+    this.selection = [element.id]
+    this.tableCellSelection = undefined
+  }
+
   private replaceImageAsset(elementId: string, asset: AssetMetadata): void {
     const element = this.document.elements[elementId]
     if (!element) throw new Error(`element does not exist: ${elementId}`)
@@ -934,6 +965,29 @@ export class EditorEngine {
     nextDocument.assets = { ...(nextDocument.assets ?? {}), [asset.id]: clone(asset) }
     const stillReferenced = Object.values(nextDocument.elements).some((candidate) => candidate.kind === 'image' && candidate.assetId === element.assetId)
     if (!stillReferenced) delete nextDocument.assets[element.assetId]
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`image replacement is invalid: ${validation.errors.join('; ')}`)
+
+    this.commit([
+      { path: ['assets'], value: nextDocument.assets },
+      { path: ['elements', elementId], value: nextDocument.elements[elementId] },
+    ])
+  }
+
+  private replaceImageAssetReference(elementId: string, assetId: string): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`element does not exist: ${elementId}`)
+    if (element.kind !== 'image') throw new Error(`element is not an image: ${elementId}`)
+    if (element.assetId === assetId) throw new Error(`replacement asset must differ: ${assetId}`)
+    if (!this.document.assets?.[assetId]) throw new Error(`asset does not exist: ${assetId}`)
+
+    const nextDocument = clone(this.document)
+    nextDocument.elements[elementId] = { ...element, assetId }
+    const stillReferenced = Object.values(nextDocument.elements).some((candidate) => candidate.kind === 'image' && candidate.assetId === element.assetId)
+    if (!stillReferenced) {
+      nextDocument.assets = { ...(nextDocument.assets ?? {}) }
+      delete nextDocument.assets[element.assetId]
+    }
     const validation = validateDocument(nextDocument)
     if (!validation.valid) throw new Error(`image replacement is invalid: ${validation.errors.join('; ')}`)
 

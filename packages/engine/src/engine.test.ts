@@ -61,6 +61,12 @@ function makeImageDocument(sharedAsset = false): Ppt4aiDocument {
   return document
 }
 
+function makeAssetReferenceDocument(sharedAsset = false): Ppt4aiDocument {
+  const document = makeImageDocument(sharedAsset)
+  document.assets!.asset_spare = imageAsset('asset_spare', 'image/jpeg')
+  return document
+}
+
 function makeTableDocument(): Ppt4aiDocument {
   const document = makeDocument()
   document.slides.sld_1!.elementIds.push('el_table')
@@ -222,6 +228,62 @@ describe('EditorEngine', () => {
     expect(engine.getState().document.assets).toEqual({ asset_old: imageAsset('asset_old'), asset_new: imageAsset('asset_new') })
     const state = engine.dispatch({ type: 'replaceImageAsset', elementId: 'img_2', asset: imageAsset('asset_final') })
     expect(state.document.assets).toEqual({ asset_new: imageAsset('asset_new'), asset_final: imageAsset('asset_final') })
+  })
+
+  it('inserts an image that reuses existing asset metadata atomically', () => {
+    const document = makeAssetReferenceDocument()
+    const engine = new EditorEngine(document)
+    const element = imageElement('img_new', 'asset_spare')
+    const state = engine.dispatch({ type: 'insertImageReference', slideId: 'sld_1', element, assetId: 'asset_spare' })
+
+    expect(state.document.slides.sld_1?.elementIds).toEqual(['el_a', 'el_b', 'img_1', 'img_new'])
+    expect(state.document.elements.img_new).toEqual(element)
+    expect(state.document.assets).toEqual(document.assets)
+    expect(state.selection).toEqual(['img_new'])
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(engine.dispatch({ type: 'undo' }).document).toEqual(document)
+    expect(engine.dispatch({ type: 'redo' }).document).toEqual(state.document)
+  })
+
+  it('replaces an image with an existing asset while preserving appearance', () => {
+    const document = makeAssetReferenceDocument()
+    const before = document.elements.img_1 as ImageElement
+    const engine = new EditorEngine(document)
+    const state = engine.dispatch({ type: 'replaceImageAssetReference', elementId: 'img_1', assetId: 'asset_spare' })
+
+    expect(state.document.elements.img_1).toEqual({ ...before, assetId: 'asset_spare' })
+    expect(state.document.assets).toEqual({ asset_spare: imageAsset('asset_spare', 'image/jpeg') })
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(engine.dispatch({ type: 'undo' }).document).toEqual(document)
+    expect(engine.dispatch({ type: 'redo' }).document).toEqual(state.document)
+  })
+
+  it('keeps old metadata while another image still references it', () => {
+    const engine = new EditorEngine(makeAssetReferenceDocument(true))
+    const state = engine.dispatch({ type: 'replaceImageAssetReference', elementId: 'img_1', assetId: 'asset_spare' })
+
+    expect(state.document.assets).toEqual({
+      asset_old: imageAsset('asset_old'),
+      asset_spare: imageAsset('asset_spare', 'image/jpeg'),
+    })
+    expect((state.document.elements.img_2 as ImageElement).assetId).toBe('asset_old')
+  })
+
+  it.each([
+    ['slide does not exist: missing', { type: 'insertImageReference', slideId: 'missing', element: imageElement('img_new', 'asset_spare'), assetId: 'asset_spare' }],
+    ['element already exists: img_1', { type: 'insertImageReference', slideId: 'sld_1', element: imageElement('img_1', 'asset_spare'), assetId: 'asset_spare' }],
+    ['asset does not exist: asset_missing', { type: 'insertImageReference', slideId: 'sld_1', element: imageElement('img_new', 'asset_missing'), assetId: 'asset_missing' }],
+    ['image element asset does not match reference: img_new', { type: 'insertImageReference', slideId: 'sld_1', element: imageElement('img_new', 'asset_spare'), assetId: 'asset_old' }],
+    ['element does not exist: missing', { type: 'replaceImageAssetReference', elementId: 'missing', assetId: 'asset_spare' }],
+    ['element is not an image: el_a', { type: 'replaceImageAssetReference', elementId: 'el_a', assetId: 'asset_spare' }],
+    ['replacement asset must differ: asset_old', { type: 'replaceImageAssetReference', elementId: 'img_1', assetId: 'asset_old' }],
+    ['asset does not exist: asset_missing', { type: 'replaceImageAssetReference', elementId: 'img_1', assetId: 'asset_missing' }],
+  ] as const)('rejects invalid existing-asset operation %s atomically', (message, command) => {
+    const engine = new EditorEngine(makeAssetReferenceDocument())
+    const before = engine.getState()
+
+    expect(() => engine.dispatch(command)).toThrow(message)
+    expect(engine.getState()).toEqual(before)
   })
 
   it.each([
