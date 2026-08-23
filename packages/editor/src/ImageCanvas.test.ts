@@ -38,6 +38,9 @@ function recordingContext(): CanvasRenderingContext2D & { draws: string[] } {
     draws: [] as string[],
     clearRect: vi.fn(),
     setTransform: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    translate: vi.fn(),
     drawImage: vi.fn((source: CanvasImageSource) => {
       context.draws.push((source as unknown as { id: string }).id)
     }),

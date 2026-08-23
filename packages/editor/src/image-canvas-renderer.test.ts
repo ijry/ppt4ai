@@ -32,26 +32,83 @@ function createScene(): SceneGraph {
 function createRecordingContext(): CanvasRenderingContext2D & {
   draws: Array<{ source: { id: string }; bounds: { x: number; y: number; w: number; h: number } }>
   transforms: number[][]
+  saves: number
+  restores: number
+  translations: number[][]
+  rotations: number[]
+  scales: number[][]
+  ellipses: number[][]
+  clips: number
+  drawArgs: unknown[][]
+  globalAlpha: number
+  filter: string
 } {
   const canvas = { width: 0, height: 0, style: { width: '', height: '' } }
   const draws: Array<{ source: { id: string }; bounds: { x: number; y: number; w: number; h: number } }> = []
   const transforms: number[][] = []
+  const translations: number[][] = []
+  const rotations: number[] = []
+  const scales: number[][] = []
+  const ellipses: number[][] = []
+  const drawArgs: unknown[][] = []
+  let saves = 0
+  let restores = 0
+  let clips = 0
+  let globalAlpha = 1
+  let filter = 'none'
   return {
     canvas,
     draws,
     transforms,
+    get saves() { return saves },
+    get restores() { return restores },
+    translations,
+    rotations,
+    scales,
+    ellipses,
+    get clips() { return clips },
+    drawArgs,
+    get globalAlpha() { return globalAlpha },
+    set globalAlpha(value: number) { globalAlpha = value },
+    get filter() { return filter },
+    set filter(value: string) { filter = value },
     clearRect: () => {},
-    drawImage: (source: CanvasImageSource, x: number, y: number, w: number, h: number) => {
-      draws.push({ source: source as unknown as { id: string }, bounds: { x, y, w, h } })
+    save: () => { saves += 1 },
+    restore: () => { restores += 1 },
+    translate: (...values: number[]) => { translations.push(values) },
+    rotate: (value: number) => { rotations.push(value) },
+    scale: (...values: number[]) => { scales.push(values) },
+    beginPath: () => {},
+    rect: () => {},
+    ellipse: (...values: number[]) => { ellipses.push(values) },
+    moveTo: () => {},
+    lineTo: () => {},
+    closePath: () => {},
+    clip: () => { clips += 1 },
+    drawImage: (...args: unknown[]) => {
+      drawArgs.push(args)
+      const source = args[0] as { id: string }
+      const values = args.length === 9 ? args.slice(5) : args.slice(1)
+      draws.push({ source, bounds: { x: values[0] as number, y: values[1] as number, w: values[2] as number, h: values[3] as number } })
     },
     setTransform: (...values: number[]) => { transforms.push(values) },
   } as unknown as CanvasRenderingContext2D & {
     draws: Array<{ source: { id: string }; bounds: { x: number; y: number; w: number; h: number } }>
     transforms: number[][]
+    saves: number
+    restores: number
+    translations: number[][]
+    rotations: number[]
+    scales: number[][]
+    ellipses: number[][]
+    clips: number
+    drawArgs: unknown[][]
+    globalAlpha: number
+    filter: string
   }
 }
 
-function createSceneWithImages(...images: Array<{ id: string; assetId: string }>): SceneGraph {
+function createSceneWithImages(...images: Array<{ id: string; assetId: string; maskPreset?: 'ellipse' }>): SceneGraph {
   return {
     slideId: 'slide-1',
     page: { w: 9144000, h: 5143500 },
@@ -61,6 +118,7 @@ function createSceneWithImages(...images: Array<{ id: string; assetId: string }>
       bounds: { x: index * 100, y: index * 100, w: 100, h: 100 },
       assetId: image.assetId,
       metadata: { id: image.assetId, mimeType: 'image/png' as const },
+      ...(image.maskPreset ? { maskPreset: image.maskPreset } : {}),
     })),
   }
 }
@@ -95,8 +153,8 @@ describe('image canvas renderer', () => {
     expect(context.transforms.at(-1)).toEqual([2 * 96 / 914400 * 1.5, 0, 0, 2 * 96 / 914400 * 1.5, 0, 0])
     expect(context.draws.map((draw) => draw.source.id)).toEqual(['decoded-a', 'decoded-b'])
     expect(context.draws.map((draw) => draw.bounds)).toEqual([
-      { x: 100, y: 200, w: 300, h: 400 },
-      { x: 500, y: 600, w: 700, h: 800 },
+      { x: -150, y: -200, w: 300, h: 400 },
+      { x: -350, y: -400, w: 700, h: 800 },
     ])
     expect(result).toEqual({ drawnNodeIds: ['image-a', 'image-b'], skippedNodeIds: [], issues: [] })
     expect(structuredClone(result)).toEqual(result)
@@ -118,6 +176,62 @@ describe('image canvas renderer', () => {
     expect(second.drawnNodeIds).toEqual(['image-a', 'image-b'])
     expect(adapter.getCalls).toEqual(['asset-shared'])
     expect(decoder.calls).toHaveLength(1)
+  })
+
+  it('paints image appearance using centered transforms, crop, mask, and effects', async () => {
+    const adapter = new RecordingAdapter()
+    const source = { id: 'appearance-source' }
+    const decoder: ImageDecoder = async (): Promise<DecodedImage> => ({ source: source as unknown as CanvasImageSource, width: 200, height: 100 })
+    const renderer = createImageCanvasRenderer({ adapter, decoder })
+    const context = createRecordingContext()
+    const result = await renderer.render({
+      slideId: 'slide-1',
+      page: { w: 9144000, h: 5143500 },
+      nodes: [{
+        id: 'image-appearance',
+        kind: 'image',
+        bounds: { x: 1000, y: 2000, w: 300, h: 400 },
+        assetId: 'asset-appearance',
+        transform: { rotation: 5400000, flipH: true },
+        sourceCrop: { left: 10000, top: 20000, right: 30000, bottom: 10000 },
+        maskPreset: 'ellipse',
+        effects: [{ type: 'alphaModFix', amount: 50000 }, { type: 'grayscl' }],
+      }],
+    }, context)
+
+    expect(context.drawArgs).toEqual([[source, 20, 20, 120, 70, -150, -200, 300, 400]])
+    expect(context.translations).toEqual([[1150, 2200]])
+    expect(context.rotations).toEqual([Math.PI / 2])
+    expect(context.scales).toContainEqual([-1, 1])
+    expect(context.ellipses).toContainEqual([0, 0, 150, 200, 0, 0, Math.PI * 2])
+    expect(context.clips).toBe(1)
+    expect(context.globalAlpha).toBe(0.5)
+    expect(context.filter).toBe('grayscale(1)')
+    expect(context.saves).toBe(1)
+    expect(context.restores).toBe(1)
+    expect(result.drawnNodeIds).toEqual(['image-appearance'])
+  })
+
+  it('restores failed image paint state and continues with following images', async () => {
+    const adapter = new RecordingAdapter()
+    const decoder: ImageDecoder = async (data): Promise<DecodedImage> => ({
+      source: { id: data[0] } as unknown as CanvasImageSource,
+      width: 20,
+      height: 20,
+    })
+    const context = createRecordingContext()
+    context.clip = (() => { throw new Error('clip rejected') }) as CanvasRenderingContext2D['clip']
+    const renderer = createImageCanvasRenderer({ adapter, decoder })
+
+    const result = await renderer.render(createSceneWithImages(
+      { id: 'image-failed', assetId: 'asset-failed', maskPreset: 'ellipse' },
+      { id: 'image-good', assetId: 'asset-good' },
+    ), context)
+
+    expect(result.issues).toEqual([{ nodeId: 'image-failed', assetId: 'asset-failed', code: 'draw-failed', message: 'clip rejected' }])
+    expect(result.drawnNodeIds).toEqual(['image-good'])
+    expect(context.saves).toBe(2)
+    expect(context.restores).toBe(2)
   })
 
   it('deduplicates in-flight loads across concurrent renders', async () => {
