@@ -60,6 +60,14 @@ interface CacheEntry {
   closed: boolean
 }
 
+export type ImageLoadOutcome = LoadOutcome
+
+export interface ImageNodeLoader {
+  load(node: SceneImageNode): Promise<ImageLoadOutcome>
+  clearCache(): void
+  dispose(): void
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -73,7 +81,7 @@ function renderIssue(node: SceneImageNode, code: ImageRenderIssue['code'], error
   }
 }
 
-export function createImageCanvasRenderer(options: ImageCanvasRendererOptions): ImageCanvasRenderer {
+export function createImageNodeLoader(options: Pick<ImageCanvasRendererOptions, 'adapter' | 'decoder'>): ImageNodeLoader {
   const decoder = options.decoder ?? decodeBrowserImage
   const cache = new Map<string, CacheEntry>()
   let disposed = false
@@ -110,6 +118,36 @@ export function createImageCanvasRenderer(options: ImageCanvasRendererOptions): 
   }
 
   return {
+    async load(node): Promise<ImageLoadOutcome> {
+      if (disposed) throw new Error('renderer is disposed')
+      return load(node).promise
+    },
+    clearCache(): void {
+      const entries = [...cache.values()]
+      cache.clear()
+      for (const entry of entries) {
+        if (entry.image) {
+          closeEntry(entry, entry.image)
+          continue
+        }
+        void entry.promise.then((outcome) => {
+          if (outcome.status === 'ready') closeEntry(entry, outcome.image)
+        })
+      }
+    },
+
+    dispose(): void {
+      disposed = true
+      this.clearCache()
+    },
+  }
+}
+
+export function createImageCanvasRenderer(options: ImageCanvasRendererOptions): ImageCanvasRenderer {
+  const loader = createImageNodeLoader(options)
+  let disposed = false
+
+  return {
     async render(scene, context, viewport = {}): Promise<ImageRenderResult> {
       if (disposed) throw new Error('renderer is disposed')
       if (viewport.signal?.aborted) return { drawnNodeIds: [], skippedNodeIds: [], issues: [] }
@@ -131,7 +169,7 @@ export function createImageCanvasRenderer(options: ImageCanvasRendererOptions): 
       context.setTransform(backingScale, 0, 0, backingScale, 0, 0)
 
       const imageNodes = scene.nodes.filter((node): node is SceneImageNode => node.kind === 'image')
-      const loaded = await Promise.all(imageNodes.map(async (node) => ({ node, outcome: await load(node).promise })))
+      const loaded = await Promise.all(imageNodes.map(async (node) => ({ node, outcome: await loader.load(node) })))
 
       const result: ImageRenderResult = { drawnNodeIds: [], skippedNodeIds: [], issues: [] }
       for (const entry of loaded) {
@@ -151,24 +189,10 @@ export function createImageCanvasRenderer(options: ImageCanvasRendererOptions): 
       }
       return result
     },
-
-    clearCache(): void {
-      const entries = [...cache.values()]
-      cache.clear()
-      for (const entry of entries) {
-        if (entry.image) {
-          closeEntry(entry, entry.image)
-          continue
-        }
-        void entry.promise.then((outcome) => {
-          if (outcome.status === 'ready') closeEntry(entry, outcome.image)
-        })
-      }
-    },
-
-    dispose(): void {
+    clearCache: () => loader.clearCache(),
+    dispose: () => {
       disposed = true
-      this.clearCache()
+      loader.dispose()
     },
   }
 }

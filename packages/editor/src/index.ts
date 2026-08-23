@@ -58,6 +58,7 @@ export {
 } from './text-editor-interaction'
 export type { TextEditorInteraction, TextViewportTransform } from './text-editor-interaction'
 export { createImageCanvasRenderer } from './image-canvas-renderer'
+export { createSlideCanvasRenderer } from './slide-canvas-renderer'
 export { decodeBrowserImage } from './browser-image-decoder'
 export { default as ImageCanvas } from './ImageCanvas.vue'
 export type {
@@ -69,6 +70,12 @@ export type {
   ImageRenderResult,
   ImageViewport,
 } from './image-canvas-renderer'
+export type {
+  SlideCanvasRenderIssue,
+  SlideCanvasRenderResult,
+  SlideCanvasRenderer,
+  SlideCanvasViewport,
+} from './slide-canvas-renderer'
 export { default as ThumbnailCanvas } from './ThumbnailCanvas.vue'
 export { createThumbnailRenderer, ThumbnailRendererError } from './thumbnail-renderer'
 export type {
