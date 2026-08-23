@@ -57,3 +57,13 @@ export {
   textPositionAtScreenPoint,
 } from './text-editor-interaction'
 export type { TextEditorInteraction, TextViewportTransform } from './text-editor-interaction'
+export { createImageCanvasRenderer } from './image-canvas-renderer'
+export type {
+  DecodedImage,
+  ImageCanvasRenderer,
+  ImageCanvasRendererOptions,
+  ImageDecoder,
+  ImageRenderIssue,
+  ImageRenderResult,
+  ImageViewport,
+} from './image-canvas-renderer'
