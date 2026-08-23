@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef } from 'vue'
+import { computed, nextTick, ref, shallowRef } from 'vue'
 import { AssetLibrary, PptEditor, ThumbnailCanvas } from '@ppt4ai/editor'
 import { useI18n } from 'vue-i18n'
 import { createPlaygroundAssetHost } from './asset-host'
+import { ImageFileReadError, readImageUploadFile, type PlaygroundImageUploadInput } from './image-file-upload'
 import { createThumbnailScene, thumbnailAdapter } from './thumbnail-smoke'
 
 const { t } = useI18n()
@@ -11,6 +12,9 @@ const assetSnapshot = shallowRef(assetHost.getSnapshot())
 const activeSlide = ref<'red' | 'blue'>('red')
 const scene = computed(() => createThumbnailScene(activeSlide.value))
 const thumbnailResult = ref('')
+const fileInput = ref<HTMLInputElement>()
+const pendingUploadIntent = ref<'insert' | 'replace' | undefined>()
+const uploadBusy = ref(false)
 const selectedElementId = computed(() => assetSnapshot.value.engineState.selection.length === 1 ? assetSnapshot.value.engineState.selection[0] : undefined)
 const selectedElementText = computed(() => {
   if (!selectedElementId.value) return '—'
@@ -33,6 +37,48 @@ function replaceAsset(assetId: string): void {
 function statusText(): string {
   const message = assetSnapshot.value.status.message
   return message ? t(`playground.assetHost.status.${message}`) : t('playground.assetHost.status.idle')
+}
+
+function openUploadPicker(intent: 'insert' | 'replace'): void {
+  if (uploadBusy.value) return
+  pendingUploadIntent.value = intent
+  fileInput.value?.click()
+}
+
+async function uploadFile(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  const intent = pendingUploadIntent.value
+  pendingUploadIntent.value = undefined
+  if (!file || !intent) {
+    input.value = ''
+    return
+  }
+  uploadBusy.value = true
+  try {
+    const upload: PlaygroundImageUploadInput = await readImageUploadFile(file)
+    assetSnapshot.value = intent === 'insert'
+      ? await assetHost.uploadAndInsert(upload)
+      : await assetHost.uploadAndReplace(upload)
+  } catch (error) {
+    if (error instanceof ImageFileReadError) {
+      const current = assetSnapshot.value
+      assetSnapshot.value = {
+        ...current,
+        status: { kind: 'error', message: 'image-file-read-failed' },
+      }
+    } else {
+      const current = assetSnapshot.value
+      assetSnapshot.value = {
+        ...current,
+        status: { kind: 'error', message: 'image-upload-failed' },
+      }
+    }
+  } finally {
+    uploadBusy.value = false
+    await nextTick()
+    input.value = ''
+  }
 }
 </script>
 
@@ -63,6 +109,28 @@ function statusText(): string {
       </section>
 
       <aside class="min-w-0 space-y-4">
+        <section class="border border-slate-200 bg-white p-4" :aria-label="t('playground.assetHost.uploadTitle')">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2 class="text-sm font-semibold">{{ t('playground.assetHost.uploadTitle') }}</h2>
+            <span v-if="uploadBusy" data-testid="upload-busy" class="text-xs text-slate-500">{{ t('playground.assetHost.uploading') }}</span>
+          </div>
+          <input
+            ref="fileInput"
+            data-testid="image-file-input"
+            class="sr-only"
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/bmp,image/webp"
+            @change="uploadFile"
+          >
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button data-testid="upload-insert" type="button" :disabled="uploadBusy" class="border border-slate-400 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50" @click="openUploadPicker('insert')">
+              {{ t('playground.assetHost.uploadInsert') }}
+            </button>
+            <button data-testid="upload-replace" type="button" :disabled="uploadBusy" class="border border-slate-400 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50" @click="openUploadPicker('replace')">
+              {{ t('playground.assetHost.uploadReplace') }}
+            </button>
+          </div>
+        </section>
         <AssetLibrary
           :assets="assetSnapshot.engineState.document.assets"
           :adapter="assetHost.adapter"

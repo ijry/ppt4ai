@@ -35,8 +35,10 @@ function select(assetId: string): void {
 }
 
 function renderFinished(itemId: string, result: ThumbnailRenderResult): void {
+  const failed = result.issues.length > 0
+  if (failedAssetIds.value.has(itemId) === failed) return
   const next = new Set(failedAssetIds.value)
-  if (result.issues.length > 0) next.add(itemId)
+  if (failed) next.add(itemId)
   else next.delete(itemId)
   failedAssetIds.value = next
 }

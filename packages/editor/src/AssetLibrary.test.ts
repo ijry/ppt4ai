@@ -108,4 +108,20 @@ describe('AssetLibrary', () => {
     })
     app.unmount()
   })
+
+  it('does not rerender a successful thumbnail when its failure state is unchanged', async () => {
+    const { app, workers } = mountLibrary({ assets: { asset_a: assets.asset_a } })
+    await nextTick()
+
+    workers[0]!.emit({
+      type: 'render-result',
+      requestId: 1,
+      result: { drawnNodeIds: ['asset_a'], skippedNodeIds: [], issues: [] },
+    })
+    await nextTick()
+    await nextTick()
+
+    expect(workers[0]!.posts).toHaveLength(1)
+    app.unmount()
+  })
 })
