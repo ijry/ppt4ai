@@ -1,4 +1,4 @@
-import { type Color, type Element, type ElementDefaults, type Fill, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TextBody, type TextBullet, type TextParagraph, type TextRun } from '@ppt4ai/model'
+import { type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type Fill, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TextBody, type TextBullet, type TextParagraph, type TextRun, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -65,6 +65,32 @@ function parseNumber(value: string | undefined): number | undefined {
   return Number.isFinite(number) ? number : undefined
 }
 
+const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
+const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
+const colorMapKeys = new Set<ColorMapKey>(['bg1', 'tx1', 'bg2', 'tx2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
+
+function parsePercentage(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === '') return undefined
+  const number = parseNumber(value)
+  return number !== undefined && Number.isInteger(number) && number >= 0 && number <= 100000 ? number : undefined
+}
+
+function parseHexColor(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toUpperCase()
+  return normalized && /^[0-9A-F]{6}$/.test(normalized) ? normalized : undefined
+}
+
+function parseColorTransforms(node: XmlNode): ColorTransform[] | undefined {
+  const transforms: ColorTransform[] = []
+  for (const transformNode of node.children) {
+    const type = localName(transformNode.name) as ColorTransformType
+    if (!colorTransformTypes.has(type)) continue
+    const value = parsePercentage(attribute(transformNode, 'val'))
+    if (value !== undefined) transforms.push({ type, value })
+  }
+  return transforms.length > 0 ? transforms : undefined
+}
+
 function parseBounds(shape: XmlNode): Rect | undefined {
   const transform = findDescendants(shape, 'xfrm')[0]
   const off = transform && child(transform, 'off')
@@ -80,22 +106,67 @@ function parseBounds(shape: XmlNode): Rect | undefined {
 
 function parseColor(node: XmlNode | undefined): Color | undefined {
   if (!node) return undefined
-  const srgb = child(node, 'srgbClr')
-  if (srgb) {
-    const value = attribute(srgb, 'val')
-    return value ? { type: 'srgb', v: value } : undefined
-  }
-  const scheme = child(node, 'schemeClr')
-  if (scheme) {
-    const value = attribute(scheme, 'val')
-    return value ? { type: 'scheme', v: value } : undefined
-  }
-  const preset = child(node, 'prstClr')
-  if (preset) {
-    const value = attribute(preset, 'val')
-    return value ? { type: 'preset', v: value } : undefined
+  for (const colorNode of node.children) {
+    const name = localName(colorNode.name)
+    let color: Color | undefined
+    if (name === 'srgbClr') {
+      const value = parseHexColor(attribute(colorNode, 'val'))
+      if (value) color = { type: 'srgb', v: value }
+    } else if (name === 'schemeClr') {
+      const value = attribute(colorNode, 'val')?.trim()
+      if (value) color = { type: 'scheme', v: value }
+    } else if (name === 'prstClr') {
+      const value = attribute(colorNode, 'val')?.trim()
+      if (value) color = { type: 'preset', v: value }
+    } else if (name === 'sysClr') {
+      const value = parseHexColor(attribute(colorNode, 'lastClr'))
+      if (value) color = { type: 'system', v: value }
+    } else if (name === 'scrgbClr') {
+      const red = parsePercentage(attribute(colorNode, 'r'))
+      const green = parsePercentage(attribute(colorNode, 'g'))
+      const blue = parsePercentage(attribute(colorNode, 'b'))
+      if (red !== undefined && green !== undefined && blue !== undefined) color = { type: 'scrgb', v: `${red},${green},${blue}` }
+    }
+    if (!color) continue
+    const transforms = parseColorTransforms(colorNode)
+    return transforms ? { ...color, transforms } : color
   }
   return undefined
+}
+
+function parseTheme(xml: string, id: string): Theme | undefined {
+  let root: XmlNode
+  try {
+    root = parseXml(xml)
+  } catch {
+    return undefined
+  }
+  const scheme = findDescendants(root, 'clrScheme')[0]
+  if (!scheme) return undefined
+  const colors: Theme['colors'] = {}
+  for (const slotNode of scheme.children) {
+    const slot = localName(slotNode.name) as ThemeColorSlot
+    if (!themeColorSlots.has(slot)) continue
+    const color = parseColor(slotNode)
+    if (color) colors[slot] = color
+  }
+  return Object.keys(colors).length > 0 ? { id, colors } : undefined
+}
+
+function parseColorMap(node: XmlNode | undefined): Partial<ColorMap> | undefined {
+  if (!node) return undefined
+  const map: Partial<ColorMap> = {}
+  for (const [attributeName, target] of Object.entries(node.attributes)) {
+    const key = localName(attributeName) as ColorMapKey
+    if (!colorMapKeys.has(key) || !themeColorSlots.has(target as ThemeColorSlot)) continue
+    map[key] = target as ThemeColorSlot
+  }
+  return Object.keys(map).length > 0 ? map : undefined
+}
+
+function parseColorMapOverride(root: XmlNode): Partial<ColorMap> | undefined {
+  const override = findDescendants(root, 'clrMapOvr')[0]
+  return override ? parseColorMap(child(override, 'overrideClrMapping')) : undefined
 }
 
 function parseFill(shape: XmlNode): Fill | undefined {
@@ -445,22 +516,26 @@ function parseDefaults(shape: XmlNode): [string, ElementDefaults] | undefined {
   return [placeholder, defaults]
 }
 
-function parseMaster(path: string, xml: string, id: string): SlideMaster {
+function parseMaster(xml: string, id: string, themeId?: string): SlideMaster {
+  const root = parseXml(xml)
   const defaults: Record<string, ElementDefaults> = {}
-  for (const shape of findDescendants(parseXml(xml), 'sp')) {
+  for (const shape of findDescendants(root, 'sp')) {
     const parsed = parseDefaults(shape)
     if (parsed) defaults[parsed[0]] = parsed[1]
   }
-  return { id, defaults }
+  const colorMap = parseColorMap(findDescendants(root, 'clrMap')[0])
+  return { id, defaults, ...(themeId ? { themeId } : {}), ...(colorMap ? { colorMap } : {}) }
 }
 
-function parseLayout(path: string, xml: string, id: string, masterId: string): SlideLayout {
+function parseLayout(xml: string, id: string, masterId: string): SlideLayout {
+  const root = parseXml(xml)
   const defaults: Record<string, ElementDefaults> = {}
-  for (const shape of findDescendants(parseXml(xml), 'sp')) {
+  for (const shape of findDescendants(root, 'sp')) {
     const parsed = parseDefaults(shape)
     if (parsed) defaults[parsed[0]] = parsed[1]
   }
-  return { id, masterId, defaults }
+  const colorMapOverride = parseColorMapOverride(root)
+  return { id, masterId, defaults, ...(colorMapOverride ? { colorMapOverride } : {}) }
 }
 
 function parsePart(entries: Record<string, Uint8Array>, path: string): ImportedPart | undefined {
@@ -507,12 +582,15 @@ export async function importPptx(input: Uint8Array): Promise<Ppt4aiDocument> {
   const elements: Ppt4aiDocument['elements'] = {}
   const layouts: Record<string, SlideLayout> = {}
   const masters: Record<string, SlideMaster> = {}
+  const themes: NonNullable<Ppt4aiDocument['themes']> = {}
   const slideOrder: string[] = []
   let elementCounter = 1
   let layoutCounter = 1
   let masterCounter = 1
+  let themeCounter = 1
   const layoutIdsByPath = new Map<string, string>()
   const masterIdsByPath = new Map<string, string>()
+  const themeIdsByPath = new Map<string, string | undefined>()
   const tableStylesXml = entries['ppt/tableStyles.xml']
   const tableStyles = tableStylesXml ? parseTableStyles(new TextDecoder().decode(tableStylesXml)) : {}
 
@@ -547,10 +625,31 @@ export async function importPptx(input: Uint8Array): Promise<Ppt4aiDocument> {
             masterId = `mst_${masterCounter++}`
             masterIdsByPath.set(masterPath, masterId)
             const masterPart = parsePart(entries, masterPath)
-            if (masterPart) masters[masterId] = parseMaster(masterPath, new TextDecoder().decode(entries[masterPath]!), masterId)
+            if (masterPart) {
+              const masterRelations = readRelationships(entries, masterPath)
+              const themeRelationship = masterRelations.find((value) => value.type === 'theme')
+              const themePath = themeRelationship ? resolveTarget(masterPath, themeRelationship.target) : undefined
+              let themeId: string | undefined
+              if (themePath) {
+                if (themeIdsByPath.has(themePath)) {
+                  themeId = themeIdsByPath.get(themePath)
+                } else {
+                  const themeBytes = entries[themePath]
+                  const candidateId = `theme_${themeCounter}`
+                  const theme = themeBytes ? parseTheme(new TextDecoder().decode(themeBytes), candidateId) : undefined
+                  if (theme) {
+                    themeCounter += 1
+                    themeId = candidateId
+                    themes[themeId] = theme
+                  }
+                  themeIdsByPath.set(themePath, themeId)
+                }
+              }
+              masters[masterId] = parseMaster(new TextDecoder().decode(entries[masterPath]!), masterId, themeId)
+            }
           }
         }
-        if (layoutPart) layouts[layoutId] = parseLayout(layoutPath, new TextDecoder().decode(entries[layoutPath]!), layoutId, masterId ?? '')
+        if (layoutPart) layouts[layoutId] = parseLayout(new TextDecoder().decode(entries[layoutPath]!), layoutId, masterId ?? '')
       }
     }
 
@@ -562,7 +661,8 @@ export async function importPptx(input: Uint8Array): Promise<Ppt4aiDocument> {
       elements[id] = element
       elementIds.push(id)
     }
-    slides[slideId] = { id: slideId, elementIds, ...(layoutId ? { layoutId } : {}), ...(masterId ? { masterId } : {}) }
+    const colorMapOverride = parseColorMapOverride(slidePart.xml)
+    slides[slideId] = { id: slideId, elementIds, ...(layoutId ? { layoutId } : {}), ...(masterId ? { masterId } : {}), ...(colorMapOverride ? { colorMapOverride } : {}) }
     slideOrder.push(slideId)
   }
 
@@ -577,6 +677,7 @@ export async function importPptx(input: Uint8Array): Promise<Ppt4aiDocument> {
     slideOrder,
     layouts,
     masters,
+    ...(Object.keys(themes).length > 0 ? { themes } : {}),
     ...(Object.keys(tableStyles).length > 0 ? { tableStyles } : {}),
     source: { entries: xmlEntries(entries) },
   }

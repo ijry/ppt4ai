@@ -71,6 +71,15 @@ const bulletFiles = {
   'ppt/slides/slide1.xml': '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="3" name="Body"/><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="4000000" cy="2000000"/></a:xfrm></p:spPr><p:txBody><a:p><a:pPr><a:buChar char="•"><a:rPr typeface="Wingdings"/></a:buChar></a:pPr><a:r><a:t>First</a:t></a:r></a:p><a:p><a:pPr><a:buAutoNum type="arabicPeriod" startAt="3"/></a:pPr><a:r><a:t>Second</a:t></a:r></a:p><a:p><a:pPr><a:buAutoNum type="alphaUcPeriod"/></a:pPr><a:r><a:t>Third</a:t></a:r></a:p><a:p><a:pPr><a:buAutoNum type="unsupportedFormat"/></a:pPr><a:r><a:t>Fourth</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>',
 }
 
+const themeFiles = {
+  ...files,
+  'ppt/slideMasters/_rels/slideMaster1.xml.rels': '<Relationships xmlns="r"><Relationship Id="rIdTheme" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/custom.xml"/></Relationships>',
+  'ppt/theme/custom.xml': '<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Custom"><a:dk1><a:sysClr val="windowText" lastClr="202020"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="111111"/></a:dk2><a:lt2><a:scrgbClr r="100000" g="50000" b="0"/></a:lt2><a:accent1><a:srgbClr val="336699"><a:lumMod val="80000"/><a:lumOff val="10000"/><a:alphaMod val="90000"/><a:alphaOff val="5000"/></a:srgbClr></a:accent1><a:hlink><a:prstClr val="red"/></a:hlink><a:folHlink><a:srgbClr val="ABCDEF"/></a:folHlink></a:clrScheme></a:themeElements></a:theme>',
+  'ppt/slideMasters/slideMaster1.xml': '<p:sldMaster xmlns:p="p" xmlns:a="a"><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent2" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:solidFill><a:srgbClr val="000000"/></a:solidFill></p:spPr></p:sp></p:spTree></p:cSld></p:sldMaster>',
+  'ppt/slideLayouts/slideLayout1.xml': '<p:sldLayout xmlns:p="p" xmlns:a="a"><p:clrMapOvr><a:overrideClrMapping accent1="accent3"/></p:clrMapOvr><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></p:spPr></p:sp></p:spTree></p:cSld></p:sldLayout>',
+  'ppt/slides/slide1.xml': '<p:sld xmlns:p="p" xmlns:a="a"><p:clrMapOvr><a:overrideClrMapping accent1="accent4" unknown="accent1"/><a:masterClrMapping/></p:clrMapOvr><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="3" name="Title"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="4000000" cy="2000000"/></a:xfrm><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></p:spPr><p:txBody><a:p><a:r><a:t>Imported title</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>',
+}
+
 function verticalFiles(value: string | undefined) {
   const bodyPr = value === undefined ? '<a:bodyPr/>' : `<a:bodyPr vert="${value}"/>`
   return {
@@ -250,5 +259,72 @@ describe('importPptx', () => {
     expect(imported.slides.sld_1?.elementIds).toEqual(['el_2'])
     expect(imported.elements.el_2).toMatchObject({ kind: 'text', text: 'Neighbor' })
     expect(structuredClone(imported)).toEqual(imported)
+  })
+
+  it('imports themes through master relationships with ordered transforms and color-map overlays', async () => {
+    const imported = await importPptx(createStoredZip(themeFiles))
+    expect(imported.themes).toEqual({
+      theme_1: {
+        id: 'theme_1',
+        colors: {
+          dk1: { type: 'system', v: '202020' },
+          lt1: { type: 'srgb', v: 'FFFFFF' },
+          dk2: { type: 'srgb', v: '111111' },
+          lt2: { type: 'scrgb', v: '100000,50000,0' },
+          accent1: { type: 'srgb', v: '336699', transforms: [
+            { type: 'lumMod', value: 80000 },
+            { type: 'lumOff', value: 10000 },
+            { type: 'alphaMod', value: 90000 },
+            { type: 'alphaOff', value: 5000 },
+          ] },
+          hlink: { type: 'preset', v: 'red' },
+          folHlink: { type: 'srgb', v: 'ABCDEF' },
+        },
+      },
+    })
+    expect(imported.masters?.mst_1).toMatchObject({ id: 'mst_1', themeId: 'theme_1', colorMap: { accent1: 'accent2' } })
+    expect(imported.layouts?.lyt_1).toMatchObject({ colorMapOverride: { accent1: 'accent3' } })
+    expect(imported.slides.sld_1).toMatchObject({ colorMapOverride: { accent1: 'accent4' } })
+    expect(imported.slides.sld_1?.colorMapOverride).not.toHaveProperty('unknown')
+    expect(imported.source?.entries['ppt/theme/custom.xml']).toBe(themeFiles['ppt/theme/custom.xml'])
+    expect(structuredClone(imported)).toEqual(imported)
+  })
+
+  it('omits malformed optional theme fragments while preserving the imported graph', async () => {
+    const malformedFiles = {
+      ...themeFiles,
+      'ppt/theme/custom.xml': '<a:theme xmlns:a="a"><a:themeElements><a:clrScheme><a:accent1><a:srgbClr val="336699"><a:lumMod val="invalid"/><a:tint val=""/><a:alphaOff val="10000"/></a:srgbClr></a:accent1></a:clrScheme></a:themeElements></a:theme>',
+      'ppt/slideMasters/slideMaster1.xml': themeFiles['ppt/slideMasters/slideMaster1.xml'].replace('accent2="accent2"', 'accent2="unknown"'),
+      'ppt/slideLayouts/slideLayout1.xml': themeFiles['ppt/slideLayouts/slideLayout1.xml'].replace('accent3', 'unknown'),
+    }
+    const imported = await importPptx(createStoredZip(malformedFiles))
+    expect(imported.slideOrder).toEqual(['sld_1'])
+    expect(imported.layouts?.lyt_1?.colorMapOverride).toBeUndefined()
+    expect(imported.masters?.mst_1?.colorMap).not.toHaveProperty('accent2')
+    expect(imported.themes?.theme_1?.colors.accent1).toEqual({ type: 'srgb', v: '336699', transforms: [{ type: 'alphaOff', value: 10000 }] })
+    expect(structuredClone(imported)).toEqual(imported)
+  })
+
+  it('omits missing or unreadable optional themes without dropping slides, layouts, or masters', async () => {
+    const missingRelationshipFiles = {
+      ...themeFiles,
+      'ppt/slideMasters/_rels/slideMaster1.xml.rels': '<Relationships xmlns="r"></Relationships>',
+      'ppt/slideLayouts/slideLayout1.xml': themeFiles['ppt/slideLayouts/slideLayout1.xml'].replace('<a:overrideClrMapping accent1="accent3"/>', '<a:masterClrMapping/>'),
+    }
+    const missingRelationship = await importPptx(createStoredZip(missingRelationshipFiles))
+    expect(missingRelationship.themes).toBeUndefined()
+    expect(missingRelationship.masters?.mst_1?.themeId).toBeUndefined()
+    expect(missingRelationship.layouts?.lyt_1?.colorMapOverride).toBeUndefined()
+    expect(missingRelationship.slideOrder).toEqual(['sld_1'])
+
+    const unreadableTheme = await importPptx(createStoredZip({ ...themeFiles, 'ppt/theme/custom.xml': '<a:theme>' }))
+    expect(unreadableTheme.themes).toBeUndefined()
+    expect(unreadableTheme.masters?.mst_1?.themeId).toBeUndefined()
+    expect(unreadableTheme.slideOrder).toEqual(['sld_1'])
+
+    const themeWithoutScheme = await importPptx(createStoredZip({ ...themeFiles, 'ppt/theme/custom.xml': '<a:theme xmlns:a="a"><a:themeElements/></a:theme>' }))
+    expect(themeWithoutScheme.themes).toBeUndefined()
+    expect(themeWithoutScheme.masters?.mst_1?.themeId).toBeUndefined()
+    expect(themeWithoutScheme.slideOrder).toEqual(['sld_1'])
   })
 })
