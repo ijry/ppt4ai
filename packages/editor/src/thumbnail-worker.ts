@@ -231,3 +231,5 @@ export function createThumbnailWorkerEntry(): void {
   })
   scope.onmessage = (event: MessageEvent<ThumbnailWorkerRequest>) => runtime.handleMessage(event.data)
 }
+
+if (typeof document === 'undefined' && typeof OffscreenCanvas !== 'undefined') createThumbnailWorkerEntry()
