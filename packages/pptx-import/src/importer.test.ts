@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import type { AssetAdapter, AssetMetadata } from '@ppt4ai/model'
 import { importPptx, parseXml, readZipEntries } from './index'
 
-function createStoredZip(files: Record<string, string>): Uint8Array {
+function createStoredZip(files: Record<string, string | Uint8Array>): Uint8Array {
   const encoder = new TextEncoder()
   const locals: Uint8Array[] = []
   const centrals: Uint8Array[] = []
@@ -9,7 +10,7 @@ function createStoredZip(files: Record<string, string>): Uint8Array {
 
   for (const [name, value] of Object.entries(files)) {
     const nameBytes = encoder.encode(name)
-    const valueBytes = encoder.encode(value)
+    const valueBytes = typeof value === 'string' ? encoder.encode(value) : value
     const local = new Uint8Array(30 + nameBytes.length + valueBytes.length)
     const localView = new DataView(local.buffer)
     localView.setUint32(0, 0x04034b50, true)
@@ -66,6 +67,80 @@ const files = {
   'ppt/slideMasters/slideMaster1.xml': `<p:sldMaster xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:solidFill><a:srgbClr val="000000"/></a:solidFill></p:spPr></p:sp></p:spTree></p:cSld></p:sldMaster>`,
 }
 
+const pngBytes = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x10,
+  0x08, 0x06, 0x00, 0x00, 0x00,
+])
+
+const jpegBytes = new Uint8Array([
+  0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x18, 0x00, 0x28,
+  0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00,
+])
+
+const gifBytes = new Uint8Array([
+  0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x07, 0x00, 0x09, 0x00,
+])
+
+const bmpBytes = new Uint8Array([
+  0x42, 0x4d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x36, 0x00,
+  0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x0d, 0x00,
+  0x00, 0x00,
+])
+
+const webpBytes = new Uint8Array([
+  0x52, 0x49, 0x46, 0x46, 0x1e, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+  0x56, 0x50, 0x38, 0x58, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+  0x1f, 0x00, 0x00, 0x0f, 0x00, 0x00,
+])
+
+const lossyWebpBytes = new Uint8Array([
+  0x52, 0x49, 0x46, 0x46, 0x16, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+  0x56, 0x50, 0x38, 0x20, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x9d,
+  0x01, 0x2a, 0x15, 0x00, 0x16, 0x00,
+])
+
+const losslessWebpBytes = new Uint8Array([
+  0x52, 0x49, 0x46, 0x46, 0x11, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+  0x56, 0x50, 0x38, 0x4c, 0x05, 0x00, 0x00, 0x00, 0x2f, 0x10, 0x80, 0x04,
+  0x00,
+])
+
+function pictureMarkup(relationshipId: string, x: number, includeBounds = true): string {
+  const bounds = includeBounds ? `<a:xfrm><a:off x="${x}" y="1500000"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>` : ''
+  return `<p:pic><p:nvPicPr><p:cNvPr id="${x}" name="Picture"/><p:cNvPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${relationshipId}"/></p:blipFill><p:spPr>${bounds}</p:spPr></p:pic>`
+}
+
+const bitmapFiles = {
+  ...files,
+  'ppt/slides/slide1.xml': `<p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Before"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1" y="1"/><a:ext cx="1" cy="1"/></a:xfrm></p:spPr></p:sp>${pictureMarkup('rId2', 2000000)}${pictureMarkup('rId3', 3000000)}${pictureMarkup('rId4', 4000000)}${pictureMarkup('rId5', 5000000)}${pictureMarkup('rId5', 6000000)}<p:sp><p:nvSpPr><p:cNvPr id="7" name="After"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1" y="1"/><a:ext cx="1" cy="1"/></a:xfrm></p:spPr></p:sp></p:spTree></p:cSld></p:sld>`,
+  'ppt/slides/_rels/slide1.xml.rels': `<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/photo.jpg"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/animation.gif"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/bitmap.bmp"/><Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/vector.webp"/></Relationships>`,
+  'ppt/media/photo.jpg': jpegBytes,
+  'ppt/media/animation.gif': gifBytes,
+  'ppt/media/bitmap.bmp': bmpBytes,
+  'ppt/media/vector.webp': webpBytes,
+}
+
+const imageFiles = {
+  ...files,
+  'ppt/slides/slide1.xml': `<p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="3" name="Before"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="1000000" cy="1000000"/></a:xfrm></p:spPr></p:sp><p:pic><p:nvPicPr><p:cNvPr id="4" name="Photo"/><p:cNvPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId2"/></p:blipFill><p:spPr><a:xfrm><a:off x="2000000" y="1500000"/><a:ext cx="5000000" cy="3000000"/></a:xfrm></p:spPr></p:pic><p:pic><p:nvPicPr><p:cNvPr id="5" name="Broken"/><p:cNvPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="missing"/></p:blipFill><p:spPr><a:xfrm><a:off x="3000000" y="2000000"/><a:ext cx="5000000" cy="3000000"/></a:xfrm></p:spPr></p:pic><p:sp><p:nvSpPr><p:cNvPr id="6" name="After"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="4000000" y="4000000"/><a:ext cx="1000000" cy="1000000"/></a:xfrm></p:spPr></p:sp></p:spTree></p:cSld></p:sld>`,
+  'ppt/slides/_rels/slide1.xml.rels': `<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/></Relationships>`,
+  'ppt/media/image1.png': pngBytes,
+}
+
+class RecordingAssetAdapter implements AssetAdapter {
+  readonly writes: Array<{ assetId: string; data: Uint8Array; metadata: AssetMetadata }> = []
+
+  async get(): Promise<Uint8Array | undefined> {
+    return undefined
+  }
+
+  async put(assetId: string, data: Uint8Array, metadata: AssetMetadata): Promise<void> {
+    this.writes.push({ assetId, data, metadata })
+  }
+}
+
 const bulletFiles = {
   ...files,
   'ppt/slides/slide1.xml': '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="3" name="Body"/><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="4000000" cy="2000000"/></a:xfrm></p:spPr><p:txBody><a:p><a:pPr><a:buChar char="•"><a:rPr typeface="Wingdings"/></a:buChar></a:pPr><a:r><a:t>First</a:t></a:r></a:p><a:p><a:pPr><a:buAutoNum type="arabicPeriod" startAt="3"/></a:pPr><a:r><a:t>Second</a:t></a:r></a:p><a:p><a:pPr><a:buAutoNum type="alphaUcPeriod"/></a:pPr><a:r><a:t>Third</a:t></a:r></a:p><a:p><a:pPr><a:buAutoNum type="unsupportedFormat"/></a:pPr><a:r><a:t>Fourth</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>',
@@ -94,6 +169,114 @@ const tableFiles = {
 }
 
 describe('importPptx', () => {
+  it('detects supported bitmap formats and deduplicates repeated media references', async () => {
+    const adapter = new RecordingAssetAdapter()
+    const imported = await importPptx(createStoredZip(bitmapFiles), { assetAdapter: adapter })
+
+    expect(imported.slides.sld_1?.elementIds).toEqual(['el_1', 'el_2', 'el_3', 'el_4', 'el_5', 'el_6', 'el_7'])
+    expect(imported.elements.el_2).toMatchObject({ kind: 'image', assetId: 'asset_ppt_media_photo_jpg' })
+    expect(imported.elements.el_3).toMatchObject({ kind: 'image', assetId: 'asset_ppt_media_animation_gif' })
+    expect(imported.elements.el_4).toMatchObject({ kind: 'image', assetId: 'asset_ppt_media_bitmap_bmp' })
+    expect(imported.elements.el_5).toMatchObject({ kind: 'image', assetId: 'asset_ppt_media_vector_webp' })
+    expect(imported.elements.el_6).toMatchObject({ kind: 'image', assetId: 'asset_ppt_media_vector_webp' })
+    expect(imported.assets).toEqual({
+      asset_ppt_media_photo_jpg: { id: 'asset_ppt_media_photo_jpg', mimeType: 'image/jpeg', pixelWidth: 40, pixelHeight: 24, originalFilename: 'photo.jpg' },
+      asset_ppt_media_animation_gif: { id: 'asset_ppt_media_animation_gif', mimeType: 'image/gif', pixelWidth: 7, pixelHeight: 9, originalFilename: 'animation.gif' },
+      asset_ppt_media_bitmap_bmp: { id: 'asset_ppt_media_bitmap_bmp', mimeType: 'image/bmp', pixelWidth: 11, pixelHeight: 13, originalFilename: 'bitmap.bmp' },
+      asset_ppt_media_vector_webp: { id: 'asset_ppt_media_vector_webp', mimeType: 'image/webp', pixelWidth: 32, pixelHeight: 16, originalFilename: 'vector.webp' },
+    })
+    expect(adapter.writes.map((write) => write.assetId)).toEqual([
+      'asset_ppt_media_photo_jpg',
+      'asset_ppt_media_animation_gif',
+      'asset_ppt_media_bitmap_bmp',
+      'asset_ppt_media_vector_webp',
+    ])
+    expect(adapter.writes.map((write) => write.data)).toEqual([jpegBytes, gifBytes, bmpBytes, webpBytes])
+  })
+
+  it.each([
+    ['lossy VP8', lossyWebpBytes, 21, 22],
+    ['lossless VP8L', losslessWebpBytes, 17, 19],
+  ])('reads %s WebP dimensions', async (_label, bytes, pixelWidth, pixelHeight) => {
+    const imported = await importPptx(createStoredZip({
+      ...imageFiles,
+      'ppt/slides/_rels/slide1.xml.rels': imageFiles['ppt/slides/_rels/slide1.xml.rels'].replace('../media/image1.png', '../media/image1.webp'),
+      'ppt/media/image1.webp': bytes,
+    }))
+    expect(imported.assets?.asset_ppt_media_image1_webp).toMatchObject({ mimeType: 'image/webp', pixelWidth, pixelHeight })
+  })
+
+  it('skips unsupported, malformed, and unbounded pictures while preserving neighbors', async () => {
+    const invalidFiles = {
+      ...imageFiles,
+      'ppt/slides/slide1.xml': `<p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Before"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1" y="1"/><a:ext cx="1" cy="1"/></a:xfrm></p:spPr></p:sp>${pictureMarkup('rId2', 2000000, false)}${pictureMarkup('rId3', 3000000)}<p:sp><p:nvSpPr><p:cNvPr id="4" name="After"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1" y="1"/><a:ext cx="1" cy="1"/></a:xfrm></p:spPr></p:sp></p:spTree></p:cSld></p:sld>`,
+      'ppt/slides/_rels/slide1.xml.rels': `<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/bad.bin"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/bad.png"/></Relationships>`,
+      'ppt/media/bad.bin': new Uint8Array([0x00, 0x01, 0x02]),
+      'ppt/media/bad.png': new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+    }
+    const imported = await importPptx(createStoredZip(invalidFiles))
+    expect(imported.slides.sld_1?.elementIds).toEqual(['el_1', 'el_4'])
+    expect(imported.elements.el_1?.kind).toBe('shape')
+    expect(imported.elements.el_4?.kind).toBe('shape')
+    expect(imported.assets).toBeUndefined()
+  })
+
+  it('imports bitmap pictures in slide order and writes exact asset bytes once', async () => {
+    const adapter = new RecordingAssetAdapter()
+    const imported = await importPptx(createStoredZip(imageFiles), { assetAdapter: adapter })
+
+    expect(imported.slides.sld_1?.elementIds).toEqual(['el_1', 'el_2', 'el_4'])
+    expect(imported.elements.el_2).toEqual({
+      id: 'el_2',
+      kind: 'image',
+      bounds: { x: 2000000, y: 1500000, w: 5000000, h: 3000000 },
+      assetId: 'asset_ppt_media_image1_png',
+    })
+    expect(imported.assets).toEqual({
+      asset_ppt_media_image1_png: {
+        id: 'asset_ppt_media_image1_png',
+        mimeType: 'image/png',
+        pixelWidth: 32,
+        pixelHeight: 16,
+        originalFilename: 'image1.png',
+      },
+    })
+    expect(adapter.writes).toHaveLength(1)
+    expect(adapter.writes[0]?.assetId).toBe('asset_ppt_media_image1_png')
+    expect(adapter.writes[0]?.data).toEqual(pngBytes)
+    expect(adapter.writes[0]?.metadata).toEqual(imported.assets?.asset_ppt_media_image1_png)
+    expect(structuredClone(imported)).toEqual(imported)
+  })
+
+  it('skips pictures with missing relationships while preserving neighboring elements', async () => {
+    const imported = await importPptx(createStoredZip(imageFiles))
+
+    expect(imported.slides.sld_1?.elementIds).toEqual(['el_1', 'el_2', 'el_4'])
+    expect(imported.elements.el_1?.kind).toBe('shape')
+    expect(imported.elements.el_4?.kind).toBe('shape')
+    expect(imported.assets).toEqual({
+      asset_ppt_media_image1_png: {
+        id: 'asset_ppt_media_image1_png',
+        mimeType: 'image/png',
+        pixelWidth: 32,
+        pixelHeight: 16,
+        originalFilename: 'image1.png',
+      },
+    })
+  })
+
+  it('skips unsupported and malformed bitmap media without creating assets', async () => {
+    const malformedFiles = {
+      ...imageFiles,
+      'ppt/slides/slide1.xml': imageFiles['ppt/slides/slide1.xml'].replace('rId2', 'rId3'),
+      'ppt/slides/_rels/slide1.xml.rels': imageFiles['ppt/slides/_rels/slide1.xml.rels'].replace('Id="rId2"', 'Id="rId3"'),
+      'ppt/media/image1.png': new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    }
+    const imported = await importPptx(createStoredZip(malformedFiles))
+    expect(imported.slides.sld_1?.elementIds).toEqual(['el_1', 'el_4'])
+    expect(imported.assets).toBeUndefined()
+  })
+
   it('keeps the relationship XML tree addressable', () => {
     const root = parseXml(files['ppt/_rels/presentation.xml.rels'])
     expect(root.children[0]?.name).toBe('Relationships')
