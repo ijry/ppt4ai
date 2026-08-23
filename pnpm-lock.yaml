@@ -153,6 +153,10 @@ importers:
       '@ppt4ai/model':
         specifier: workspace:*
         version: link:../model
+    devDependencies:
+      '@ppt4ai/pptx-import':
+        specifier: workspace:*
+        version: link:../pptx-import
 
   packages/pptx-import:
     dependencies:

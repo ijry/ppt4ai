@@ -20,5 +20,8 @@
   "dependencies": {
     "@ppt4ai/model": "workspace:*",
     "@ppt4ai/geometry": "workspace:*"
+  },
+  "devDependencies": {
+    "@ppt4ai/pptx-import": "workspace:*"
   }
 }
