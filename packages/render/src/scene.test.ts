@@ -65,6 +65,10 @@ describe('documentToSceneGraph', () => {
                 "type": "close",
               },
             ],
+            "resolvedFillColor": {
+              "alpha": 100000,
+              "rgb": "4472C4",
+            },
           },
         ],
         "page": {
@@ -148,6 +152,138 @@ describe('documentToSceneGraph', () => {
       fill: { color: { type: 'srgb', v: 'FFFFFF' } },
       layout: { lines: [{ runs: [{ text: 'Inherited' }] }] },
     })
+  })
+
+  it('resolves theme colors and table text defaults in the effective slide context', () => {
+    const themedDocument: Ppt4aiDocument = {
+      ...minimalDocument,
+      slides: {
+        sld_1: {
+          id: 'sld_1',
+          elementIds: ['el_shape', 'el_text', 'el_table'],
+          layoutId: 'lyt_1',
+          colorMapOverride: { accent1: 'accent1' },
+        },
+      },
+      elements: {
+        el_shape: {
+          id: 'el_shape',
+          kind: 'shape',
+          preset: 'rect',
+          bounds: { x: 1000000, y: 1000000, w: 2000000, h: 1000000 },
+          fill: { color: { type: 'scheme', v: 'accent1' } },
+          stroke: { color: { type: 'scheme', v: 'tx1' } },
+        },
+        el_text: {
+          id: 'el_text',
+          kind: 'text',
+          bounds: { x: 1000000, y: 2500000, w: 3000000, h: 800000 },
+          body: {
+            paragraphs: [{ runs: [{ text: 'Theme', marks: { color: { color: { type: 'scheme', v: 'accent1' } } } }] }],
+          },
+          fill: { color: { type: 'scheme', v: 'accent1' } },
+          stroke: { color: { type: 'scheme', v: 'tx1' } },
+        },
+        el_table: {
+          id: 'el_table',
+          kind: 'table',
+          bounds: { x: 5000000, y: 1000000, w: 4000000, h: 1000000 },
+          columns: [4000000],
+          rows: [{
+            height: 1000000,
+            cells: [{
+              column: 0,
+              body: {
+                paragraphs: [{
+                  runs: [
+                    { text: 'Default' },
+                    { text: 'Explicit', marks: { color: { color: { type: 'scheme', v: 'accent2' } }, bold: false } },
+                  ],
+                }],
+              },
+            }],
+          }],
+          style: { styleId: 'style-1', firstRow: true },
+        },
+      },
+      tableStyles: {
+        'style-1': {
+          id: 'style-1',
+          regions: {
+            firstRow: {
+              fill: { color: { type: 'scheme', v: 'accent1' } },
+              borders: { left: { color: { type: 'scheme', v: 'accent1' }, width: 12700, style: 'solid' } },
+              text: { color: { type: 'scheme', v: 'tx1' }, bold: true },
+            },
+          },
+        },
+      },
+      layouts: {
+        lyt_1: { id: 'lyt_1', masterId: 'mst_1', colorMapOverride: { accent1: 'accent3' } },
+      },
+      masters: {
+        mst_1: { id: 'mst_1', themeId: 'theme-1', colorMap: { accent1: 'accent2' } },
+      },
+      themes: {
+        'theme-1': {
+          id: 'theme-1',
+          colors: {
+            dk1: { type: 'srgb', v: '202020' },
+            accent1: { type: 'srgb', v: '336699' },
+            accent2: { type: 'srgb', v: 'AA5500' },
+            accent3: { type: 'srgb', v: '00AA55' },
+          },
+        },
+      },
+    }
+
+    const sourceDocument = structuredClone(themedDocument)
+    const graph = documentToSceneGraph(themedDocument)
+    expect(graph.nodes[0]).toMatchObject({
+      kind: 'shape',
+      fill: { color: { type: 'scheme', v: 'accent1' } },
+      stroke: { color: { type: 'scheme', v: 'tx1' } },
+      resolvedFillColor: { rgb: '336699', alpha: 100000 },
+      resolvedStrokeColor: { rgb: '202020', alpha: 100000 },
+    })
+    expect(graph.nodes[1]).toMatchObject({
+      kind: 'text',
+      resolvedFillColor: { rgb: '336699', alpha: 100000 },
+      resolvedStrokeColor: { rgb: '202020', alpha: 100000 },
+      layout: { lines: [{ runs: [{ text: 'Theme', resolvedColor: { rgb: '336699', alpha: 100000 } }] }] },
+    })
+    expect(graph.nodes[2]).toMatchObject({
+      kind: 'table',
+      layout: {
+        cells: [{
+          resolvedStyle: {
+            fill: { color: { type: 'scheme', v: 'accent1' } },
+            text: { color: { type: 'scheme', v: 'tx1' }, bold: true },
+          },
+          resolvedFillColor: { rgb: '336699', alpha: 100000 },
+          resolvedBorderColors: { left: { rgb: '336699', alpha: 100000 } },
+          resolvedTextStyle: { color: { rgb: '202020', alpha: 100000 }, bold: true },
+          textLayout: {
+            lines: [{
+              runs: [
+                {
+                  text: 'Default',
+                  marks: { color: { color: { type: 'scheme', v: 'tx1' } }, bold: true },
+                  resolvedColor: { rgb: '202020', alpha: 100000 },
+                },
+                {
+                  text: 'Explicit',
+                  marks: { color: { color: { type: 'scheme', v: 'accent2' } }, bold: false },
+                  resolvedColor: { rgb: 'AA5500', alpha: 100000 },
+                },
+              ],
+            }],
+          },
+        }],
+      },
+    })
+    expect(structuredClone(graph)).toEqual(graph)
+    expect(themedDocument).toEqual(sourceDocument)
   })
 
   it('expands flat groups in child order', () => {

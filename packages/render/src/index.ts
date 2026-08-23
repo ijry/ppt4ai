@@ -3,8 +3,12 @@ export {
   type SceneGraph,
   type SceneNode,
   type SceneShapeNode,
+  type SceneResolvedTableTextStyle,
   type SceneTableLayout,
   type SceneTableLayoutCell,
   type SceneTableNode,
+  type SceneTextLayout,
+  type SceneTextLayoutLine,
+  type SceneTextLayoutRun,
   type SceneTextNode,
 } from './scenegraph'
