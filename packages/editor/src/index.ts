@@ -77,6 +77,8 @@ export type {
   SlideCanvasViewport,
 } from './slide-canvas-renderer'
 export { default as ThumbnailCanvas } from './ThumbnailCanvas.vue'
+export { default as SlideCanvas } from './SlideCanvas.vue'
+export { hitTestScene, pointFromCanvasEvent } from './slide-canvas'
 export { createThumbnailRenderer, ThumbnailRendererError } from './thumbnail-renderer'
 export type {
   ThumbnailRenderer,
