@@ -230,12 +230,33 @@ export interface AssetAdapter {
   put(assetId: string, data: Uint8Array, metadata: AssetMetadata): Promise<void>
 }
 
+export interface ElementTransform {
+  rotation?: number
+  flipH?: boolean
+  flipV?: boolean
+}
+
+export interface ImageCrop {
+  left?: number
+  top?: number
+  right?: number
+  bottom?: number
+}
+
+export type ImageEffect =
+  | { type: 'alphaModFix'; amount: number }
+  | { type: 'grayscl' }
+
 export interface ImageElement {
   id: string
   kind: 'image'
   bounds: Rect
   assetId: string
   placeholder?: string
+  transform?: ElementTransform
+  sourceCrop?: ImageCrop
+  maskPreset?: PresetGeometry
+  effects?: ImageEffect[]
 }
 
 export type Element = ShapeElement | TextElement | TableElement | GroupElement | ImageElement
@@ -490,6 +511,7 @@ const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMo
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 const colorMapKeys = new Set<ColorMapKey>(['bg1', 'tx1', 'bg2', 'tx2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 const imageMimeTypes = new Set<ImageMimeType>(['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/webp'])
+const imageEffects = new Set(['alphaModFix', 'grayscl'])
 
 function validateFiniteNumber(value: unknown, path: string, errors: string[], predicate: (value: number) => boolean, message: string): void {
   if (typeof value !== 'number' || !Number.isFinite(value) || !predicate(value)) errors.push(`${path} ${message}`)
@@ -528,6 +550,55 @@ function validateColorMap(value: unknown, path: string, errors: string[]): void 
   for (const [key, target] of Object.entries(value)) {
     if (!colorMapKeys.has(key as ColorMapKey)) errors.push(`${path}.${key} is not a supported color-map key`)
     if (typeof target !== 'string' || !themeColorSlots.has(target as ThemeColorSlot)) errors.push(`${path}.${key} must reference a supported theme color slot`)
+  }
+}
+
+function validateImageAppearance(element: ImageElement, path: string, errors: string[]): void {
+  if (element.transform !== undefined) {
+    if (!element.transform || typeof element.transform !== 'object' || Array.isArray(element.transform)) {
+      errors.push(`${path}.transform must be an object`)
+    } else {
+      const transform = element.transform as unknown as Record<string, unknown>
+      if ('rotation' in transform && transform.rotation !== undefined) {
+        validateFiniteNumber(transform.rotation, `${path}.transform.rotation`, errors, Number.isInteger, 'must be an integer')
+      }
+      if ('flipH' in transform && transform.flipH !== undefined && typeof transform.flipH !== 'boolean') errors.push(`${path}.transform.flipH must be a boolean`)
+      if ('flipV' in transform && transform.flipV !== undefined && typeof transform.flipV !== 'boolean') errors.push(`${path}.transform.flipV must be a boolean`)
+    }
+  }
+
+  if (element.sourceCrop !== undefined) {
+    if (!element.sourceCrop || typeof element.sourceCrop !== 'object' || Array.isArray(element.sourceCrop)) {
+      errors.push(`${path}.sourceCrop must be an object`)
+    } else {
+      const crop = element.sourceCrop as unknown as Record<string, unknown>
+      for (const side of ['left', 'top', 'right', 'bottom']) {
+        const value = crop[side]
+        if (value !== undefined) validateFiniteNumber(value, `${path}.sourceCrop.${side}`, errors, (number) => Number.isInteger(number) && number >= 0 && number <= 100000, 'must be between 0 and 100000')
+      }
+    }
+  }
+
+  if (element.maskPreset !== undefined && !new Set<PresetGeometry>(['rect', 'roundRect', 'ellipse', 'triangle']).has(element.maskPreset)) {
+    errors.push(`${path}.maskPreset must be a supported image mask preset`)
+  }
+
+  if (element.effects !== undefined) {
+    if (!Array.isArray(element.effects)) {
+      errors.push(`${path}.effects must be an array`)
+    } else element.effects.forEach((effect, index) => {
+      const effectPath = `${path}.effects[${index}]`
+      if (!effect || typeof effect !== 'object' || Array.isArray(effect)) {
+        errors.push(`${effectPath} must be an object`)
+        return
+      }
+      const effectValue = effect as unknown as Record<string, unknown>
+      if (typeof effectValue.type !== 'string' || !imageEffects.has(effectValue.type)) {
+        errors.push(`${effectPath}.type must be a supported image effect type`)
+      } else if (effectValue.type === 'alphaModFix') {
+        validateFiniteNumber(effectValue.amount, `${effectPath}.amount`, errors, (number) => Number.isInteger(number) && number >= 0 && number <= 100000, 'must be between 0 and 100000')
+      }
+    })
   }
 }
 
@@ -903,6 +974,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     } else if (element.kind === 'image') {
       if (typeof element.assetId !== 'string' || element.assetId.length === 0) errors.push(`image element ${elementId} assetId must be a non-empty string`)
       else if (!value.assets?.[element.assetId]) errors.push(`image element ${elementId} references missing asset: ${element.assetId}`)
+      validateImageAppearance(element, `elements.${elementId}`, errors)
     }
   }
 

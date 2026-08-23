@@ -487,6 +487,10 @@ describe('ppt4ai file model', () => {
       kind: 'image',
       bounds: { x: 100, y: 200, w: 300, h: 400 },
       assetId: 'asset_1',
+      transform: { rotation: 5400000, flipH: true, flipV: false },
+      sourceCrop: { left: 1000, top: 2000, right: 3000, bottom: 4000 },
+      maskPreset: 'ellipse',
+      effects: [{ type: 'alphaModFix', amount: 50000 }, { type: 'grayscl' }],
     }
     const document = {
       ...minimalDocument,
@@ -505,6 +509,43 @@ describe('ppt4ai file model', () => {
 
     expect(validateDocument(document)).toEqual({ valid: true })
     expect(structuredClone(document)).toEqual(document)
+  })
+
+  it('reports stable paths for invalid image appearance values', () => {
+    const broken = {
+      ...minimalDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: ['img_1'] } },
+      elements: {
+        img_1: {
+          id: 'img_1',
+          kind: 'image' as const,
+          bounds: { x: 0, y: 0, w: 100, h: 100 },
+          assetId: 'asset_1',
+          transform: { rotation: 1.5, flipH: 'yes', flipV: false },
+          sourceCrop: { left: -1, top: 100001, right: 50000.5, bottom: 0 },
+          maskPreset: 'hexagon',
+          effects: [
+            { type: 'alphaModFix', amount: 100001 },
+            { type: 'unsupported' },
+          ],
+        },
+      },
+      assets: { asset_1: { id: 'asset_1', mimeType: 'image/png' as const } },
+    }
+
+    expect(validateDocument(broken as unknown as Ppt4aiDocument)).toEqual({
+      valid: false,
+      errors: [
+        'elements.img_1.transform.rotation must be an integer',
+        'elements.img_1.transform.flipH must be a boolean',
+        'elements.img_1.sourceCrop.left must be between 0 and 100000',
+        'elements.img_1.sourceCrop.top must be between 0 and 100000',
+        'elements.img_1.sourceCrop.right must be between 0 and 100000',
+        'elements.img_1.maskPreset must be a supported image mask preset',
+        'elements.img_1.effects[0].amount must be between 0 and 100000',
+        'elements.img_1.effects[1].type must be a supported image effect type',
+      ],
+    })
   })
 
   it('reports invalid image asset metadata and references', () => {
