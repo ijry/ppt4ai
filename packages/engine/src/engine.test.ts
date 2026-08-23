@@ -108,22 +108,20 @@ function makeMergeSplitDocument(): Ppt4aiDocument {
   return document
 }
 
-function makeMergedCellDocument(): Ppt4aiDocument {
+function makeMergedCellDocument(rowSpan = 2, colSpan = 2): Ppt4aiDocument {
   const document = makeMergeSplitDocument()
   const table = document.elements.el_table
   if (!table || table.kind !== 'table') throw new Error('expected table')
-  table.rows[0]!.cells = [
-    {
-      column: 0,
-      rowSpan: 2,
-      colSpan: 2,
-      body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] },
-      fill: { color: { type: 'srgb', v: 'ABCDEF' } },
-      borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
-    },
-    { column: 2, body: { paragraphs: [{ runs: [{ text: 'R0C2' }] }] } },
-  ]
-  table.rows[1]!.cells = [{ column: 2, body: { paragraphs: [{ runs: [{ text: 'R1C2' }] }] } }]
+  table.rows[0]!.cells[0] = {
+    column: 0,
+    ...(rowSpan > 1 ? { rowSpan } : {}),
+    ...(colSpan > 1 ? { colSpan } : {}),
+    body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] },
+    fill: { color: { type: 'srgb', v: 'ABCDEF' } },
+    borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
+  }
+  table.rows[0]!.cells = table.rows[0]!.cells.filter((cell) => cell.column === 0 || cell.column >= colSpan)
+  for (let row = 1; row < rowSpan; row += 1) table.rows[row]!.cells = table.rows[row]!.cells.filter((cell) => cell.column >= colSpan)
   return document
 }
 
@@ -399,33 +397,28 @@ describe('EditorEngine', () => {
     const merged = engine.dispatch({ type: 'mergeTableCells' })
     const result = merged.document.elements.el_table
 
-    expect(result).toMatchObject({
-      rows: [
-        {
-          cells: [
-            {
-              column: 0,
-              rowSpan: 2,
-              colSpan: 2,
-              body: {
-                bodyPr: { verticalAlign: 'middle' },
-                paragraphs: [
-                  { runs: [], attrs: { spaceAfter: 10 } },
-                  { runs: [{ text: 'A', marks: { bold: true } }] },
-                  { runs: [{ text: 'B', marks: { italic: true } }], attrs: { align: 'center' } },
-                  { runs: [{ text: 'C' }] },
-                  { runs: [{ text: 'D' }] },
-                ],
-              },
-              fill: { color: { type: 'srgb', v: 'ABCDEF' } },
-              borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
-            },
-            { column: 2 },
-          ],
-        },
-        { cells: [{ column: 2 }] },
-      ],
+    expect(result?.kind).toBe('table')
+    if (!result || result.kind !== 'table') throw new Error('expected table')
+    expect(result.columns).toEqual([100, 200, 300])
+    expect(result.rows.map((row) => row.height)).toEqual([50, 100, 150])
+    expect(result.rows[0]!.cells[0]).toEqual({
+      column: 0,
+      rowSpan: 2,
+      colSpan: 2,
+      body: {
+        bodyPr: { verticalAlign: 'middle' },
+        paragraphs: [
+          { runs: [], attrs: { spaceAfter: 10 } },
+          { runs: [{ text: 'A', marks: { bold: true } }] },
+          { runs: [{ text: 'B', marks: { italic: true } }], attrs: { align: 'center' } },
+          { runs: [{ text: 'C' }] },
+          { runs: [{ text: 'D' }] },
+        ],
+      },
+      fill: { color: { type: 'srgb', v: 'ABCDEF' } },
+      borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
     })
+    expect(result.rows.map((row) => row.cells.map((cell) => cell.column))).toEqual([[0, 2], [2], [0, 1, 2]])
     expect(merged.tableCellSelection).toEqual({ elementId: 'el_table', anchorRow: 0, anchorColumn: 0, row: 0, column: 0 })
     expect(merged.history).toEqual({ undoDepth: 1, redoDepth: 0 })
   })
@@ -439,7 +432,10 @@ describe('EditorEngine', () => {
     const endpointEngine = new EditorEngine(endpointDocument)
     endpointEngine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 1, column: 1 })
     endpointEngine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 0, extend: true })
-    expect(endpointEngine.dispatch({ type: 'mergeTableCells' }).document.elements.el_table).toMatchObject({ rows: [{ cells: [{ rowSpan: 2, colSpan: 2 }] }] })
+    const endpointResult = endpointEngine.dispatch({ type: 'mergeTableCells' }).document.elements.el_table
+    expect(endpointResult?.kind).toBe('table')
+    if (!endpointResult || endpointResult.kind !== 'table') throw new Error('expected table')
+    expect(endpointResult.rows[0]!.cells[0]).toMatchObject({ column: 0, rowSpan: 2, colSpan: 2 })
 
     const partialDocument = makeMergeSplitDocument()
     const partialTable = partialDocument.elements.el_table
@@ -455,27 +451,32 @@ describe('EditorEngine', () => {
   })
 
   it.each([
-    ['row', { rowSpan: 2 }],
-    ['column', { colSpan: 2 }],
-    ['rectangle', { rowSpan: 2, colSpan: 2 }],
-  ] as const)('splits a %s merged cell without duplicating content or style', (_name, span) => {
-    const document = makeMergedCellDocument()
-    const table = document.elements.el_table
-    if (!table || table.kind !== 'table') throw new Error('expected table')
-    const source = table.rows[0]!.cells[0]!
-    delete source.rowSpan
-    delete source.colSpan
-    Object.assign(source, span)
-    if ('colSpan' in span && !('rowSpan' in span)) table.rows[0]!.cells.push({ column: 1, body: { paragraphs: [{ runs: [{ text: 'R0C1' }] }] } })
-    if ('rowSpan' in span && !('colSpan' in span)) table.rows[1]!.cells.unshift({ column: 0, body: { paragraphs: [{ runs: [{ text: 'R1C0' }] }] } })
+    ['row', 2, 1],
+    ['column', 1, 2],
+    ['rectangle', 2, 2],
+  ] as const)('splits a %s merged cell without duplicating content or style', (_name, rowSpan, colSpan) => {
+    const document = makeMergedCellDocument(rowSpan, colSpan)
     const engine = new EditorEngine(document)
     engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 0 })
     const split = engine.dispatch({ type: 'splitTableCell' })
     const splitTable = split.document.elements.el_table
-    expect(splitTable).toMatchObject({ rows: [{ cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] }, fill: { color: { type: 'srgb', v: 'ABCDEF' } } }] }] })
+    expect(splitTable?.kind).toBe('table')
+    if (!splitTable || splitTable.kind !== 'table') throw new Error('expected table')
+    expect(splitTable.rows[0]!.cells[0]).toEqual({
+      column: 0,
+      body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] },
+      fill: { color: { type: 'srgb', v: 'ABCDEF' } },
+      borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
+    })
+    for (let row = 0; row < rowSpan; row += 1) {
+      for (let column = 0; column < colSpan; column += 1) {
+        if (row === 0 && column === 0) continue
+        expect(splitTable.rows[row]!.cells.find((cell) => cell.column === column)).toEqual({ column, body: { paragraphs: [{ runs: [] }] } })
+      }
+    }
     expect(split.history).toEqual({ undoDepth: 1, redoDepth: 0 })
     expect(split.tableCellSelection).toEqual({ elementId: 'el_table', anchorRow: 0, anchorColumn: 0, row: 0, column: 0 })
-    expect(engine.dispatch({ type: 'undo' }).document.elements.el_table).toEqual(document)
+    expect(engine.dispatch({ type: 'undo' }).document.elements.el_table).toEqual(document.elements.el_table)
     expect(engine.dispatch({ type: 'redo' }).history).toEqual({ undoDepth: 1, redoDepth: 0 })
   })
 

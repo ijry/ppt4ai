@@ -60,6 +60,8 @@ export type EngineCommand =
   | { type: 'setTableCellText'; body: TextBody }
   | { type: 'setTableCellFill'; fill: Fill | null }
   | { type: 'setTableCellBorders'; borders: Partial<Record<TableBorderSide, TableBorder | null>> }
+  | { type: 'mergeTableCells' }
+  | { type: 'splitTableCell' }
   | { type: 'insertTableRow'; elementId: string; index: number; count?: number }
   | { type: 'deleteTableRow'; elementId: string; index: number; count?: number }
   | { type: 'insertTableColumn'; elementId: string; index: number; count?: number }
@@ -160,6 +162,18 @@ interface TableSourceRect {
   cell: TableCell
 }
 
+interface TableGridRect {
+  minRow: number
+  maxRow: number
+  minColumn: number
+  maxColumn: number
+}
+
+type TableMergeResult =
+  | { status: 'noop' }
+  | { status: 'partial-overlap' }
+  | { status: 'merged'; table: TableElement; row: number; column: number }
+
 interface TableStructureResult {
   table: TableElement
   mapPoint(point: { row: number; column: number }): { row: number; column: number } | undefined
@@ -222,6 +236,110 @@ function tableSourceRects(table: TableElement): TableSourceRect[] {
     colSpan: cell.colSpan ?? 1,
     cell: clone(cell),
   })))
+}
+
+function sourceRect(table: TableElement, source: TableSourceCell): TableSourceRect {
+  const cell = table.rows[source.row]!.cells[source.cellIndex]!
+  return {
+    row: source.row,
+    column: cell.column,
+    rowSpan: cell.rowSpan ?? 1,
+    colSpan: cell.colSpan ?? 1,
+    cell: clone(cell),
+  }
+}
+
+function intersectsTableRect(source: TableSourceRect, target: TableGridRect): boolean {
+  return source.row <= target.maxRow && source.row + source.rowSpan - 1 >= target.minRow
+    && source.column <= target.maxColumn && source.column + source.colSpan - 1 >= target.minColumn
+}
+
+function containsTableRect(target: TableGridRect, source: TableSourceRect): boolean {
+  return source.row >= target.minRow && source.row + source.rowSpan - 1 <= target.maxRow
+    && source.column >= target.minColumn && source.column + source.colSpan - 1 <= target.maxColumn
+}
+
+function mergeSelectionRect(table: TableElement, selection: TableCellSelection): TableGridRect | undefined {
+  const anchor = sourceCellAt(table, selection.anchorRow, selection.anchorColumn)
+  const focus = sourceCellAt(table, selection.row, selection.column)
+  if (!anchor || !focus) return undefined
+  const anchorRect = sourceRect(table, anchor)
+  const focusRect = sourceRect(table, focus)
+  return {
+    minRow: Math.min(anchorRect.row, focusRect.row),
+    maxRow: Math.max(anchorRect.row + anchorRect.rowSpan - 1, focusRect.row + focusRect.rowSpan - 1),
+    minColumn: Math.min(anchorRect.column, focusRect.column),
+    maxColumn: Math.max(anchorRect.column + anchorRect.colSpan - 1, focusRect.column + focusRect.colSpan - 1),
+  }
+}
+
+function hasNonEmptyText(paragraph: TextBody['paragraphs'][number]): boolean {
+  return paragraph.runs.some((run) => run.text.length > 0)
+}
+
+function mergeTableCellBodies(sources: TableSourceRect[], topLeft: TableSourceRect): TextBody {
+  const ordered = [...sources].sort((left, right) => left.row - right.row || left.column - right.column)
+  const paragraphs = clone(topLeft.cell.body.paragraphs)
+  for (const source of ordered) {
+    if (source === topLeft) continue
+    paragraphs.push(...clone(source.cell.body.paragraphs).filter(hasNonEmptyText))
+  }
+  return {
+    ...(topLeft.cell.body.bodyPr ? { bodyPr: clone(topLeft.cell.body.bodyPr) } : {}),
+    paragraphs: paragraphs.length > 0 ? paragraphs : [{ runs: [] }],
+  }
+}
+
+function mergeTableSelection(table: TableElement, selection: TableCellSelection): TableMergeResult {
+  const target = mergeSelectionRect(table, selection)
+  if (!target) return { status: 'noop' }
+  const sources = tableSourceRects(table).filter((source) => intersectsTableRect(source, target))
+  if (sources.length <= 1) return { status: 'noop' }
+  if (sources.some((source) => !containsTableRect(target, source))) return { status: 'partial-overlap' }
+  const topLeft = sources.find((source) => source.row === target.minRow && source.column === target.minColumn)
+  if (!topLeft) return { status: 'partial-overlap' }
+  const mergedCell: TableCell = {
+    column: target.minColumn,
+    body: mergeTableCellBodies(sources, topLeft),
+    ...(target.maxRow > target.minRow ? { rowSpan: target.maxRow - target.minRow + 1 } : {}),
+    ...(target.maxColumn > target.minColumn ? { colSpan: target.maxColumn - target.minColumn + 1 } : {}),
+    ...(topLeft.cell.fill ? { fill: clone(topLeft.cell.fill) } : {}),
+    ...(topLeft.cell.borders ? { borders: clone(topLeft.cell.borders) } : {}),
+  }
+  const rects = tableSourceRects(table)
+    .filter((source) => !containsTableRect(target, source))
+    .concat({ row: target.minRow, column: target.minColumn, rowSpan: target.maxRow - target.minRow + 1, colSpan: target.maxColumn - target.minColumn + 1, cell: mergedCell })
+  return {
+    status: 'merged',
+    table: { ...clone(table), rows: rebuildTableRows(table.rows.length, table.columns.length, table.rows.map((row) => row.height), rects) },
+    row: target.minRow,
+    column: target.minColumn,
+  }
+}
+
+function splitTableSource(table: TableElement, source: TableSourceCell): TableElement | undefined {
+  const rect = sourceRect(table, source)
+  if (rect.rowSpan === 1 && rect.colSpan === 1) return undefined
+  const rects = tableSourceRects(table).filter((candidate) => !(candidate.row === rect.row && candidate.column === rect.column))
+  for (let row = rect.row; row < rect.row + rect.rowSpan; row += 1) {
+    for (let column = rect.column; column < rect.column + rect.colSpan; column += 1) {
+      const isTopLeft = row === rect.row && column === rect.column
+      const cell = isTopLeft ? clone(rect.cell) : emptyTableCell(column)
+      cell.column = column
+      if (isTopLeft) {
+        delete cell.rowSpan
+        delete cell.colSpan
+      }
+      rects.push({
+        row,
+        column,
+        rowSpan: 1,
+        colSpan: 1,
+        cell,
+      })
+    }
+  }
+  return { ...clone(table), rows: rebuildTableRows(table.rows.length, table.columns.length, table.rows.map((row) => row.height), rects) }
 }
 
 function mapStructureCoordinate(value: number, operation: TableStructureOperation, clampDeleted: boolean): number | undefined {
@@ -466,6 +584,14 @@ export class EditorEngine {
         this.setTableCellBorders(command.borders)
         break
       }
+      case 'mergeTableCells': {
+        this.mergeTableCells()
+        break
+      }
+      case 'splitTableCell': {
+        this.splitTableCell()
+        break
+      }
       case 'insertTableRow': {
         this.editTableStructure(command.elementId, { axis: 'row', mode: 'insert', index: command.index, count: command.count ?? 1 })
         break
@@ -577,6 +703,38 @@ export class EditorEngine {
       }
     })
     this.commitValidatedTableStyles(changes)
+  }
+
+  private mergeTableCells(): void {
+    const selection = validTableCellSelection(this.document, this.tableCellSelection)
+    if (!selection) return
+    const element = this.document.elements[selection.elementId]
+    if (!element || element.kind !== 'table') return
+    const result = mergeTableSelection(element, selection)
+    if (result.status === 'noop') return
+    if (result.status === 'partial-overlap') throw new Error(`table merge selection partially covers merged cell: ${selection.elementId}`)
+    this.commitTableReplacement(selection.elementId, result.table, 'merge', result.row, result.column)
+  }
+
+  private splitTableCell(): void {
+    const selection = validTableCellSelection(this.document, this.tableCellSelection)
+    if (!selection) return
+    const element = this.document.elements[selection.elementId]
+    if (!element || element.kind !== 'table') return
+    const source = sourceCellAt(element, selection.row, selection.column)
+    if (!source) return
+    const table = splitTableSource(element, source)
+    if (!table) return
+    this.commitTableReplacement(selection.elementId, table, 'split', source.row, source.column)
+  }
+
+  private commitTableReplacement(elementId: string, table: TableElement, action: 'merge' | 'split', row: number, column: number): void {
+    const nextDocument = clone(this.document)
+    nextDocument.elements[elementId] = table
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`table ${action} is invalid: ${elementId}: ${validation.errors.join('; ')}`)
+    this.commit([{ path: ['elements', elementId], value: table }])
+    this.tableCellSelection = { elementId, anchorRow: row, anchorColumn: column, row, column }
   }
 
   private commitValidatedTableStyles(changes: Array<{ path: string[]; value: unknown }>): void {
