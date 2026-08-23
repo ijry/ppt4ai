@@ -1,4 +1,4 @@
-import { validateDocument, validateTextBody, type Element, type Fill, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody } from '@ppt4ai/model'
+import { validateDocument, validateTextBody, type AssetMetadata, type Element, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -56,6 +56,8 @@ export interface TableCellSelection {
 
 export type EngineCommand =
   | { type: 'select'; elementIds: string[]; additive?: boolean }
+  | { type: 'insertImage'; slideId: string; element: ImageElement; asset: AssetMetadata }
+  | { type: 'replaceImageAsset'; elementId: string; asset: AssetMetadata }
   | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
   | { type: 'setTableCellText'; body: TextBody }
   | { type: 'setTableCellFill'; fill: Fill | null }
@@ -568,6 +570,14 @@ export class EditorEngine {
         this.tableCellSelection = undefined
         break
       }
+      case 'insertImage': {
+        this.insertImage(command.slideId, command.element, command.asset)
+        break
+      }
+      case 'replaceImageAsset': {
+        this.replaceImageAsset(command.elementId, command.asset)
+        break
+      }
       case 'selectTableCell': {
         this.selectTableCell(command.elementId, command.row, command.column, command.extend)
         break
@@ -887,6 +897,50 @@ export class EditorEngine {
   private activeSlide(): Ppt4aiDocument['slides'][string] | undefined {
     const slideId = this.document.slideOrder[0]
     return slideId ? this.document.slides[slideId] : undefined
+  }
+
+  private insertImage(slideId: string, element: ImageElement, asset: AssetMetadata): void {
+    const slide = this.document.slides[slideId]
+    if (!slide) throw new Error(`slide does not exist: ${slideId}`)
+    if (this.document.elements[element.id]) throw new Error(`element already exists: ${element.id}`)
+    if (this.document.assets?.[asset.id]) throw new Error(`asset already exists: ${asset.id}`)
+    if (element.assetId !== asset.id) throw new Error(`image element asset does not match metadata: ${element.id}`)
+
+    const nextDocument = clone(this.document)
+    nextDocument.assets = { ...(nextDocument.assets ?? {}), [asset.id]: clone(asset) }
+    nextDocument.elements[element.id] = clone(element)
+    nextDocument.slides[slideId]!.elementIds = [...slide.elementIds, element.id]
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`image insertion is invalid: ${validation.errors.join('; ')}`)
+
+    this.commit([
+      { path: ['assets'], value: nextDocument.assets },
+      { path: ['elements', element.id], value: nextDocument.elements[element.id] },
+      { path: ['slides', slideId, 'elementIds'], value: nextDocument.slides[slideId]!.elementIds },
+    ])
+    this.selection = [element.id]
+    this.tableCellSelection = undefined
+  }
+
+  private replaceImageAsset(elementId: string, asset: AssetMetadata): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`element does not exist: ${elementId}`)
+    if (element.kind !== 'image') throw new Error(`element is not an image: ${elementId}`)
+    if (element.assetId === asset.id) throw new Error(`replacement asset must differ: ${asset.id}`)
+    if (this.document.assets?.[asset.id]) throw new Error(`asset already exists: ${asset.id}`)
+
+    const nextDocument = clone(this.document)
+    nextDocument.elements[elementId] = { ...element, assetId: asset.id }
+    nextDocument.assets = { ...(nextDocument.assets ?? {}), [asset.id]: clone(asset) }
+    const stillReferenced = Object.values(nextDocument.elements).some((candidate) => candidate.kind === 'image' && candidate.assetId === element.assetId)
+    if (!stillReferenced) delete nextDocument.assets[element.assetId]
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`image replacement is invalid: ${validation.errors.join('; ')}`)
+
+    this.commit([
+      { path: ['assets'], value: nextDocument.assets },
+      { path: ['elements', elementId], value: nextDocument.elements[elementId] },
+    ])
   }
 
   private applyHistoryEntry(source: HistoryEntry[], target: HistoryEntry[]): void {

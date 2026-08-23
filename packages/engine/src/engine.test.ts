@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EditorEngine } from './index'
-import type { Ppt4aiDocument } from '@ppt4ai/model'
+import type { AssetMetadata, ImageElement, Ppt4aiDocument } from '@ppt4ai/model'
 
 function makeDocument(): Ppt4aiDocument {
   return {
@@ -27,6 +27,38 @@ function makeDocument(): Ppt4aiDocument {
     },
     slideOrder: ['sld_1'],
   }
+}
+
+function imageAsset(id: string, mimeType: AssetMetadata['mimeType'] = 'image/png'): AssetMetadata {
+  return { id, mimeType, pixelWidth: 12, pixelHeight: 34 }
+}
+
+function imageElement(id: string, assetId: string): ImageElement {
+  return {
+    id,
+    kind: 'image',
+    bounds: { x: 1000000, y: 2000000, w: 2000000, h: 1500000 },
+    assetId,
+    transform: { rotation: 900000, flipH: true },
+    sourceCrop: { left: 1000, bottom: 2000 },
+    maskPreset: 'roundRect',
+    effects: [{ type: 'grayscl' }],
+  }
+}
+
+function makeImageDocument(sharedAsset = false): Ppt4aiDocument {
+  const document = makeDocument()
+  const first = imageElement('img_1', 'asset_old')
+  document.elements[first.id] = first
+  document.slides.sld_1!.elementIds.push(first.id)
+  document.assets = { asset_old: imageAsset('asset_old') }
+  if (sharedAsset) {
+    const second = imageElement('img_2', 'asset_old')
+    second.bounds.x = 5000000
+    document.elements[second.id] = second
+    document.slides.sld_1!.elementIds.push(second.id)
+  }
+  return document
 }
 
 function makeTableDocument(): Ppt4aiDocument {
@@ -126,6 +158,89 @@ function makeMergedCellDocument(rowSpan = 2, colSpan = 2): Ppt4aiDocument {
 }
 
 describe('EditorEngine', () => {
+  it('inserts an image, registers its asset, and selects it atomically', () => {
+    const engine = new EditorEngine(makeDocument())
+    const element = imageElement('img_new', 'asset_new')
+    const asset = imageAsset('asset_new')
+    const state = engine.dispatch({ type: 'insertImage', slideId: 'sld_1', element, asset })
+
+    expect(state.document.slides.sld_1?.elementIds).toEqual(['el_a', 'el_b', 'img_new'])
+    expect(state.document.elements.img_new).toEqual(element)
+    expect(state.document.assets).toEqual({ asset_new: asset })
+    expect(state.selection).toEqual(['img_new'])
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+
+    element.bounds.x = 99
+    asset.pixelWidth = 99
+    expect(engine.getState().document.elements.img_new).toEqual({ ...imageElement('img_new', 'asset_new') })
+    expect(engine.getState().document.assets).toEqual({ asset_new: imageAsset('asset_new') })
+  })
+
+  it('rejects invalid image insertion without changing engine state', () => {
+    const engine = new EditorEngine(makeDocument())
+    const before = engine.getState()
+
+    expect(() => engine.dispatch({
+      type: 'insertImage',
+      slideId: 'missing',
+      element: imageElement('img_new', 'asset_new'),
+      asset: imageAsset('asset_new'),
+    })).toThrow('slide does not exist: missing')
+    expect(engine.getState()).toEqual(before)
+  })
+
+  it.each([
+    ['element already exists: el_a', { slideId: 'sld_1', element: imageElement('el_a', 'asset_new'), asset: imageAsset('asset_new') }],
+    ['asset already exists: asset_old', { slideId: 'sld_1', element: imageElement('img_new', 'asset_old'), asset: imageAsset('asset_old') }],
+    ['image element asset does not match metadata: img_new', { slideId: 'sld_1', element: imageElement('img_new', 'asset_a'), asset: imageAsset('asset_b') }],
+  ] as const)('rejects invalid insertion case %s atomically', (message, command) => {
+    const engine = new EditorEngine(makeImageDocument())
+    const before = engine.getState()
+    expect(() => engine.dispatch({ type: 'insertImage', ...command })).toThrow(message)
+    expect(engine.getState()).toEqual(before)
+  })
+
+  it('replaces an image asset while preserving appearance and cleans zero references', () => {
+    const engine = new EditorEngine(makeImageDocument())
+    const before = engine.getState().document.elements.img_1 as ImageElement
+    const state = engine.dispatch({
+      type: 'replaceImageAsset',
+      elementId: 'img_1',
+      asset: imageAsset('asset_new', 'image/jpeg'),
+    })
+
+    expect(state.document.elements.img_1).toEqual({ ...before, assetId: 'asset_new' })
+    expect(state.document.assets).toEqual({ asset_new: imageAsset('asset_new', 'image/jpeg') })
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(engine.dispatch({ type: 'undo' }).document).toEqual(makeImageDocument())
+    expect(engine.dispatch({ type: 'redo' }).document).toEqual(state.document)
+  })
+
+  it('keeps shared old asset metadata until its final reference is replaced', () => {
+    const engine = new EditorEngine(makeImageDocument(true))
+    engine.dispatch({ type: 'replaceImageAsset', elementId: 'img_1', asset: imageAsset('asset_new') })
+    expect(engine.getState().document.assets).toEqual({ asset_old: imageAsset('asset_old'), asset_new: imageAsset('asset_new') })
+    const state = engine.dispatch({ type: 'replaceImageAsset', elementId: 'img_2', asset: imageAsset('asset_final') })
+    expect(state.document.assets).toEqual({ asset_new: imageAsset('asset_new'), asset_final: imageAsset('asset_final') })
+  })
+
+  it.each([
+    ['element does not exist: missing', 'missing', 'asset_new'],
+    ['element is not an image: el_a', 'el_a', 'asset_new'],
+  ] as const)('rejects invalid replacement case %s atomically', (message, elementId, assetId) => {
+    const engine = new EditorEngine(makeImageDocument())
+    const before = engine.getState()
+    expect(() => engine.dispatch({ type: 'replaceImageAsset', elementId, asset: imageAsset(assetId) })).toThrow(message)
+    expect(engine.getState()).toEqual(before)
+  })
+
+  it('rejects replacement metadata that already exists without changing state', () => {
+    const engine = new EditorEngine(makeImageDocument(true))
+    const before = engine.getState()
+    expect(() => engine.dispatch({ type: 'replaceImageAsset', elementId: 'img_1', asset: imageAsset('asset_old') })).toThrow('replacement asset must differ: asset_old')
+    expect(engine.getState()).toEqual(before)
+  })
+
   it('keeps selection separate from document history and clones state safely', () => {
     const engine = new EditorEngine(makeDocument())
 
