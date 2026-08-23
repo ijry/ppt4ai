@@ -2,6 +2,7 @@ const enUS = {
   editor: {
     canvas: {
       ariaLabel: 'Presentation editing canvas',
+      selectionLabel: 'Current selection',
     },
   },
   toolbar: {

@@ -2,6 +2,7 @@ const zhCN = {
   editor: {
     canvas: {
       ariaLabel: '幻灯片编辑画布',
+      selectionLabel: '当前选中对象',
     },
   },
   toolbar: {
