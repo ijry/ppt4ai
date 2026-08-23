@@ -21,6 +21,10 @@ class FakeContext {
   filter = 'none'
   fillStyle = ''
   strokeStyle = ''
+  font = ''
+  textAlign: CanvasTextAlign = 'start'
+  textBaseline: CanvasTextBaseline = 'alphabetic'
+  lineWidth = 1
   save(): void { this.events.push(['save']) }
   restore(): void { this.events.push(['restore']) }
   translate(): void {}
@@ -35,8 +39,14 @@ class FakeContext {
   closePath(): void { this.events.push(['closePath']) }
   fill(): void { this.events.push(['fill', this.fillStyle, this.globalAlpha]) }
   stroke(): void { this.events.push(['stroke', this.strokeStyle, this.globalAlpha]) }
+  fillText(text: string, x: number, y: number): void {
+    this.events.push(['fillText', text, x, y, this.font, this.fillStyle, this.globalAlpha])
+  }
   clip(): void {}
-  drawImage(...args: unknown[]): void { this.draws.push(args) }
+  drawImage(...args: unknown[]): void {
+    this.draws.push(args)
+    this.events.push(['drawImage'])
+  }
   clearRect(): void {}
 }
 
@@ -98,6 +108,99 @@ async function resolveResource(runtime: ThumbnailWorkerRuntime, messages: Thumbn
 }
 
 describe('thumbnail worker runtime', () => {
+  it('paints mixed shape, text, and image nodes in scene order without text resources', async () => {
+    const harness = createHarness()
+    const textNode = (id: string, text: string, x: number): ThumbnailRenderRequest['scene']['nodes'][number] => ({
+      id,
+      kind: 'text',
+      bounds: { x, y: 0, w: 200, h: 100 },
+      text,
+      layout: {
+        bounds: { x, y: 0, w: 200, h: 100 },
+        fontScale: 100000,
+        overflow: false,
+        contentBounds: { x, y: 0, w: 200, h: 100 },
+        lines: text.length === 0 ? [] : [{
+          paragraphIndex: 0,
+          x,
+          y: 0,
+          width: 200,
+          height: 100,
+          runs: [{ text, x, width: 200 }],
+        }],
+      },
+    })
+    const request: ThumbnailRenderRequest = {
+      type: 'render',
+      requestId: 6,
+      scene: {
+        slideId: 'slide-1',
+        page: { w: 1000, h: 500 },
+        nodes: [
+          {
+            id: 'shape-first',
+            kind: 'shape',
+            bounds: { x: 0, y: 0, w: 200, h: 100 },
+            path: [{ type: 'move', x: 0, y: 0 }, { type: 'line', x: 200, y: 0 }, { type: 'close' }],
+            resolvedFillColor: { rgb: '112233', alpha: 100000 },
+          },
+          textNode('text-middle', 'Hello', 200),
+          { id: 'image-third', kind: 'image', bounds: { x: 400, y: 0, w: 200, h: 100 }, assetId: 'asset-a', metadata: { id: 'asset-a', mimeType: 'image/png' } },
+          textNode('text-last', 'World', 600),
+        ],
+      },
+      viewport: { width: 200, height: 100 },
+    }
+
+    harness.runtime.handleMessage(request)
+    await resolveResource(harness.runtime, harness.messages)
+    await vi.waitFor(() => expect(harness.messages.some((message) => message.type === 'render-result')).toBe(true))
+
+    const result = harness.messages.find((message): message is ThumbnailRenderResponse => message.type === 'render-result')!
+    const paintEvents = harness.canvas.context.events.filter(([type]) => type === 'fill' || type === 'fillText' || type === 'drawImage' || type === 'stroke')
+    expect(paintEvents.map((event) => event[0] === 'fillText' ? event[1] : event[0])).toEqual(['fill', 'Hello', 'drawImage', 'World'])
+    expect(result.result.drawnNodeIds).toEqual(['shape-first', 'text-middle', 'image-third', 'text-last'])
+    expect(result.result.skippedNodeIds).toEqual([])
+    expect(harness.messages.filter((message) => message.type === 'resource-request')).toHaveLength(1)
+  })
+
+  it('draws empty text, isolates invalid text, and never requests text resources', async () => {
+    const harness = createHarness()
+    const baseText = {
+      kind: 'text' as const,
+      bounds: { x: 0, y: 0, w: 100, h: 100 },
+      text: 'x',
+      layout: {
+        bounds: { x: 0, y: 0, w: 100, h: 100 },
+        fontScale: 100000,
+        overflow: false,
+        contentBounds: { x: 0, y: 0, w: 100, h: 100 },
+        lines: [{ paragraphIndex: 0, x: 0, y: 0, width: 100, height: 100, runs: [{ text: 'x', x: 0, width: 100 }] }],
+      },
+    }
+    harness.runtime.handleMessage({
+      type: 'render',
+      requestId: 7,
+      scene: {
+        slideId: 'slide-1',
+        page: { w: 100, h: 100 },
+        nodes: [
+          { ...baseText, id: 'empty-text', text: '', layout: { ...baseText.layout, lines: [] } },
+          { ...baseText, id: 'bad-text', layout: { ...baseText.layout, lines: [{ ...baseText.layout.lines[0]!, runs: [{ text: 'bad', x: 0, width: 100, resolvedColor: { rgb: 'broken', alpha: 100000 } }] }] } },
+          { ...baseText, id: 'good-text', text: 'good' },
+        ],
+      },
+      viewport: { width: 100, height: 100 },
+    })
+    await vi.waitFor(() => expect(harness.messages.some((message) => message.type === 'render-result')).toBe(true))
+
+    const result = harness.messages.find((message): message is ThumbnailRenderResponse => message.type === 'render-result')!
+    expect(result.result.drawnNodeIds).toEqual(['empty-text', 'good-text'])
+    expect(result.result.skippedNodeIds).toEqual(['bad-text'])
+    expect(result.result.issues).toMatchObject([{ nodeId: 'bad-text', code: 'draw-failed' }])
+    expect(harness.messages.filter((message) => message.type === 'resource-request')).toHaveLength(0)
+  })
+
   it('paints shapes and images in scene order without requesting shape assets', async () => {
     const harness = createHarness()
     const request: ThumbnailRenderRequest = {
