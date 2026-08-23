@@ -31,6 +31,7 @@ const markNames = new Set<keyof TextMarks>([
   'baseline',
 ])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
+const colorTransformTypes = new Set(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 
 export function setTextMarks(state: EditorState, patch: TextMarksPatch): EditorState {
   validatePatch(patch)
@@ -156,9 +157,16 @@ function isFill(value: unknown): value is Fill {
   const fill = value as Record<string, unknown>
   if (!fill.color || typeof fill.color !== 'object' || Array.isArray(fill.color)) return false
   const color = fill.color as Record<string, unknown>
-  return typeof color.type === 'string' && colorTypes.has(color.type)
-    && typeof color.v === 'string' && color.v.length > 0
-    && (color.alpha === undefined || (typeof color.alpha === 'number' && Number.isFinite(color.alpha) && color.alpha >= 0 && color.alpha <= 1))
+  if (typeof color.type !== 'string' || !colorTypes.has(color.type) || typeof color.v !== 'string' || color.v.length === 0) return false
+  if (color.transforms === undefined) return true
+  if (!Array.isArray(color.transforms)) return false
+  return color.transforms.every((transform) => {
+    if (!transform || typeof transform !== 'object' || Array.isArray(transform)) return false
+    const entry = transform as Record<string, unknown>
+    return typeof entry.type === 'string' && colorTransformTypes.has(entry.type)
+      && typeof entry.value === 'number' && Number.isFinite(entry.value)
+      && entry.value >= 0 && entry.value <= 100000
+  })
 }
 
 function mergeMarks(current: TextMarks | undefined, patch: TextMarksPatch): TextMarks | undefined {

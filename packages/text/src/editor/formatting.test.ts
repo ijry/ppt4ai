@@ -94,6 +94,39 @@ describe('text formatting transactions', () => {
     expect(getTextEditorSnapshot(state)).toEqual(before)
   })
 
+  it('accepts structured color transforms and rejects invalid transform values', () => {
+    const state = setTextEditorSelection(
+      createTextEditorState({ paragraphs: [{ runs: [{ text: 'A' }] }] }),
+      { anchor: 1, head: 2 },
+    )
+    const formatted = setTextMarks(state, {
+      color: {
+        color: {
+          type: 'srgb',
+          v: '336699',
+          transforms: [{ type: 'tint', value: 50000 }],
+        },
+      },
+    })
+
+    expect(getTextEditorSnapshot(formatted).body.paragraphs[0]?.runs[0]?.marks?.color).toEqual({
+      color: {
+        type: 'srgb',
+        v: '336699',
+        transforms: [{ type: 'tint', value: 50000 }],
+      },
+    })
+    expect(() => setTextMarks(state, {
+      color: {
+        color: {
+          type: 'srgb',
+          v: '336699',
+          transforms: [{ type: 'tint', value: -1 }],
+        },
+      },
+    })).toThrow()
+  })
+
   it('reports uniform, mixed, and collapsed formatting state', () => {
     const uniform = setTextEditorSelection(createTextEditorState({
       paragraphs: [{ runs: [{ text: 'AB', marks: { bold: true, italic: true, underline: 'single', fontFamily: 'Arial', fontSize: 18, color: { color: { type: 'srgb', v: 'ff0000' } } } }] }],

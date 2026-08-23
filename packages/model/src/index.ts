@@ -10,7 +10,45 @@ export interface Rect {
 export interface Color {
   type: 'srgb' | 'scheme' | 'preset' | 'system' | 'scrgb'
   v: string
-  alpha?: number
+  transforms?: ColorTransform[]
+}
+
+export type ColorTransformType = 'tint' | 'shade' | 'lumMod' | 'lumOff' | 'alpha' | 'alphaMod' | 'alphaOff'
+
+export interface ColorTransform {
+  type: ColorTransformType
+  value: number
+}
+
+export type ThemeColorSlot = 'dk1' | 'lt1' | 'dk2' | 'lt2' | 'accent1' | 'accent2' | 'accent3' | 'accent4' | 'accent5' | 'accent6' | 'hlink' | 'folHlink'
+
+export interface Theme {
+  id: string
+  colors: Partial<Record<ThemeColorSlot, Color>>
+}
+
+export type ColorMapKey = 'bg1' | 'tx1' | 'bg2' | 'tx2' | 'accent1' | 'accent2' | 'accent3' | 'accent4' | 'accent5' | 'accent6' | 'hlink' | 'folHlink'
+
+export type ColorMap = Record<ColorMapKey, ThemeColorSlot>
+
+export const DEFAULT_COLOR_MAP: ColorMap = {
+  bg1: 'lt1',
+  tx1: 'dk1',
+  bg2: 'lt2',
+  tx2: 'dk2',
+  accent1: 'accent1',
+  accent2: 'accent2',
+  accent3: 'accent3',
+  accent4: 'accent4',
+  accent5: 'accent5',
+  accent6: 'accent6',
+  hlink: 'hlink',
+  folHlink: 'folHlink',
+}
+
+export interface ResolvedColor {
+  rgb: string
+  alpha: number
 }
 
 export interface Fill {
@@ -120,6 +158,13 @@ export type TableStyleRegionName =
 export interface TableStyleRegion {
   fill?: Fill
   borders?: TableCellBorders
+  text?: TableStyleText
+}
+
+export interface TableStyleText {
+  color?: Color
+  bold?: boolean
+  italic?: boolean
 }
 
 export interface TableStyle {
@@ -185,11 +230,14 @@ export interface SlideLayout {
   id: string
   masterId: string
   defaults?: Record<string, ElementDefaults>
+  colorMapOverride?: Partial<ColorMap>
 }
 
 export interface SlideMaster {
   id: string
   defaults?: Record<string, ElementDefaults>
+  themeId?: string
+  colorMap?: Partial<ColorMap>
 }
 
 export interface Slide {
@@ -197,6 +245,7 @@ export interface Slide {
   elementIds: string[]
   layoutId?: string
   masterId?: string
+  colorMapOverride?: Partial<ColorMap>
 }
 
 export interface Ppt4aiDocument {
@@ -213,6 +262,7 @@ export interface Ppt4aiDocument {
   tableStyles?: Record<string, TableStyle>
   layouts?: Record<string, SlideLayout>
   masters?: Record<string, SlideMaster>
+  themes?: Record<string, Theme>
   source?: {
     entries: Record<string, string>
   }
@@ -221,6 +271,111 @@ export interface Ppt4aiDocument {
 export interface ResolvedTableCellStyle {
   fill?: Fill
   borders: TableCellBorders
+  text?: TableStyleText
+}
+
+export function mergeColorMaps(...overlays: Array<Partial<ColorMap> | undefined>): ColorMap {
+  const result = { ...DEFAULT_COLOR_MAP }
+  for (const overlay of overlays) {
+    if (overlay) Object.assign(result, overlay)
+  }
+  return result
+}
+
+const presetColors: Record<string, string> = {
+  black: '000000', white: 'FFFFFF', red: 'FF0000', green: '008000', blue: '0000FF', yellow: 'FFFF00',
+  cyan: '00FFFF', magenta: 'FF00FF', gray: '808080', grey: '808080', orange: 'FFA500', purple: '800080',
+}
+
+function parseRgb(value: string): [number, number, number] | undefined {
+  if (!/^[0-9a-f]{6}$/i.test(value)) return undefined
+  return [Number.parseInt(value.slice(0, 2), 16), Number.parseInt(value.slice(2, 4), 16), Number.parseInt(value.slice(4, 6), 16)]
+}
+
+function clamp(value: number, min = 0, max = 100000): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function toRgb(rgb: [number, number, number]): string {
+  return rgb.map((channel) => Math.round(clamp(channel, 0, 255)).toString(16).padStart(2, '0')).join('').toUpperCase()
+}
+
+function rgbToHsl([red, green, blue]: [number, number, number]): [number, number, number] {
+  const r = red / 255
+  const g = green / 255
+  const b = blue / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const lightness = (max + min) / 2
+  if (max === min) return [0, 0, lightness]
+  const delta = max - min
+  const saturation = lightness > 0.5 ? delta / (2 - max - min) : delta / (max + min)
+  let hue = max === r ? (g - b) / delta + (g < b ? 6 : 0) : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4
+  hue /= 6
+  return [hue, saturation, lightness]
+}
+
+function hslToRgb([hue, saturation, lightness]: [number, number, number]): [number, number, number] {
+  if (saturation === 0) return [lightness * 255, lightness * 255, lightness * 255]
+  const q = lightness < 0.5 ? lightness * (1 + saturation) : lightness + saturation - lightness * saturation
+  const p = 2 * lightness - q
+  const channel = (t: number): number => {
+    if (t < 0) t += 1
+    if (t > 1) t -= 1
+    if (t < 1 / 6) return p + (q - p) * 6 * t
+    if (t < 1 / 2) return q
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+    return p
+  }
+  return [channel(hue + 1 / 3) * 255, channel(hue) * 255, channel(hue - 1 / 3) * 255]
+}
+
+function resolveColorSource(color: Color, theme: Theme | undefined, colorMap: ColorMap, seen: Set<string>, depth: number): ResolvedColor | undefined {
+  if (depth > 16) return undefined
+  let rgb: [number, number, number] | undefined
+  if (color.type === 'srgb') rgb = parseRgb(color.v)
+  else if (color.type === 'system') rgb = parseRgb(color.v)
+  else if (color.type === 'preset') rgb = parseRgb(presetColors[color.v.toLowerCase()] ?? '')
+  else if (color.type === 'scrgb') {
+    const channels = color.v.split(',').map(Number)
+    if (channels.length === 3 && channels.every((value) => Number.isFinite(value) && value >= 0 && value <= 100000)) rgb = channels.map((value) => value * 255 / 100000) as [number, number, number]
+  } else if (color.type === 'scheme' && color.v !== 'phClr') {
+    const slot = colorMap[color.v as ColorMapKey] ?? color.v
+    if (seen.has(slot)) return undefined
+    const nested = theme?.colors[slot as ThemeColorSlot]
+    if (!nested) return undefined
+    seen.add(slot)
+    const resolved = resolveColorSource(nested, theme, colorMap, seen, depth + 1)
+    seen.delete(slot)
+    if (!resolved) return undefined
+    rgb = parseRgb(resolved.rgb)
+    if (!rgb) return undefined
+    return applyColorTransforms(rgb, resolved.alpha, color.transforms)
+  }
+  if (!rgb) return undefined
+  return applyColorTransforms(rgb, 100000, color.transforms)
+}
+
+function applyColorTransforms(rgb: [number, number, number], alpha: number, transforms: ColorTransform[] | undefined): ResolvedColor {
+  let currentRgb = [...rgb] as [number, number, number]
+  let currentAlpha = alpha
+  for (const transform of transforms ?? []) {
+    const factor = transform.value / 100000
+    if (transform.type === 'tint') currentRgb = currentRgb.map((channel) => channel + (255 - channel) * factor) as [number, number, number]
+    else if (transform.type === 'shade') currentRgb = currentRgb.map((channel) => channel * factor) as [number, number, number]
+    else if (transform.type === 'lumMod' || transform.type === 'lumOff') {
+      const hsl = rgbToHsl(currentRgb)
+      hsl[2] = clamp((transform.type === 'lumMod' ? hsl[2] * factor : hsl[2] + factor), 0, 1)
+      currentRgb = hslToRgb(hsl)
+    } else if (transform.type === 'alpha') currentAlpha = clamp(transform.value)
+    else if (transform.type === 'alphaMod') currentAlpha = clamp(currentAlpha * factor)
+    else if (transform.type === 'alphaOff') currentAlpha = clamp(currentAlpha + transform.value)
+  }
+  return { rgb: toRgb(currentRgb), alpha: Math.round(currentAlpha) }
+}
+
+export function resolveColor(color: Color, theme?: Theme, colorMap: ColorMap = DEFAULT_COLOR_MAP): ResolvedColor | undefined {
+  return resolveColorSource(color, theme, colorMap, new Set<string>(), 0)
 }
 
 function elementKey(element: Element): string {
@@ -249,6 +404,9 @@ export function resolveInheritedElement(element: Element, layout?: SlideLayout, 
 
 function mergeTableStyleRegion(target: ResolvedTableCellStyle, region: TableStyleRegion | undefined): ResolvedTableCellStyle {
   if (!region) return target
+  const text = region.text
+    ? { ...target.text, ...structuredClone(region.text) }
+    : target.text
   return {
     ...(target.fill ? { fill: target.fill } : {}),
     ...(region.fill ? { fill: structuredClone(region.fill) } : {}),
@@ -256,6 +414,7 @@ function mergeTableStyleRegion(target: ResolvedTableCellStyle, region: TableStyl
       ...target.borders,
       ...(region.borders ? structuredClone(region.borders) : {}),
     },
+    ...(text ? { text } : {}),
   }
 }
 
@@ -303,9 +462,48 @@ const bulletSchemes = new Set(['arabic', 'alphaLower', 'alphaUpper'])
 const tableBorderStyles = new Set(['solid', 'dash', 'dot', 'none'])
 const tableStyleRegions = new Set<TableStyleRegionName>(['wholeTable', 'band1H', 'band2H', 'band1V', 'band2V', 'firstRow', 'lastRow', 'firstCol', 'lastCol'])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
+const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
+const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
+const colorMapKeys = new Set<ColorMapKey>(['bg1', 'tx1', 'bg2', 'tx2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 
 function validateFiniteNumber(value: unknown, path: string, errors: string[], predicate: (value: number) => boolean, message: string): void {
   if (typeof value !== 'number' || !Number.isFinite(value) || !predicate(value)) errors.push(`${path} ${message}`)
+}
+
+function validateColor(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const color = value as Record<string, unknown>
+  if (typeof color.type !== 'string' || !colorTypes.has(color.type)) errors.push(`${path}.type must be a supported color type`)
+  if (typeof color.v !== 'string' || color.v.length === 0) errors.push(`${path}.v must be a non-empty string`)
+  if ('transforms' in color && color.transforms !== undefined) {
+    if (!Array.isArray(color.transforms)) errors.push(`${path}.transforms must be an array`)
+    else color.transforms.forEach((transform, index) => {
+      const transformPath = `${path}.transforms[${index}]`
+      if (!transform || typeof transform !== 'object' || Array.isArray(transform)) {
+        errors.push(`${transformPath} must be an object`)
+        return
+      }
+      const transformValue = transform as Record<string, unknown>
+      if (typeof transformValue.type !== 'string' || !colorTransformTypes.has(transformValue.type as ColorTransformType)) {
+        errors.push(`${transformPath}.type must be a supported color transform type`)
+      }
+      validateFiniteNumber(transformValue.value, `${transformPath}.value`, errors, (number) => number >= 0 && number <= 100000, 'must be between 0 and 100000')
+    })
+  }
+}
+
+function validateColorMap(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  for (const [key, target] of Object.entries(value)) {
+    if (!colorMapKeys.has(key as ColorMapKey)) errors.push(`${path}.${key} is not a supported color-map key`)
+    if (typeof target !== 'string' || !themeColorSlots.has(target as ThemeColorSlot)) errors.push(`${path}.${key} must reference a supported theme color slot`)
+  }
 }
 
 function validateTextMarks(value: unknown, path: string, errors: string[]): void {
@@ -387,11 +585,7 @@ function validateTableBorder(value: unknown, path: string, errors: string[]): vo
   const border = value as Record<string, unknown>
   const color = border.color
   if (!color || typeof color !== 'object' || Array.isArray(color)) errors.push(`${path}.color must be an object`)
-  else {
-    const colorValue = color as Record<string, unknown>
-    if (typeof colorValue.type !== 'string' || !colorTypes.has(colorValue.type)) errors.push(`${path}.color.type must be a supported color type`)
-    if (typeof colorValue.v !== 'string' || colorValue.v.length === 0) errors.push(`${path}.color.v must be a non-empty string`)
-  }
+  else validateColor(color, `${path}.color`, errors)
   if ('width' in border) validateFiniteNumber(border.width, `${path}.width`, errors, (number) => number >= 0, 'must be non-negative')
   if ('style' in border && (typeof border.style !== 'string' || !tableBorderStyles.has(border.style))) errors.push(`${path}.style must be solid, dash, dot, or none`)
 }
@@ -407,8 +601,7 @@ function validateFill(value: unknown, path: string, errors: string[]): void {
     return
   }
   const colorValue = color as Record<string, unknown>
-  if (typeof colorValue.type !== 'string' || !colorTypes.has(colorValue.type)) errors.push(`${path}.color.type must be a supported color type`)
-  if (typeof colorValue.v !== 'string' || colorValue.v.length === 0) errors.push(`${path}.color.v must be a non-empty string`)
+  validateColor(colorValue, `${path}.color`, errors)
 }
 
 function validateTableCellBorders(value: unknown, path: string, errors: string[]): void {
@@ -428,6 +621,14 @@ function validateTableStyleRegion(value: unknown, path: string, errors: string[]
   const region = value as Record<string, unknown>
   if ('fill' in region && region.fill !== undefined) validateFill(region.fill, `${path}.fill`, errors)
   if ('borders' in region && region.borders !== undefined) validateTableCellBorders(region.borders, `${path}.borders`, errors)
+  if ('text' in region && region.text !== undefined) {
+    if (!region.text || typeof region.text !== 'object' || Array.isArray(region.text)) errors.push(`${path}.text must be an object`)
+    else {
+      const text = region.text as Record<string, unknown>
+      if ('color' in text && text.color !== undefined) validateColor(text.color, `${path}.text.color`, errors)
+      for (const key of ['bold', 'italic']) if (key in text && text[key] !== undefined && typeof text[key] !== 'boolean') errors.push(`${path}.text.${key} must be a boolean`)
+    }
+  }
 }
 
 function validateTableStyleReference(value: unknown, path: string, errors: string[]): void {
@@ -591,6 +792,58 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
   if (value.tableStyles !== undefined) {
     if (!value.tableStyles || typeof value.tableStyles !== 'object' || Array.isArray(value.tableStyles)) errors.push('tableStyles must be an object')
     else for (const [styleId, style] of Object.entries(value.tableStyles)) validateTableStyle(style, `tableStyles.${styleId}`, errors)
+  }
+
+  if (value.themes !== undefined) {
+    if (!value.themes || typeof value.themes !== 'object' || Array.isArray(value.themes)) errors.push('themes must be an object')
+    else for (const [themeId, themeValue] of Object.entries(value.themes)) {
+      const themePath = `themes.${themeId}`
+      if (!themeValue || typeof themeValue !== 'object' || Array.isArray(themeValue)) {
+        errors.push(`${themePath} must be an object`)
+        continue
+      }
+      const theme = themeValue as unknown as Record<string, unknown>
+      if (theme.id !== themeId) errors.push(`theme key does not match id: ${themeId}`)
+      if (!theme.colors || typeof theme.colors !== 'object' || Array.isArray(theme.colors)) errors.push(`${themePath}.colors must be an object`)
+      else for (const [slot, color] of Object.entries(theme.colors)) {
+        const colorPath = `${themePath}.colors.${slot}`
+        if (!themeColorSlots.has(slot as ThemeColorSlot)) errors.push(`${colorPath} is not a supported theme color slot`)
+        validateColor(color, colorPath, errors)
+      }
+    }
+  }
+
+  if (value.masters !== undefined) {
+    if (!value.masters || typeof value.masters !== 'object' || Array.isArray(value.masters)) errors.push('masters must be an object')
+    else for (const [masterId, masterValue] of Object.entries(value.masters)) {
+      const masterPath = `masters.${masterId}`
+      if (!masterValue || typeof masterValue !== 'object' || Array.isArray(masterValue)) {
+        errors.push(`${masterPath} must be an object`)
+        continue
+      }
+      const master = masterValue as unknown as Record<string, unknown>
+      if (master.id !== masterId) errors.push(`master key does not match id: ${masterId}`)
+      if ('themeId' in master && master.themeId !== undefined && (typeof master.themeId !== 'string' || master.themeId.length === 0)) errors.push(`${masterPath}.themeId must be a non-empty string`)
+      if ('colorMap' in master && master.colorMap !== undefined) validateColorMap(master.colorMap, `${masterPath}.colorMap`, errors)
+    }
+  }
+
+  if (value.layouts !== undefined) {
+    if (!value.layouts || typeof value.layouts !== 'object' || Array.isArray(value.layouts)) errors.push('layouts must be an object')
+    else for (const [layoutId, layoutValue] of Object.entries(value.layouts)) {
+      const layoutPath = `layouts.${layoutId}`
+      if (!layoutValue || typeof layoutValue !== 'object' || Array.isArray(layoutValue)) {
+        errors.push(`${layoutPath} must be an object`)
+        continue
+      }
+      const layout = layoutValue as unknown as Record<string, unknown>
+      if (layout.id !== layoutId) errors.push(`layout key does not match id: ${layoutId}`)
+      if ('colorMapOverride' in layout && layout.colorMapOverride !== undefined) validateColorMap(layout.colorMapOverride, `${layoutPath}.colorMapOverride`, errors)
+    }
+  }
+
+  for (const [slideId, slide] of Object.entries(value.slides)) {
+    if (slide.colorMapOverride !== undefined) validateColorMap(slide.colorMapOverride, `slides.${slideId}.colorMapOverride`, errors)
   }
 
   for (const [elementId, element] of Object.entries(value.elements)) {

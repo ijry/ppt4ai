@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  mergeColorMaps,
+  resolveColor,
   resolveInheritedElement,
   resolveTableCellStyle,
   validateDocument,
@@ -10,6 +12,7 @@ import {
   type SlideLayout,
   type SlideMaster,
   type TextElement,
+  type Theme,
 } from './index'
 
 const minimalDocument: Ppt4aiDocument = {
@@ -33,6 +36,152 @@ const minimalDocument: Ppt4aiDocument = {
 }
 
 describe('ppt4ai file model', () => {
+  it('resolves structured colors, scheme mapping, and ordered transforms', () => {
+    const theme = {
+      id: 'theme-1',
+      colors: {
+        accent1: { type: 'srgb', v: '336699' },
+        dk1: { type: 'srgb', v: '202020' },
+      },
+    } satisfies Theme
+
+    expect(resolveColor({ type: 'scheme', v: 'accent1' }, theme)).toEqual({ rgb: '336699', alpha: 100000 })
+    expect(resolveColor({ type: 'srgb', v: '000000', transforms: [{ type: 'tint', value: 50000 }] })).toEqual({ rgb: '808080', alpha: 100000 })
+    expect(resolveColor({ type: 'srgb', v: '336699', transforms: [{ type: 'alpha', value: 50000 }, { type: 'alphaOff', value: 10000 }] })).toEqual({ rgb: '336699', alpha: 60000 })
+    expect(resolveColor({ type: 'preset', v: 'red' })).toEqual({ rgb: 'FF0000', alpha: 100000 })
+    expect(resolveColor({ type: 'system', v: '112233' })).toEqual({ rgb: '112233', alpha: 100000 })
+    expect(resolveColor({ type: 'scrgb', v: '100000,50000,0' })).toEqual({ rgb: 'FF8000', alpha: 100000 })
+    expect(resolveColor({ type: 'preset', v: 'not-a-preset' })).toBeUndefined()
+  })
+
+  it('resolves recursive scheme colors and rejects unresolved scheme sources', () => {
+    const recursiveTheme = {
+      id: 'theme-recursive',
+      colors: {
+        accent1: { type: 'scheme', v: 'accent2' },
+        accent2: { type: 'srgb', v: '123456' },
+      },
+    } satisfies Theme
+    const cyclicTheme = {
+      id: 'theme-cycle',
+      colors: {
+        accent1: { type: 'scheme', v: 'accent2' },
+        accent2: { type: 'scheme', v: 'accent1' },
+      },
+    } satisfies Theme
+
+    expect(resolveColor({ type: 'scheme', v: 'accent1' }, recursiveTheme)).toEqual({ rgb: '123456', alpha: 100000 })
+    expect(resolveColor({ type: 'scheme', v: 'accent1' }, cyclicTheme)).toBeUndefined()
+    expect(resolveColor({ type: 'scheme', v: 'phClr' }, recursiveTheme)).toBeUndefined()
+    expect(resolveColor({ type: 'scheme', v: 'accent1' })).toBeUndefined()
+  })
+
+  it('stops a scheme cycle before reaching the recursion depth limit', () => {
+    let slotReads = 0
+    const theme = {
+      id: 'theme-cycle-short',
+      colors: {
+        get accent1() {
+          slotReads += 1
+          return { type: 'scheme', v: 'accent2' } as const
+        },
+        get accent2() {
+          slotReads += 1
+          return { type: 'scheme', v: 'accent1' } as const
+        },
+      },
+    } satisfies Theme
+
+    expect(resolveColor({ type: 'scheme', v: 'accent1' }, theme)).toBeUndefined()
+    expect(slotReads).toBe(2)
+  })
+
+  it('applies master, layout, and slide color-map overlays in order', () => {
+    expect(mergeColorMaps({ accent1: 'accent1' }, { accent1: 'accent2' }, { accent1: 'accent3' }).accent1).toBe('accent3')
+  })
+
+  it('merges table text defaults field by field', () => {
+    const table: TableElement = {
+      id: 'tbl-1',
+      kind: 'table',
+      bounds: { x: 0, y: 0, w: 1000, h: 1000 },
+      columns: [1000],
+      rows: [{ height: 1000, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Header' }] }] } }] }],
+      style: { styleId: 'style-1', firstRow: true },
+    }
+    const style = {
+      id: 'style-1',
+      regions: {
+        wholeTable: { text: { color: { type: 'srgb', v: '111111' }, bold: false } },
+        firstRow: { text: { color: { type: 'srgb', v: 'FFFFFF' }, bold: true, italic: true } },
+      },
+    } satisfies TableStyle
+
+    expect(resolveTableCellStyle(table, table.rows[0]!.cells[0]!, 0, 0, { 'style-1': style })).toMatchObject({
+      text: { color: { type: 'srgb', v: 'FFFFFF' }, bold: true, italic: true },
+    })
+  })
+
+  it('validates theme colors, mappings, transforms, and table text styles with stable paths', () => {
+    const document = {
+      ...minimalDocument,
+      themes: {
+        'theme-1': {
+          id: 'theme-1',
+          colors: {
+            invalidSlot: { type: 'srgb', v: 'FFFFFF' },
+            accent1: {
+              type: 'srgb',
+              v: '336699',
+              transforms: [
+                { type: 'unknown', value: 50000 },
+                { type: 'tint', value: -1 },
+              ],
+            },
+          },
+        },
+      },
+      masters: {
+        master_1: { id: 'master_1', colorMap: { accent1: 'invalidSlot' } },
+      },
+      tableStyles: {
+        'style-1': {
+          id: 'style-1',
+          regions: { wholeTable: { text: { bold: 'yes' } } },
+        },
+      },
+    } as unknown as Ppt4aiDocument
+
+    expect(validateDocument(document)).toEqual({
+      valid: false,
+      errors: [
+        'tableStyles.style-1.regions.wholeTable.text.bold must be a boolean',
+        'themes.theme-1.colors.invalidSlot is not a supported theme color slot',
+        'themes.theme-1.colors.accent1.transforms[0].type must be a supported color transform type',
+        'themes.theme-1.colors.accent1.transforms[1].value must be between 0 and 100000',
+        'masters.master_1.colorMap.accent1 must reference a supported theme color slot',
+      ],
+    })
+  })
+
+  it('keeps themes and ordered transforms structured-clone safe', () => {
+    const theme = {
+      id: 'theme-clone',
+      colors: {
+        accent1: {
+          type: 'srgb',
+          v: '336699',
+          transforms: [
+            { type: 'shade', value: 80000 },
+            { type: 'alphaMod', value: 50000 },
+          ],
+        },
+      },
+    } satisfies Theme
+
+    expect(structuredClone(theme)).toEqual(theme)
+  })
+
   it('resolves table style regions before explicit cell overrides', () => {
     const emptyBody = () => ({ paragraphs: [{ runs: [] }] })
     const table: TableElement = {
