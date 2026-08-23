@@ -1,5 +1,7 @@
 import { EditorEngine, type EngineState } from '@ppt4ai/engine'
+import { createImageAssetController, ImageAssetControllerError } from '@ppt4ai/editor'
 import type { AssetAdapter, AssetMetadata, ImageElement, Ppt4aiDocument } from '@ppt4ai/model'
+import type { PlaygroundImageUploadInput } from './image-file-upload'
 
 export interface PlaygroundAssetHostSnapshot {
   engineState: EngineState
@@ -16,6 +18,8 @@ export interface PlaygroundAssetHost {
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
   insertAsset(assetId: string): PlaygroundAssetHostSnapshot
   replaceSelectedImage(assetId: string): PlaygroundAssetHostSnapshot
+  uploadAndInsert(input: PlaygroundImageUploadInput): Promise<PlaygroundAssetHostSnapshot>
+  uploadAndReplace(input: PlaygroundImageUploadInput): Promise<PlaygroundAssetHostSnapshot>
 }
 
 const redPng = new Uint8Array([
@@ -69,9 +73,18 @@ function createDocument(): Ppt4aiDocument {
 
 export function createPlaygroundAssetHost(): PlaygroundAssetHost {
   const engine = new EditorEngine(createDocument())
+  const adapter = createMemoryAssetAdapter()
   let selectedAssetId: string | undefined
   let imageSequence = 1
+  let assetSequence = 1
   let status: PlaygroundAssetHostSnapshot['status'] = { kind: 'idle', message: '' }
+  const imageAssetController = createImageAssetController({
+    engine,
+    assetAdapter: adapter,
+    assetIdFactory: () => {
+      return `asset_upload_${assetSequence}`
+    },
+  })
 
   const snapshot = (): PlaygroundAssetHostSnapshot => structuredClone({
     engineState: engine.getState(),
@@ -86,7 +99,7 @@ export function createPlaygroundAssetHost(): PlaygroundAssetHost {
   }
 
   return {
-    adapter: createMemoryAssetAdapter(),
+    adapter,
     getSnapshot: snapshot,
     selectAsset(assetId) {
       if (!hasAsset(assetId)) return fail('asset-missing')
@@ -125,6 +138,53 @@ export function createPlaygroundAssetHost(): PlaygroundAssetHost {
         return fail('asset-operation-failed')
       }
       return snapshot()
+    },
+    async uploadAndInsert(input) {
+      const elementId = `image_${imageSequence}`
+      const assetId = `asset_upload_${assetSequence}`
+      try {
+        const state = await imageAssetController.insert({
+          slideId: 'sld_playground',
+          elementId,
+          bounds: { x: 1219200, y: 1143000, w: 3657600, h: 2057400 },
+          ...structuredClone(input),
+        })
+        imageSequence += 1
+        assetSequence += 1
+        selectedAssetId = assetId
+        status = { kind: 'success', message: 'asset-uploaded' }
+        return structuredClone({ engineState: state, selectedAssetId, status })
+      } catch (error) {
+        const message = error instanceof ImageAssetControllerError
+          && (error.message === 'unsupported or malformed bitmap data' || error.message.startsWith('declared image MIME'))
+          ? 'image-upload-invalid'
+          : 'image-upload-failed'
+        status = { kind: 'error', message }
+        return snapshot()
+      }
+    },
+    async uploadAndReplace(input) {
+      const state = engine.getState()
+      const selectedElement = state.selection.length === 1 ? state.document.elements[state.selection[0]!] : undefined
+      if (selectedElement?.kind !== 'image') return fail('image-target-required')
+      const assetId = `asset_upload_${assetSequence}`
+      try {
+        const nextState = await imageAssetController.replace({
+          elementId: selectedElement.id,
+          ...structuredClone(input),
+        })
+        assetSequence += 1
+        selectedAssetId = assetId
+        status = { kind: 'success', message: 'asset-upload-replaced' }
+        return structuredClone({ engineState: nextState, selectedAssetId, status })
+      } catch (error) {
+        const message = error instanceof ImageAssetControllerError
+          && (error.message === 'unsupported or malformed bitmap data' || error.message.startsWith('declared image MIME'))
+          ? 'image-upload-invalid'
+          : 'image-upload-failed'
+        status = { kind: 'error', message }
+        return snapshot()
+      }
     },
   }
 }
