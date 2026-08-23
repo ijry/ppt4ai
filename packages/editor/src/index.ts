@@ -82,3 +82,5 @@ export type {
   ThumbnailRenderResult,
   ThumbnailViewport,
 } from './thumbnail-protocol'
+export type { AssetAdapter, AssetMetadata } from '@ppt4ai/model'
+export type { SceneGraph } from '@ppt4ai/render'
