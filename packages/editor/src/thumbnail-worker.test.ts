@@ -16,20 +16,25 @@ import type {
 
 class FakeContext {
   readonly draws: unknown[][] = []
+  readonly events: unknown[][] = []
   globalAlpha = 1
   filter = 'none'
-  save(): void {}
-  restore(): void {}
+  fillStyle = ''
+  strokeStyle = ''
+  save(): void { this.events.push(['save']) }
+  restore(): void { this.events.push(['restore']) }
   translate(): void {}
   rotate(): void {}
   scale(): void {}
-  beginPath(): void {}
+  beginPath(): void { this.events.push(['beginPath']) }
   rect(): void {}
   roundRect(): void {}
-  ellipse(): void {}
-  moveTo(): void {}
-  lineTo(): void {}
-  closePath(): void {}
+  ellipse(...args: unknown[]): void { this.events.push(['ellipse', ...args]) }
+  moveTo(...args: unknown[]): void { this.events.push(['moveTo', ...args]) }
+  lineTo(...args: unknown[]): void { this.events.push(['lineTo', ...args]) }
+  closePath(): void { this.events.push(['closePath']) }
+  fill(): void { this.events.push(['fill', this.fillStyle, this.globalAlpha]) }
+  stroke(): void { this.events.push(['stroke', this.strokeStyle, this.globalAlpha]) }
   clip(): void {}
   drawImage(...args: unknown[]): void { this.draws.push(args) }
   clearRect(): void {}
@@ -93,6 +98,111 @@ async function resolveResource(runtime: ThumbnailWorkerRuntime, messages: Thumbn
 }
 
 describe('thumbnail worker runtime', () => {
+  it('paints shapes and images in scene order without requesting shape assets', async () => {
+    const harness = createHarness()
+    const request: ThumbnailRenderRequest = {
+      type: 'render',
+      requestId: 4,
+      scene: {
+        slideId: 'slide-1',
+        page: { w: 1000, h: 500 },
+        nodes: [
+          {
+            id: 'shape-behind',
+            kind: 'shape',
+            bounds: { x: 0, y: 0, w: 1000, h: 500 },
+            path: [
+              { type: 'move', x: 0, y: 0 },
+              { type: 'line', x: 1000, y: 0 },
+              { type: 'line', x: 1000, y: 500 },
+              { type: 'close' },
+            ],
+            resolvedFillColor: { rgb: '112233', alpha: 100000 },
+          },
+          {
+            id: 'image-middle',
+            kind: 'image',
+            bounds: { x: 250, y: 0, w: 500, h: 500 },
+            assetId: 'asset-a',
+            metadata: { id: 'asset-a', mimeType: 'image/png' },
+          },
+          {
+            id: 'shape-front',
+            kind: 'shape',
+            bounds: { x: 250, y: 125, w: 500, h: 250 },
+            path: [
+              { type: 'move', x: 250, y: 125 },
+              { type: 'line', x: 750, y: 125 },
+              { type: 'line', x: 500, y: 375 },
+              { type: 'close' },
+            ],
+            resolvedStrokeColor: { rgb: 'AABBCC', alpha: 100000 },
+          },
+        ],
+      },
+      viewport: { width: 200, height: 100 },
+    }
+
+    harness.runtime.handleMessage(request)
+    const resource = harness.messages.find((message): message is ThumbnailResourceRequest => message.type === 'resource-request')
+    expect(resource?.assetId).toBe('asset-a')
+    harness.runtime.handleMessage({
+      type: 'resource-response',
+      requestId: 4,
+      resourceRequestId: resource!.resourceRequestId,
+      assetId: 'asset-a',
+      data: new Uint8Array([1]),
+      mimeType: 'image/png',
+    })
+    await vi.waitFor(() => expect(harness.messages.some((message) => message.type === 'render-result')).toBe(true))
+
+    const result = harness.messages.find((message): message is ThumbnailRenderResponse => message.type === 'render-result')!
+    const paintEvents = harness.canvas.context.events.filter(([type]) => type === 'fill' || type === 'stroke')
+    expect(result.result.drawnNodeIds).toEqual(['shape-behind', 'image-middle', 'shape-front'])
+    expect(paintEvents).toEqual([
+      ['fill', '#112233', 1],
+      ['stroke', '#AABBCC', 1],
+    ])
+    expect(harness.canvas.context.draws).toHaveLength(1)
+    expect(harness.messages.filter((message) => message.type === 'resource-request')).toHaveLength(1)
+  })
+
+  it('isolates shape failures from later valid shapes', async () => {
+    const harness = createHarness()
+    harness.runtime.handleMessage({
+      type: 'render',
+      requestId: 5,
+      scene: {
+        slideId: 'slide-1',
+        page: { w: 100, h: 100 },
+        nodes: [
+          {
+            id: 'bad-shape',
+            kind: 'shape',
+            bounds: { x: 0, y: 0, w: 50, h: 50 },
+            path: [{ type: 'move', x: 0, y: 0 }, { type: 'line', x: Number.NaN, y: 50 }],
+            resolvedFillColor: { rgb: 'broken', alpha: 100000 },
+          },
+          {
+            id: 'good-shape',
+            kind: 'shape',
+            bounds: { x: 50, y: 50, w: 50, h: 50 },
+            path: [{ type: 'move', x: 50, y: 50 }, { type: 'line', x: 100, y: 50 }, { type: 'close' }],
+            resolvedFillColor: { rgb: '336699', alpha: 100000 },
+          },
+        ],
+      },
+      viewport: { width: 100, height: 100 },
+    })
+    await vi.waitFor(() => expect(harness.messages.some((message) => message.type === 'render-result')).toBe(true))
+
+    const result = harness.messages.find((message): message is ThumbnailRenderResponse => message.type === 'render-result')!
+    expect(result.result.skippedNodeIds).toEqual(['bad-shape'])
+    expect(result.result.drawnNodeIds).toEqual(['good-shape'])
+    expect(result.result.issues).toMatchObject([{ nodeId: 'bad-shape', code: 'draw-failed' }])
+    expect(harness.messages.filter((message) => message.type === 'resource-request')).toHaveLength(0)
+  })
+
   it('deduplicates resources, paints in order, and transfers a bitmap', async () => {
     const harness = createHarness()
     const request: ThumbnailRenderRequest = {

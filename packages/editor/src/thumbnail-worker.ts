@@ -1,7 +1,8 @@
 import type { Rect } from '@ppt4ai/model'
-import type { SceneGraph, SceneImageNode } from '@ppt4ai/render'
+import type { SceneGraph, SceneImageNode, SceneShapeNode } from '@ppt4ai/render'
 import { decodeBrowserImage } from './browser-image-decoder'
 import { paintImageNode } from './image-painting'
+import { paintShapeNode, type ShapePageMapping } from './shape-painting'
 import type { DecodedImage, ImageDecoder } from './image-canvas-renderer'
 import {
   isThumbnailMessage,
@@ -40,29 +41,38 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function issue(node: SceneImageNode, code: 'missing-asset' | 'resource-failed' | 'decode-failed' | 'draw-failed', error: unknown) {
+function issue(
+  node: SceneImageNode | SceneShapeNode,
+  code: 'missing-asset' | 'resource-failed' | 'decode-failed' | 'draw-failed',
+  error: unknown,
+) {
   return {
     nodeId: node.id,
-    assetId: node.assetId,
+    ...(node.kind === 'image' ? { assetId: node.assetId } : {}),
     code,
     message: errorMessage(error),
   }
 }
 
-function mapBounds(
+function pageMapping(
   scene: SceneGraph,
-  node: SceneImageNode,
   width: number,
   height: number,
-): Rect {
+): ShapePageMapping {
   const scale = Math.min(width / scene.page.w, height / scene.page.h)
-  const offsetX = (width - scene.page.w * scale) / 2
-  const offsetY = (height - scene.page.h * scale) / 2
   return {
-    x: offsetX + node.bounds.x * scale,
-    y: offsetY + node.bounds.y * scale,
-    w: node.bounds.w * scale,
-    h: node.bounds.h * scale,
+    scale,
+    offsetX: (width - scene.page.w * scale) / 2,
+    offsetY: (height - scene.page.h * scale) / 2,
+  }
+}
+
+function mapBounds(bounds: Rect, mapping: ShapePageMapping): Rect {
+  return {
+    x: mapping.offsetX + bounds.x * mapping.scale,
+    y: mapping.offsetY + bounds.y * mapping.scale,
+    w: bounds.w * mapping.scale,
+    h: bounds.h * mapping.scale,
   }
 }
 
@@ -137,24 +147,29 @@ export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): 
       const context = canvas.getContext('2d')
       if (!context) throw new Error('OffscreenCanvas 2D context is unavailable')
       context.clearRect(0, 0, width, height)
+      const mapping = pageMapping(request.scene, width, height)
 
       const drawnNodeIds: string[] = []
       const skippedNodeIds: string[] = []
       const issues: ThumbnailRenderResponse['result']['issues'] = []
       for (const node of request.scene.nodes) {
         if (isCancelled(request.requestId)) return
-        if (node.kind !== 'image') continue
+        if (node.kind !== 'shape' && node.kind !== 'image') continue
         try {
-          const image = await loadAsset(request, node)
-          if (isCancelled(request.requestId)) return
-          paintImageNode(context, node, image, mapBounds(request.scene, node, width, height))
+          if (node.kind === 'shape') {
+            paintShapeNode(context, node, mapping)
+          } else {
+            const image = await loadAsset(request, node)
+            if (isCancelled(request.requestId)) return
+            paintImageNode(context, node, image, mapBounds(node.bounds, mapping))
+          }
           drawnNodeIds.push(node.id)
         } catch (error) {
           if (isCancelled(request.requestId)) return
-          const code = (error as { thumbnailCode?: string }).thumbnailCode
+          const code = node.kind === 'image' ? (error as { thumbnailCode?: string }).thumbnailCode : undefined
           const issueCode = code === 'missing-asset' || code === 'resource-failed'
             ? code
-            : error instanceof Error && error.message.includes('decode') ? 'decode-failed' : 'draw-failed'
+            : node.kind === 'image' && error instanceof Error && error.message.includes('decode') ? 'decode-failed' : 'draw-failed'
           skippedNodeIds.push(node.id)
           issues.push(issue(node, issueCode, error))
         }
