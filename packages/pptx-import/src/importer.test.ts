@@ -223,7 +223,7 @@ describe('importPptx', () => {
   })
 
   it('imports custom table style definitions and table style flags', async () => {
-    const styleXml = '<a:tblStyleLst xmlns:a="a"><a:tblStyle styleId=" style-1 " name="First"><a:wholeTbl><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:lnB w="1000"><a:solidFill><a:srgbClr val="111111"/></a:solidFill></a:lnB></a:wholeTbl><a:band1H><a:solidFill><a:srgbClr val="EEEEEE"/></a:solidFill></a:band1H><a:firstRow><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:firstRow></a:tblStyle><a:tblStyle styleId="style-1" name="Duplicate"><a:wholeTbl><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:wholeTbl></a:tblStyle><a:tblStyle styleId="bad"><a:wholeTbl><a:solidFill><a:srgbClr/></a:solidFill><a:lnL w="bad"><a:solidFill><a:srgbClr val="123456"/></a:solidFill></a:lnL></a:wholeTbl></a:tblStyle></a:tblStyleLst>'
+    const styleXml = '<a:tblStyleLst xmlns:a="a"><a:tblStyle styleId=" style-1 " name="First"><a:wholeTbl><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:lnB w="1000"><a:solidFill><a:srgbClr val="111111"/></a:solidFill></a:lnB></a:wholeTbl><a:band1H><a:solidFill><a:srgbClr val="EEEEEE"/></a:solidFill></a:band1H><a:firstRow><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:lnL w="1000"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:lnL><a:lnR w="2000"><a:solidFill><a:srgbClr val="00FF00"/></a:solidFill></a:lnR><a:tcStyle><a:fill><a:solidFill><a:schemeClr val="accent1"><a:tint val="50000"/></a:schemeClr></a:solidFill></a:fill><a:tcBdr><a:lnL w="12700"><a:solidFill><a:srgbClr val="111111"/></a:solidFill></a:lnL></a:tcBdr></a:tcStyle><a:tcTxStyle b="1" i="0"><a:schemeClr val="tx1"/></a:tcTxStyle></a:firstRow></a:tblStyle><a:tblStyle styleId="style-1" name="Duplicate"><a:wholeTbl><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:wholeTbl></a:tblStyle><a:tblStyle styleId="bad"><a:wholeTbl><a:solidFill><a:srgbClr/></a:solidFill><a:lnL w="bad"><a:solidFill><a:srgbClr val="123456"/></a:solidFill></a:lnL></a:wholeTbl></a:tblStyle></a:tblStyleLst>'
     const styledFiles = {
       ...tableFiles,
       'ppt/tableStyles.xml': styleXml,
@@ -241,13 +241,29 @@ describe('importPptx', () => {
         regions: {
           wholeTable: { fill: { color: { type: 'srgb', v: 'FFFFFF' } }, borders: { bottom: { color: { type: 'srgb', v: '111111' }, width: 1000, style: 'solid' } } },
           band1H: { fill: { color: { type: 'srgb', v: 'EEEEEE' } } },
-          firstRow: { fill: { color: { type: 'srgb', v: 'FF0000' } } },
+          firstRow: {
+            fill: { color: { type: 'scheme', v: 'accent1', transforms: [{ type: 'tint', value: 50000 }] } },
+            borders: {
+              left: { color: { type: 'srgb', v: '111111' }, width: 12700, style: 'solid' },
+              right: { color: { type: 'srgb', v: '00FF00' }, width: 2000, style: 'solid' },
+            },
+            text: { color: { type: 'scheme', v: 'tx1' }, bold: true, italic: false },
+          },
         },
       },
     })
     expect(imported.source?.entries['ppt/tableStyles.xml']).toBe(styleXml)
     expect(imported.elements.el_2).toMatchObject({ kind: 'text', text: 'Neighbor' })
     expect(structuredClone(imported)).toEqual(imported)
+  })
+
+  it('omits invalid nested table text flags while retaining valid style fields', async () => {
+    const styleXml = '<a:tblStyleLst xmlns:a="a"><a:tblStyle styleId="style-invalid-flags"><a:firstRow><a:tcTxStyle b="true" i="invalid"><a:schemeClr val="tx1"/></a:tcTxStyle></a:firstRow></a:tblStyle></a:tblStyleLst>'
+    const imported = await importPptx(createStoredZip({ ...files, 'ppt/tableStyles.xml': styleXml }))
+    expect(imported.tableStyles?.['style-invalid-flags']).toEqual({
+      id: 'style-invalid-flags',
+      regions: { firstRow: { text: { color: { type: 'scheme', v: 'tx1' } } } },
+    })
   })
 
   it('ignores unusable tables while importing neighboring elements', async () => {

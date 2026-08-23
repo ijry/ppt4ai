@@ -1,4 +1,4 @@
-import { type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type Fill, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TextBody, type TextBullet, type TextParagraph, type TextRun, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
+import { type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type Fill, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextBody, type TextBullet, type TextParagraph, type TextRun, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -211,7 +211,8 @@ const tableStyleRegionNames: Record<string, TableStyleRegionName> = {
   lastCol: 'lastCol',
 }
 
-function parseDirectFill(node: XmlNode): Fill | undefined {
+function parseDirectFill(node: XmlNode | undefined): Fill | undefined {
+  if (!node) return undefined
   const fill = child(node, 'solidFill')
   const color = parseColor(fill)
   return color ? { color } : undefined
@@ -229,8 +230,23 @@ function parseStyleBorder(line: XmlNode | undefined): TableBorder | undefined {
   return { color, ...(width === undefined ? {} : { width }), style }
 }
 
-function parseStyleRegion(node: XmlNode): TableStyleRegion | undefined {
-  const fill = parseDirectFill(node)
+function parseStyleText(node: XmlNode | undefined): TableStyleText | undefined {
+  if (!node) return undefined
+  const color = parseColor(node)
+  const boldValue = attribute(node, 'b')
+  const italicValue = attribute(node, 'i')
+  const bold = boldValue === '1' ? true : boldValue === '0' ? false : undefined
+  const italic = italicValue === '1' ? true : italicValue === '0' ? false : undefined
+  if (!color && bold === undefined && italic === undefined) return undefined
+  return {
+    ...(color ? { color } : {}),
+    ...(bold === undefined ? {} : { bold }),
+    ...(italic === undefined ? {} : { italic }),
+  }
+}
+
+function parseStyleBorders(node: XmlNode | undefined): TableCellBorders | undefined {
+  if (!node) return undefined
   const borders: TableCellBorders = {}
   const left = parseStyleBorder(child(node, 'lnL'))
   const right = parseStyleBorder(child(node, 'lnR'))
@@ -240,8 +256,24 @@ function parseStyleRegion(node: XmlNode): TableStyleRegion | undefined {
   if (right) borders.right = right
   if (top) borders.top = top
   if (bottom) borders.bottom = bottom
-  if (!fill && Object.keys(borders).length === 0) return undefined
-  return { ...(fill ? { fill } : {}), ...(Object.keys(borders).length > 0 ? { borders } : {}) }
+  return Object.keys(borders).length > 0 ? borders : undefined
+}
+
+function parseStyleRegion(node: XmlNode): TableStyleRegion | undefined {
+  const directFill = parseDirectFill(node)
+  const directBorders = parseStyleBorders(node)
+  const nestedStyle = child(node, 'tcStyle')
+  const nestedFill = parseDirectFill(nestedStyle && child(nestedStyle, 'fill'))
+  const nestedBorders = parseStyleBorders(nestedStyle && child(nestedStyle, 'tcBdr'))
+  const fill = nestedFill ?? directFill
+  const mergedBorders = { ...(directBorders ?? {}), ...(nestedBorders ?? {}) }
+  const text = parseStyleText(child(node, 'tcTxStyle'))
+  if (!fill && Object.keys(mergedBorders).length === 0 && !text) return undefined
+  return {
+    ...(fill ? { fill } : {}),
+    ...(Object.keys(mergedBorders).length > 0 ? { borders: mergedBorders } : {}),
+    ...(text ? { text } : {}),
+  }
 }
 
 function parseTableStyles(xml: string): Record<string, TableStyle> {
