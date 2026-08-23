@@ -215,7 +215,30 @@ export interface GroupElement {
   childIds: string[]
 }
 
-export type Element = ShapeElement | TextElement | TableElement | GroupElement
+export type ImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/bmp' | 'image/webp'
+
+export interface AssetMetadata {
+  id: string
+  mimeType: ImageMimeType
+  pixelWidth?: number
+  pixelHeight?: number
+  originalFilename?: string
+}
+
+export interface AssetAdapter {
+  get(assetId: string): Promise<Uint8Array | undefined>
+  put(assetId: string, data: Uint8Array, metadata: AssetMetadata): Promise<void>
+}
+
+export interface ImageElement {
+  id: string
+  kind: 'image'
+  bounds: Rect
+  assetId: string
+  placeholder?: string
+}
+
+export type Element = ShapeElement | TextElement | TableElement | GroupElement | ImageElement
 
 export interface ElementDefaults {
   bounds?: Rect
@@ -258,6 +281,7 @@ export interface Ppt4aiDocument {
   }
   slides: Record<string, Slide>
   elements: Record<string, Element>
+  assets?: Record<string, AssetMetadata>
   slideOrder: string[]
   tableStyles?: Record<string, TableStyle>
   layouts?: Record<string, SlideLayout>
@@ -465,6 +489,7 @@ const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
 const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 const colorMapKeys = new Set<ColorMapKey>(['bg1', 'tx1', 'bg2', 'tx2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
+const imageMimeTypes = new Set<ImageMimeType>(['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/webp'])
 
 function validateFiniteNumber(value: unknown, path: string, errors: string[], predicate: (value: number) => boolean, message: string): void {
   if (typeof value !== 'number' || !Number.isFinite(value) || !predicate(value)) errors.push(`${path} ${message}`)
@@ -789,6 +814,23 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     }
   }
 
+  if (value.assets !== undefined) {
+    if (!value.assets || typeof value.assets !== 'object' || Array.isArray(value.assets)) errors.push('assets must be an object')
+    else for (const [assetId, assetValue] of Object.entries(value.assets)) {
+      const assetPath = `assets.${assetId}`
+      if (!assetValue || typeof assetValue !== 'object' || Array.isArray(assetValue)) {
+        errors.push(`${assetPath} must be an object`)
+        continue
+      }
+      const asset = assetValue as unknown as Record<string, unknown>
+      if (asset.id !== assetId) errors.push(`${assetPath}.id must match asset key`)
+      if (!imageMimeTypes.has(asset.mimeType as ImageMimeType)) errors.push(`${assetPath}.mimeType must be a supported image MIME type`)
+      if ('pixelWidth' in asset && asset.pixelWidth !== undefined) validateFiniteNumber(asset.pixelWidth, `${assetPath}.pixelWidth`, errors, (number) => number > 0, 'must be positive')
+      if ('pixelHeight' in asset && asset.pixelHeight !== undefined) validateFiniteNumber(asset.pixelHeight, `${assetPath}.pixelHeight`, errors, (number) => number > 0, 'must be positive')
+      if ('originalFilename' in asset && asset.originalFilename !== undefined && (typeof asset.originalFilename !== 'string' || asset.originalFilename.length === 0)) errors.push(`${assetPath}.originalFilename must be a non-empty string`)
+    }
+  }
+
   if (value.tableStyles !== undefined) {
     if (!value.tableStyles || typeof value.tableStyles !== 'object' || Array.isArray(value.tableStyles)) errors.push('tableStyles must be an object')
     else for (const [styleId, style] of Object.entries(value.tableStyles)) validateTableStyle(style, `tableStyles.${styleId}`, errors)
@@ -858,6 +900,9 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       }
     } else if (element.kind === 'table') {
       validateTableElement(element, `elements.${elementId}`, errors)
+    } else if (element.kind === 'image') {
+      if (typeof element.assetId !== 'string' || element.assetId.length === 0) errors.push(`image element ${elementId} assetId must be a non-empty string`)
+      else if (!value.assets?.[element.assetId]) errors.push(`image element ${elementId} references missing asset: ${element.assetId}`)
     }
   }
 

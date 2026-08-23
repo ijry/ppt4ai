@@ -7,6 +7,7 @@ import {
   validateDocument,
   validateTextBody,
   type Ppt4aiDocument,
+  type ImageElement,
   type TableElement,
   type TableStyle,
   type SlideLayout,
@@ -477,6 +478,69 @@ describe('ppt4ai file model', () => {
     expect(validateDocument({ ...minimalDocument, slideOrder: ['missing'] })).toEqual({
       valid: false,
       errors: ['slideOrder references missing slide: missing'],
+    })
+  })
+
+  it('accepts image assets and keeps their metadata clone-safe', () => {
+    const image: ImageElement = {
+      id: 'img_1',
+      kind: 'image',
+      bounds: { x: 100, y: 200, w: 300, h: 400 },
+      assetId: 'asset_1',
+    }
+    const document = {
+      ...minimalDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: ['img_1'] } },
+      elements: { img_1: image },
+      assets: {
+        asset_1: {
+          id: 'asset_1',
+          mimeType: 'image/png' as const,
+          pixelWidth: 12,
+          pixelHeight: 34,
+          originalFilename: 'photo.png',
+        },
+      },
+    }
+
+    expect(validateDocument(document)).toEqual({ valid: true })
+    expect(structuredClone(document)).toEqual(document)
+  })
+
+  it('reports invalid image asset metadata and references', () => {
+    const broken = {
+      ...minimalDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: ['img_1'] } },
+      elements: {
+        img_1: {
+          id: 'img_1',
+          kind: 'image' as const,
+          bounds: { x: 0, y: 0, w: 0, h: 10 },
+          assetId: 'missing',
+        },
+      },
+      assets: {
+        asset_1: {
+          id: 'wrong',
+          mimeType: 'image/tiff',
+          pixelWidth: 0,
+          pixelHeight: -1,
+          originalFilename: '',
+        },
+      },
+    }
+
+    expect(validateDocument(broken as unknown as Ppt4aiDocument)).toEqual({
+      valid: false,
+      errors: [
+        'assets.asset_1.id must match asset key',
+        'assets.asset_1.mimeType must be a supported image MIME type',
+        'assets.asset_1.pixelWidth must be positive',
+        'assets.asset_1.pixelHeight must be positive',
+        'assets.asset_1.originalFilename must be a non-empty string',
+        'element img_1 bounds must be positive',
+        'image element img_1 references missing asset: missing',
+      ],
     })
   })
 
