@@ -1,4 +1,5 @@
 import type { ImageMimeType } from '@ppt4ai/model'
+import type { SceneTableNode } from '@ppt4ai/render'
 import { describe, expect, it, vi } from 'vitest'
 import type { DecodedImage } from './image-canvas-renderer'
 import {
@@ -25,13 +26,14 @@ class FakeContext {
   textAlign: CanvasTextAlign = 'start'
   textBaseline: CanvasTextBaseline = 'alphabetic'
   lineWidth = 1
+  lineCap: CanvasLineCap = 'butt'
   save(): void { this.events.push(['save']) }
   restore(): void { this.events.push(['restore']) }
   translate(): void {}
   rotate(): void {}
   scale(): void {}
   beginPath(): void { this.events.push(['beginPath']) }
-  rect(): void {}
+  rect(...args: unknown[]): void { this.events.push(['rect', ...args]) }
   roundRect(): void {}
   ellipse(...args: unknown[]): void { this.events.push(['ellipse', ...args]) }
   moveTo(...args: unknown[]): void { this.events.push(['moveTo', ...args]) }
@@ -39,6 +41,7 @@ class FakeContext {
   closePath(): void { this.events.push(['closePath']) }
   fill(): void { this.events.push(['fill', this.fillStyle, this.globalAlpha]) }
   stroke(): void { this.events.push(['stroke', this.strokeStyle, this.globalAlpha]) }
+  setLineDash(...args: unknown[]): void { this.events.push(['setLineDash', ...args]) }
   fillText(text: string, x: number, y: number): void {
     this.events.push(['fillText', text, x, y, this.font, this.fillStyle, this.globalAlpha])
   }
@@ -67,6 +70,46 @@ function scene(): ThumbnailRenderRequest['scene'] {
       { id: 'first', kind: 'image', bounds: { x: 0, y: 0, w: 500, h: 500 }, assetId: 'asset-a', metadata: { id: 'asset-a', mimeType: 'image/png' } },
       { id: 'second', kind: 'image', bounds: { x: 500, y: 0, w: 500, h: 500 }, assetId: 'asset-a', metadata: { id: 'asset-a', mimeType: 'image/png' } },
     ],
+  }
+}
+
+function tableNode(id: string, text = 'Cell', fillRgb = '336699'): SceneTableNode {
+  return {
+    id,
+    kind: 'table',
+    bounds: { x: 200, y: 0, w: 200, h: 100 },
+    layout: {
+      bounds: { x: 200, y: 0, w: 200, h: 100 },
+      columns: [200],
+      rows: [100],
+      borders: [],
+      cells: [{
+        row: 0,
+        column: 0,
+        rowSpan: 1,
+        colSpan: 1,
+        bounds: { x: 200, y: 0, w: 200, h: 100 },
+        body: { paragraphs: [] },
+        borders: {},
+        resolvedFillColor: { rgb: fillRgb, alpha: 100000 },
+        resolvedStyle: { borders: { left: { color: { type: 'srgb', v: '000000' }, width: 1, style: 'solid' } } },
+        resolvedBorderColors: { left: { rgb: '000000', alpha: 100000 } },
+        textLayout: {
+          bounds: { x: 210, y: 10, w: 180, h: 80 },
+          fontScale: 100000,
+          overflow: false,
+          contentBounds: { x: 210, y: 10, w: 180, h: 80 },
+          lines: text.length === 0 ? [] : [{
+            paragraphIndex: 0,
+            x: 210,
+            y: 10,
+            width: 180,
+            height: 20,
+            runs: [{ text, x: 210, width: 180, marks: { fontSize: 1 } }],
+          }],
+        },
+      }],
+    },
   }
 }
 
@@ -108,6 +151,83 @@ async function resolveResource(runtime: ThumbnailWorkerRuntime, messages: Thumbn
 }
 
 describe('thumbnail worker runtime', () => {
+  it('paints tables with surrounding nodes in scene order without table resources', async () => {
+    const harness = createHarness()
+    harness.runtime.handleMessage({
+      type: 'render',
+      requestId: 8,
+      scene: {
+        slideId: 'slide-1',
+        page: { w: 1000, h: 500 },
+        nodes: [
+          {
+            id: 'shape-before',
+            kind: 'shape',
+            bounds: { x: 0, y: 0, w: 200, h: 100 },
+            path: [{ type: 'move', x: 0, y: 0 }, { type: 'line', x: 200, y: 0 }, { type: 'close' }],
+            resolvedFillColor: { rgb: '112233', alpha: 100000 },
+          },
+          tableNode('table-middle'),
+          {
+            id: 'text-after',
+            kind: 'text',
+            bounds: { x: 400, y: 0, w: 200, h: 100 },
+            text: 'After',
+            layout: {
+              bounds: { x: 400, y: 0, w: 200, h: 100 },
+              fontScale: 100000,
+              overflow: false,
+              contentBounds: { x: 400, y: 0, w: 200, h: 100 },
+              lines: [{ paragraphIndex: 0, x: 400, y: 0, width: 200, height: 20, runs: [{ text: 'After', x: 400, width: 200, marks: { fontSize: 1 } }] }],
+            },
+          },
+        ],
+      },
+      viewport: { width: 200, height: 100 },
+    })
+    await vi.waitFor(() => expect(harness.messages.some((message) => message.type === 'render-result')).toBe(true))
+
+    const result = harness.messages.find((message): message is ThumbnailRenderResponse => message.type === 'render-result')!
+    const paintEvents = harness.canvas.context.events.filter(([type]) => type === 'fill' || type === 'stroke' || type === 'fillText')
+    expect(paintEvents.map(([type, value]) => type === 'fillText' ? value : type)).toEqual(['fill', 'fill', 'stroke', 'Cell', 'After'])
+    expect(result.result.drawnNodeIds).toEqual(['shape-before', 'table-middle', 'text-after'])
+    expect(result.result.skippedNodeIds).toEqual([])
+    expect(harness.messages.filter((message) => message.type === 'resource-request')).toHaveLength(0)
+  })
+
+  it('isolates invalid tables, draws later nodes and empty tables, and requests no resources', async () => {
+    const harness = createHarness()
+    const emptyTable = tableNode('empty-table', '')
+    emptyTable.layout.cells = []
+    harness.runtime.handleMessage({
+      type: 'render',
+      requestId: 9,
+      scene: {
+        slideId: 'slide-1',
+        page: { w: 1000, h: 500 },
+        nodes: [
+          tableNode('bad-table', 'Bad', 'broken'),
+          {
+            id: 'shape-after',
+            kind: 'shape',
+            bounds: { x: 400, y: 0, w: 200, h: 100 },
+            path: [{ type: 'move', x: 400, y: 0 }, { type: 'line', x: 600, y: 0 }, { type: 'close' }],
+            resolvedFillColor: { rgb: '112233', alpha: 100000 },
+          },
+          emptyTable,
+        ],
+      },
+      viewport: { width: 200, height: 100 },
+    })
+    await vi.waitFor(() => expect(harness.messages.some((message) => message.type === 'render-result')).toBe(true))
+
+    const result = harness.messages.find((message): message is ThumbnailRenderResponse => message.type === 'render-result')!
+    expect(result.result.drawnNodeIds).toEqual(['shape-after', 'empty-table'])
+    expect(result.result.skippedNodeIds).toEqual(['bad-table'])
+    expect(result.result.issues).toMatchObject([{ nodeId: 'bad-table', code: 'draw-failed' }])
+    expect(harness.messages.filter((message) => message.type === 'resource-request')).toHaveLength(0)
+  })
+
   it('paints mixed shape, text, and image nodes in scene order without text resources', async () => {
     const harness = createHarness()
     const textNode = (id: string, text: string, x: number): ThumbnailRenderRequest['scene']['nodes'][number] => ({

@@ -1,8 +1,9 @@
 import type { Rect } from '@ppt4ai/model'
-import type { SceneGraph, SceneImageNode, SceneShapeNode, SceneTextNode } from '@ppt4ai/render'
+import type { SceneGraph, SceneImageNode, SceneShapeNode, SceneTableNode, SceneTextNode } from '@ppt4ai/render'
 import { decodeBrowserImage } from './browser-image-decoder'
 import { paintImageNode } from './image-painting'
 import { paintShapeNode, type ShapePageMapping } from './shape-painting'
+import { paintTableNode } from './table-painting'
 import { paintTextNode } from './text-painting'
 import type { DecodedImage, ImageDecoder } from './image-canvas-renderer'
 import {
@@ -43,7 +44,7 @@ function errorMessage(error: unknown): string {
 }
 
 function issue(
-  node: SceneImageNode | SceneShapeNode | SceneTextNode,
+  node: SceneImageNode | SceneShapeNode | SceneTableNode | SceneTextNode,
   code: 'missing-asset' | 'resource-failed' | 'decode-failed' | 'draw-failed',
   error: unknown,
 ) {
@@ -155,12 +156,14 @@ export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): 
       const issues: ThumbnailRenderResponse['result']['issues'] = []
       for (const node of request.scene.nodes) {
         if (isCancelled(request.requestId)) return
-        if (node.kind !== 'shape' && node.kind !== 'text' && node.kind !== 'image') continue
+        if (node.kind !== 'shape' && node.kind !== 'text' && node.kind !== 'table' && node.kind !== 'image') continue
         try {
           if (node.kind === 'shape') {
             paintShapeNode(context, node, mapping)
           } else if (node.kind === 'text') {
             paintTextNode(context, node, mapping)
+          } else if (node.kind === 'table') {
+            paintTableNode(context, node, mapping)
           } else {
             const image = await loadAsset(request, node)
             if (isCancelled(request.requestId)) return
