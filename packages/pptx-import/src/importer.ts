@@ -1,4 +1,4 @@
-import { type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type Fill, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextBody, type TextBullet, type TextParagraph, type TextRun, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
+import { type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextBody, type TextBullet, type TextParagraph, type TextRun, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -542,6 +542,64 @@ function stableAssetId(path: string): string {
   return `asset_${path.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')}`
 }
 
+function parseBoolean(value: string | undefined): boolean | undefined {
+  if (value === '1' || value === 'true') return true
+  if (value === '0' || value === 'false') return false
+  return undefined
+}
+
+function parsePictureTransform(picture: XmlNode): ElementTransform | undefined {
+  const transformNode = child(child(picture, 'spPr') ?? picture, 'xfrm')
+  if (!transformNode) return undefined
+  const rotationValue = parseNumber(attribute(transformNode, 'rot'))
+  const rotation = rotationValue !== undefined && Number.isInteger(rotationValue) ? rotationValue : undefined
+  const flipH = parseBoolean(attribute(transformNode, 'flipH'))
+  const flipV = parseBoolean(attribute(transformNode, 'flipV'))
+  if (rotation === undefined && flipH === undefined && flipV === undefined) return undefined
+  return {
+    ...(rotation !== undefined ? { rotation } : {}),
+    ...(flipH !== undefined ? { flipH } : {}),
+    ...(flipV !== undefined ? { flipV } : {}),
+  }
+}
+
+function parseImageCrop(picture: XmlNode): ImageCrop | undefined {
+  const sourceRect = child(child(picture, 'blipFill') ?? picture, 'srcRect')
+  if (!sourceRect) return undefined
+  const left = parsePercentage(attribute(sourceRect, 'l'))
+  const top = parsePercentage(attribute(sourceRect, 't'))
+  const right = parsePercentage(attribute(sourceRect, 'r'))
+  const bottom = parsePercentage(attribute(sourceRect, 'b'))
+  if (left === undefined && top === undefined && right === undefined && bottom === undefined) return undefined
+  return {
+    ...(left !== undefined ? { left } : {}),
+    ...(top !== undefined ? { top } : {}),
+    ...(right !== undefined ? { right } : {}),
+    ...(bottom !== undefined ? { bottom } : {}),
+  }
+}
+
+function parseImageMaskPreset(picture: XmlNode): PresetGeometry | undefined {
+  const geometry = child(child(picture, 'spPr') ?? picture, 'prstGeom')
+  const preset = geometry && attribute(geometry, 'prst')
+  return preset === 'rect' || preset === 'roundRect' || preset === 'ellipse' || preset === 'triangle' ? preset : undefined
+}
+
+function parseImageEffects(picture: XmlNode): ImageEffect[] | undefined {
+  const blip = child(child(picture, 'blipFill') ?? picture, 'blip')
+  if (!blip) return undefined
+  const effects: ImageEffect[] = []
+  for (const effectNode of blip.children) {
+    const effectType = localName(effectNode.name)
+    if (effectType === 'grayscl') effects.push({ type: 'grayscl' })
+    else if (effectType === 'alphaModFix') {
+      const amount = parsePercentage(attribute(effectNode, 'amt'))
+      if (amount !== undefined) effects.push({ type: 'alphaModFix', amount })
+    }
+  }
+  return effects.length > 0 ? effects : undefined
+}
+
 function parsePicture(
   picture: XmlNode,
   id: string,
@@ -558,7 +616,24 @@ function parsePicture(
   const assetId = stableAssetId(mediaPath)
   const metadata = parseBitmapMetadata(mediaPath, bytes, assetId)
   if (!metadata) return undefined
-  return { element: { id, kind: 'image', bounds, assetId }, metadata, bytes }
+  const transform = parsePictureTransform(picture)
+  const sourceCrop = parseImageCrop(picture)
+  const maskPreset = parseImageMaskPreset(picture)
+  const effects = parseImageEffects(picture)
+  return {
+    element: {
+      id,
+      kind: 'image',
+      bounds,
+      assetId,
+      ...(transform ? { transform } : {}),
+      ...(sourceCrop ? { sourceCrop } : {}),
+      ...(maskPreset ? { maskPreset } : {}),
+      ...(effects ? { effects } : {}),
+    },
+    metadata,
+    bytes,
+  }
 }
 
 function parsePreset(shape: XmlNode): PresetGeometry {

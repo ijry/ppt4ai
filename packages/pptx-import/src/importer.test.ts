@@ -129,6 +129,22 @@ const imageFiles = {
   'ppt/media/image1.png': pngBytes,
 }
 
+const imageAppearanceFiles = {
+  ...imageFiles,
+  'ppt/slides/slide1.xml': imageFiles['ppt/slides/slide1.xml']
+    .replace('<a:xfrm><a:off x="2000000" y="1500000"/><a:ext cx="5000000" cy="3000000"/></a:xfrm>', '<a:xfrm rot="5400000" flipH="1" flipV="0"><a:off x="2000000" y="1500000"/><a:ext cx="5000000" cy="3000000"/></a:xfrm>')
+    .replace('<a:blip r:embed="rId2"/>', '<a:blip r:embed="rId2"><a:alphaModFix amt="50000"/><a:grayscl/></a:blip><a:srcRect l="1000" t="2000" r="3000" b="4000"/>')
+    .replace('</p:spPr></p:pic>', '<a:prstGeom prst="ellipse"><a:avLst/></a:prstGeom></p:spPr></p:pic>'),
+}
+
+const malformedImageAppearanceFiles = {
+  ...imageFiles,
+  'ppt/slides/slide1.xml': imageFiles['ppt/slides/slide1.xml']
+    .replace('<a:xfrm><a:off x="2000000" y="1500000"/><a:ext cx="5000000" cy="3000000"/></a:xfrm>', '<a:xfrm rot="bad" flipH="maybe" flipV="2"><a:off x="2000000" y="1500000"/><a:ext cx="5000000" cy="3000000"/></a:xfrm>')
+    .replace('<a:blip r:embed="rId2"/>', '<a:blip r:embed="rId2"><a:alphaModFix amt="-1"/></a:blip><a:srcRect l="-1" t="100001" r="bad" b="invalid"/>')
+    .replace('</p:spPr></p:pic>', '<a:prstGeom prst="hexagon"><a:avLst/></a:prstGeom></p:spPr></p:pic>'),
+}
+
 class RecordingAssetAdapter implements AssetAdapter {
   readonly writes: Array<{ assetId: string; data: Uint8Array; metadata: AssetMetadata }> = []
 
@@ -246,6 +262,32 @@ describe('importPptx', () => {
     expect(adapter.writes[0]?.data).toEqual(pngBytes)
     expect(adapter.writes[0]?.metadata).toEqual(imported.assets?.asset_ppt_media_image1_png)
     expect(structuredClone(imported)).toEqual(imported)
+  })
+
+  it('imports picture transforms, crop, mask, and source-ordered effects', async () => {
+    const imported = await importPptx(createStoredZip(imageAppearanceFiles))
+
+    expect(imported.elements.el_2).toEqual({
+      id: 'el_2',
+      kind: 'image',
+      bounds: { x: 2000000, y: 1500000, w: 5000000, h: 3000000 },
+      assetId: 'asset_ppt_media_image1_png',
+      transform: { rotation: 5400000, flipH: true, flipV: false },
+      sourceCrop: { left: 1000, top: 2000, right: 3000, bottom: 4000 },
+      maskPreset: 'ellipse',
+      effects: [{ type: 'alphaModFix', amount: 50000 }, { type: 'grayscl' }],
+    })
+  })
+
+  it('ignores malformed optional picture appearance fragments', async () => {
+    const imported = await importPptx(createStoredZip(malformedImageAppearanceFiles))
+
+    expect(imported.elements.el_2).toEqual({
+      id: 'el_2',
+      kind: 'image',
+      bounds: { x: 2000000, y: 1500000, w: 5000000, h: 3000000 },
+      assetId: 'asset_ppt_media_image1_png',
+    })
   })
 
   it('skips pictures with missing relationships while preserving neighboring elements', async () => {
