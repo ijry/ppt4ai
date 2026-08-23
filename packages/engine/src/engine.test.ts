@@ -91,6 +91,42 @@ function makeStructureDocument(): Ppt4aiDocument {
   return document
 }
 
+function makeMergeSplitDocument(): Ppt4aiDocument {
+  const document = makeDocument()
+  document.slides.sld_1!.elementIds.push('el_table')
+  document.elements.el_table = {
+    id: 'el_table',
+    kind: 'table',
+    bounds: { x: 1000, y: 2000, w: 600, h: 300 },
+    columns: [100, 200, 300],
+    rows: [
+      { height: 50, cells: [0, 1, 2].map((column) => ({ column, body: { paragraphs: [{ runs: [{ text: `R0C${column}` }] }] } })) },
+      { height: 100, cells: [0, 1, 2].map((column) => ({ column, body: { paragraphs: [{ runs: [{ text: `R1C${column}` }] }] } })) },
+      { height: 150, cells: [0, 1, 2].map((column) => ({ column, body: { paragraphs: [{ runs: [{ text: `R2C${column}` }] }] } })) },
+    ],
+  }
+  return document
+}
+
+function makeMergedCellDocument(): Ppt4aiDocument {
+  const document = makeMergeSplitDocument()
+  const table = document.elements.el_table
+  if (!table || table.kind !== 'table') throw new Error('expected table')
+  table.rows[0]!.cells = [
+    {
+      column: 0,
+      rowSpan: 2,
+      colSpan: 2,
+      body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] },
+      fill: { color: { type: 'srgb', v: 'ABCDEF' } },
+      borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
+    },
+    { column: 2, body: { paragraphs: [{ runs: [{ text: 'R0C2' }] }] } },
+  ]
+  table.rows[1]!.cells = [{ column: 2, body: { paragraphs: [{ runs: [{ text: 'R1C2' }] }] } }]
+  return document
+}
+
 describe('EditorEngine', () => {
   it('keeps selection separate from document history and clones state safely', () => {
     const engine = new EditorEngine(makeDocument())
@@ -337,6 +373,133 @@ describe('EditorEngine', () => {
     expect(() => engine.dispatch({ type: 'insertTableColumn', elementId: 'el_table', index: 1, count: 0 })).toThrow('table structure count must be a positive integer: el_table[0]')
     expect(() => engine.dispatch({ type: 'deleteTableColumn', elementId: 'el_table', index: 3, count: 2 })).toThrow('table column deletion range is outside table: el_table[3,5)')
     expect(engine.getState()).toEqual(before)
+  })
+
+  it('merges a rectangular selection while preserving content and top-left style', () => {
+    const document = makeMergeSplitDocument()
+    const table = document.elements.el_table
+    if (!table || table.kind !== 'table') throw new Error('expected table')
+    const topLeft = table.rows[0]!.cells[0]!
+    topLeft.body = {
+      bodyPr: { verticalAlign: 'middle' },
+      paragraphs: [
+        { runs: [], attrs: { spaceAfter: 10 } },
+        { runs: [{ text: 'A', marks: { bold: true } }] },
+      ],
+    }
+    topLeft.fill = { color: { type: 'srgb', v: 'ABCDEF' } }
+    topLeft.borders = { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } }
+    table.rows[0]!.cells[1]!.body = { paragraphs: [{ runs: [] }, { runs: [{ text: 'B', marks: { italic: true } }], attrs: { align: 'center' } }] }
+    table.rows[1]!.cells[0]!.body = { paragraphs: [{ runs: [{ text: 'C' }] }] }
+    table.rows[1]!.cells[1]!.body = { paragraphs: [{ runs: [{ text: 'D' }] }] }
+    const engine = new EditorEngine(document)
+
+    engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 1, column: 1 })
+    engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 0, extend: true })
+    const merged = engine.dispatch({ type: 'mergeTableCells' })
+    const result = merged.document.elements.el_table
+
+    expect(result).toMatchObject({
+      rows: [
+        {
+          cells: [
+            {
+              column: 0,
+              rowSpan: 2,
+              colSpan: 2,
+              body: {
+                bodyPr: { verticalAlign: 'middle' },
+                paragraphs: [
+                  { runs: [], attrs: { spaceAfter: 10 } },
+                  { runs: [{ text: 'A', marks: { bold: true } }] },
+                  { runs: [{ text: 'B', marks: { italic: true } }], attrs: { align: 'center' } },
+                  { runs: [{ text: 'C' }] },
+                  { runs: [{ text: 'D' }] },
+                ],
+              },
+              fill: { color: { type: 'srgb', v: 'ABCDEF' } },
+              borders: { left: { color: { type: 'srgb', v: '123456' }, width: 100, style: 'solid' } },
+            },
+            { column: 2 },
+          ],
+        },
+        { cells: [{ column: 2 }] },
+      ],
+    })
+    expect(merged.tableCellSelection).toEqual({ elementId: 'el_table', anchorRow: 0, anchorColumn: 0, row: 0, column: 0 })
+    expect(merged.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('expands endpoint merged cells but rejects partial middle overlap', () => {
+    const endpointDocument = makeMergeSplitDocument()
+    const endpointTable = endpointDocument.elements.el_table
+    if (!endpointTable || endpointTable.kind !== 'table') throw new Error('expected table')
+    endpointTable.rows[0]!.cells[1]!.rowSpan = 2
+    endpointTable.rows[1]!.cells = [endpointTable.rows[1]!.cells[0]!, endpointTable.rows[1]!.cells[2]!]
+    const endpointEngine = new EditorEngine(endpointDocument)
+    endpointEngine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 1, column: 1 })
+    endpointEngine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 0, extend: true })
+    expect(endpointEngine.dispatch({ type: 'mergeTableCells' }).document.elements.el_table).toMatchObject({ rows: [{ cells: [{ rowSpan: 2, colSpan: 2 }] }] })
+
+    const partialDocument = makeMergeSplitDocument()
+    const partialTable = partialDocument.elements.el_table
+    if (!partialTable || partialTable.kind !== 'table') throw new Error('expected table')
+    partialTable.rows[0]!.cells[1]!.rowSpan = 2
+    partialTable.rows[1]!.cells = [partialTable.rows[1]!.cells[0]!, partialTable.rows[1]!.cells[2]!]
+    const partialEngine = new EditorEngine(partialDocument)
+    partialEngine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 0 })
+    partialEngine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 2, extend: true })
+    const before = partialEngine.getState()
+    expect(() => partialEngine.dispatch({ type: 'mergeTableCells' })).toThrow('table merge selection partially covers merged cell: el_table')
+    expect(partialEngine.getState()).toEqual(before)
+  })
+
+  it.each([
+    ['row', { rowSpan: 2 }],
+    ['column', { colSpan: 2 }],
+    ['rectangle', { rowSpan: 2, colSpan: 2 }],
+  ] as const)('splits a %s merged cell without duplicating content or style', (_name, span) => {
+    const document = makeMergedCellDocument()
+    const table = document.elements.el_table
+    if (!table || table.kind !== 'table') throw new Error('expected table')
+    const source = table.rows[0]!.cells[0]!
+    delete source.rowSpan
+    delete source.colSpan
+    Object.assign(source, span)
+    if ('colSpan' in span && !('rowSpan' in span)) table.rows[0]!.cells.push({ column: 1, body: { paragraphs: [{ runs: [{ text: 'R0C1' }] }] } })
+    if ('rowSpan' in span && !('colSpan' in span)) table.rows[1]!.cells.unshift({ column: 0, body: { paragraphs: [{ runs: [{ text: 'R1C0' }] }] } })
+    const engine = new EditorEngine(document)
+    engine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 0 })
+    const split = engine.dispatch({ type: 'splitTableCell' })
+    const splitTable = split.document.elements.el_table
+    expect(splitTable).toMatchObject({ rows: [{ cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Merged' }] }] }, fill: { color: { type: 'srgb', v: 'ABCDEF' } } }] }] })
+    expect(split.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(split.tableCellSelection).toEqual({ elementId: 'el_table', anchorRow: 0, anchorColumn: 0, row: 0, column: 0 })
+    expect(engine.dispatch({ type: 'undo' }).document.elements.el_table).toEqual(document)
+    expect(engine.dispatch({ type: 'redo' }).history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('keeps merge and split no-ops and invalid candidates side-effect free', () => {
+    const noSelection = new EditorEngine(makeMergeSplitDocument())
+    const beforeNoSelection = noSelection.getState()
+    expect(noSelection.dispatch({ type: 'mergeTableCells' })).toEqual(beforeNoSelection)
+
+    const unmerged = new EditorEngine(makeMergeSplitDocument())
+    unmerged.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 0 })
+    const beforeUnmerged = unmerged.getState()
+    expect(unmerged.dispatch({ type: 'mergeTableCells' })).toEqual(beforeUnmerged)
+    expect(unmerged.dispatch({ type: 'splitTableCell' })).toEqual(beforeUnmerged)
+
+    const invalidDocument = makeMergeSplitDocument()
+    const invalidTable = invalidDocument.elements.el_table
+    if (!invalidTable || invalidTable.kind !== 'table') throw new Error('expected table')
+    invalidTable.rows[2]!.cells[2]!.body = { paragraphs: [] }
+    const invalidEngine = new EditorEngine(invalidDocument)
+    invalidEngine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 0 })
+    invalidEngine.dispatch({ type: 'selectTableCell', elementId: 'el_table', row: 0, column: 1, extend: true })
+    const beforeInvalid = invalidEngine.getState()
+    expect(() => invalidEngine.dispatch({ type: 'mergeTableCells' })).toThrow('table merge is invalid: el_table:')
+    expect(invalidEngine.getState()).toEqual(beforeInvalid)
   })
 
   it('moves selected bounds and snaps to another element edge', () => {
