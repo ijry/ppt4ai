@@ -1,5 +1,5 @@
 import type { ResolvedColor, TextMarks } from '@ppt4ai/model'
-import type { SceneTextLayoutLine, SceneTextLayoutRun, SceneTextNode } from '@ppt4ai/render'
+import type { SceneTextLayout, SceneTextLayoutLine, SceneTextLayoutRun, SceneTextNode } from '@ppt4ai/render'
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, type TextLayoutMarker } from '@ppt4ai/text'
 
 export interface TextPageMapping {
@@ -141,16 +141,16 @@ function paintVerticalItem(
   }
 }
 
-export function paintTextNode(context: TextContext, node: SceneTextNode, mapping: TextPageMapping): void {
+export function paintTextLayout(context: TextContext, layout: SceneTextLayout, mapping: TextPageMapping): void {
   context.save()
   try {
     validateMapping(mapping)
-    const fontScale = finite(node.layout.fontScale, 'text font scale')
+    const fontScale = finite(layout.fontScale, 'text font scale')
     if (fontScale <= 0) throw new Error('text font scale must be positive')
-    for (const line of node.layout.lines) {
+    for (const line of layout.lines) {
       validateLine(line)
       if (line.marker) {
-        if (node.layout.vertical === 'vertical') {
+        if (layout.vertical === 'vertical') {
           validateVerticalItem(line.marker, 'text marker')
           paintVerticalItem(context, line.marker, paintStyle(line.marker, fontScale, mapping.scale), mapping)
         } else {
@@ -159,7 +159,7 @@ export function paintTextNode(context: TextContext, node: SceneTextNode, mapping
         }
       }
       for (const run of line.runs) {
-        if (node.layout.vertical === 'vertical') {
+        if (layout.vertical === 'vertical') {
           validateVerticalItem(run, 'text run')
           paintVerticalItem(context, run, paintStyle(run, fontScale, mapping.scale), mapping)
         } else {
@@ -171,4 +171,8 @@ export function paintTextNode(context: TextContext, node: SceneTextNode, mapping
   } finally {
     context.restore()
   }
+}
+
+export function paintTextNode(context: TextContext, node: SceneTextNode, mapping: TextPageMapping): void {
+  paintTextLayout(context, node.layout, mapping)
 }

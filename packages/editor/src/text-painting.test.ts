@@ -1,6 +1,6 @@
 import type { SceneTextNode } from '@ppt4ai/render'
 import { describe, expect, it } from 'vitest'
-import { paintTextNode } from './text-painting'
+import { paintTextLayout, paintTextNode } from './text-painting'
 
 type Event = [string, ...unknown[]]
 
@@ -84,6 +84,19 @@ function withoutMarker(line: SceneTextNode['layout']['lines'][number]): SceneTex
 }
 
 describe('text painting', () => {
+  it('paints a precomputed layout without a scene text node', () => {
+    const drawingContext = context()
+
+    paintTextLayout(drawingContext, node().layout, { scale: 0.001, offsetX: 5, offsetY: 7 })
+
+    expect(drawingContext.events.filter(([type]) => type === 'fillText')).toEqual([
+      ['fillText', '1.', 5.05, 7.2, expect.any(Object)],
+      ['fillText', 'Title', 5.1, 7.2, expect.any(Object)],
+    ])
+    expect(drawingContext.events[0]).toEqual(['save'])
+    expect(drawingContext.events.at(-1)).toEqual(['restore'])
+  })
+
   it('paints markers before styled runs at precomputed positions', () => {
     const drawingContext = context()
 
