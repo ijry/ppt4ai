@@ -1,6 +1,6 @@
 # Stage 7 Asset Library Host Wiring Design
 
-> Status: Proposed for implementation
+> Status: Approved for implementation
 > Date: 2026-08-23
 
 ## Goal
@@ -15,12 +15,14 @@ This slice adds a minimal, deterministic Playground host with:
 
 - an `EditorEngine` initialized with one slide and no image assets;
 - an in-memory `AssetAdapter` that stores cloned bytes and metadata;
-- an `ImageAssetController` used for image insertion and replacement;
+- two synchronous engine commands used to insert and replace references to
+  assets that already exist in the document;
 - a host-owned asset selection and selected image element policy;
 - `AssetLibrary` rendering from the current engine document and adapter;
 - localised success/error diagnostics for insert and replace actions.
 
-The demo image bytes and EMU bounds are fixed test fixtures. The host wires
+The demo image bytes, seeded metadata, and EMU bounds are fixed test fixtures.
+The host wires
 the library's `select`, `insert`, and `replace` events to host functions; the
 library itself remains unaware of `EditorEngine` and never calls
 `AssetAdapter.put()`.
@@ -40,11 +42,7 @@ library itself remains unaware of `EditorEngine` and never calls
 ```ts
 const engine = new EditorEngine(initialDocument)
 const assetAdapter = createMemoryAssetAdapter()
-const controller = createImageAssetController({
-  engine,
-  assetAdapter,
-  assetIdFactory,
-})
+const engine = new EditorEngine(initialDocument)
 ```
 
 The host keeps a Vue `engineState` ref. Every successful engine dispatch
@@ -64,21 +62,21 @@ data through shared references.
 2. A library selection emits an asset ID. The host records it and selects the
    corresponding image element if one exists; otherwise it clears the image
    element target while preserving the asset selection.
-3. Insert uses the deterministic demo PNG and fixed bounds, calls
-   `controller.insert`, then publishes the returned state and selects the new
-   element.
+3. Insert validates that the emitted asset ID exists in the current document,
+   dispatches `insertImageReference` with the deterministic fixed bounds, then
+   publishes the returned state and selects the new element.
 4. Replace requires the current engine selection to contain exactly one image
-   element. It calls `controller.replace` with the selected asset's demo bytes
-   and publishes the returned state. If no image target exists, the host
+   element. It dispatches `replaceImageAssetReference` with the emitted asset
+   ID and publishes the returned state. If no image target exists, the host
    reports a localised error without dispatching.
-5. Every controller failure leaves the current engine state unchanged. The
-   host displays a localised failure status and keeps the previous selection.
-   Orphan IDs from a post-write dispatch failure are included in diagnostics
-   but are not deleted automatically.
+5. Every invalid reference operation leaves the current engine state
+   unchanged. The host displays a localised failure status and keeps the
+   previous selection.
 
 The demo uses the same two PNG fixtures already used by thumbnail smoke tests.
-The host creates metadata through the controller, so dimensions and MIME are
-parsed by the shared bitmap parser rather than duplicated in the UI.
+Seed metadata is created once in the host fixture. Real file import remains a
+separate follow-up that will use `ImageAssetController`, so dimensions and
+MIME parsing stay out of the UI.
 
 ## Presentation
 
@@ -91,12 +89,9 @@ package is added.
 
 ## Error Handling
 
-- Missing selected image element: replace is rejected before controller call.
-- Unsupported or malformed demo bytes: controller error is surfaced and state
-  is unchanged.
-- Adapter failure: controller error is surfaced and state is unchanged.
-- Dispatch failure after adapter write: the orphan asset ID is included in the
-  status message; no automatic deletion is attempted.
+- Missing selected image element: replace is rejected before engine dispatch.
+- Missing asset reference: insert or replace is rejected atomically by the
+  engine and the host surfaces the error.
 - Thumbnail failure: existing `AssetLibrary` local failure isolation remains
   unchanged.
 
@@ -114,6 +109,6 @@ package is added.
 
 ## Deferred Follow-up
 
-The next independent work remains non-image thumbnail painting and any real
-file upload integration. Those features must preserve this host/library
-boundary and continue to keep adapter bytes outside the Vue component.
+The next independent work remains non-image thumbnail painting and real file
+upload integration. Upload will use `ImageAssetController`; this host slice
+uses reference-only engine commands and keeps adapter bytes outside Vue.
