@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, shallowRef } from 'vue'
 import { AssetLibrary, PptEditor, ThumbnailCanvas } from '@ppt4ai/editor'
+import { documentToSceneGraph } from '@ppt4ai/render'
 import { useI18n } from 'vue-i18n'
 import { createPlaygroundAssetHost } from './asset-host'
 import { ImageFileReadError, readImageUploadFile, type PlaygroundImageUploadInput } from './image-file-upload'
@@ -10,7 +11,8 @@ const { t } = useI18n()
 const assetHost = createPlaygroundAssetHost()
 const assetSnapshot = shallowRef(assetHost.getSnapshot())
 const activeSlide = ref<'red' | 'blue'>('red')
-const scene = computed(() => createThumbnailScene(activeSlide.value))
+const thumbnailScene = computed(() => createThumbnailScene(activeSlide.value))
+const scene = computed(() => documentToSceneGraph(assetSnapshot.value.engineState.document))
 const thumbnailResult = ref('')
 const fileInput = ref<HTMLInputElement>()
 const pendingUploadIntent = ref<'insert' | 'replace' | undefined>()
@@ -24,6 +26,10 @@ const selectedElementText = computed(() => {
 
 function selectAsset(assetId: string): void {
   assetSnapshot.value = assetHost.selectAsset(assetId)
+}
+
+function selectElement(elementId: string | undefined): void {
+  assetSnapshot.value = assetHost.selectElement(elementId)
 }
 
 function insertAsset(assetId: string): void {
@@ -86,9 +92,12 @@ async function uploadFile(event: Event): Promise<void> {
   <main class="min-h-screen bg-slate-100 p-4 text-slate-900 sm:p-8">
     <div class="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,32rem)]">
       <section class="min-w-0">
-        <PptEditor>
-          <span class="text-slate-500">Slide 1</span>
-        </PptEditor>
+        <PptEditor
+          :scene="scene"
+          :adapter="assetHost.adapter"
+          :selected-element-id="selectedElementId"
+          @select="selectElement"
+        />
         <section class="mt-8 border border-slate-200 bg-white p-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h2 class="text-sm font-semibold">Thumbnail smoke</h2>
@@ -97,7 +106,7 @@ async function uploadFile(event: Event): Promise<void> {
             </button>
           </div>
           <ThumbnailCanvas
-            :scene="scene"
+            :scene="thumbnailScene"
             :adapter="thumbnailAdapter"
             :width="320"
             :height="180"

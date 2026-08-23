@@ -44,6 +44,9 @@ importers:
       '@ppt4ai/model':
         specifier: workspace:*
         version: link:../../packages/model
+      '@ppt4ai/render':
+        specifier: workspace:*
+        version: link:../../packages/render
       vue:
         specifier: 3.5.41
         version: 3.5.41(typescript@6.0.3)

@@ -15,6 +15,7 @@ export interface PlaygroundAssetHostSnapshot {
 export interface PlaygroundAssetHost {
   adapter: AssetAdapter
   getSnapshot(): PlaygroundAssetHostSnapshot
+  selectElement(elementId: string | undefined): PlaygroundAssetHostSnapshot
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
   insertAsset(assetId: string): PlaygroundAssetHostSnapshot
   replaceSelectedImage(assetId: string): PlaygroundAssetHostSnapshot
@@ -64,8 +65,21 @@ function createDocument(): Ppt4aiDocument {
     version: 1,
     id: 'dck_playground',
     page: { w: 12192000, h: 6858000 },
-    slides: { sld_playground: { id: 'sld_playground', elementIds: [] } },
-    elements: {},
+    slides: { sld_playground: { id: 'sld_playground', elementIds: ['shape_demo', 'text_demo', 'table_demo'] } },
+    elements: {
+      shape_demo: { id: 'shape_demo', kind: 'shape', bounds: { x: 914400, y: 685800, w: 2743200, h: 1371600 }, preset: 'roundRect', fill: { color: { type: 'srgb', v: 'DDEBFF' } } },
+      text_demo: { id: 'text_demo', kind: 'text', bounds: { x: 914400, y: 914400, w: 2743200, h: 457200 }, body: { paragraphs: [{ runs: [{ text: 'PPT4AI 编辑画布', marks: { fontSize: 280000 } }] }] } },
+      table_demo: {
+        id: 'table_demo',
+        kind: 'table',
+        bounds: { x: 914400, y: 2514600, w: 2743200, h: 1143000 },
+        columns: [1371600, 1371600],
+        rows: [
+          { height: 571500, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: '标题' }] }] } }, { column: 1, body: { paragraphs: [{ runs: [{ text: '内容' }] }] } }] },
+          { height: 571500, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: '形状' }] }] } }, { column: 1, body: { paragraphs: [{ runs: [{ text: '文本' }] }] } }] },
+        ],
+      },
+    },
     assets: structuredClone(assets),
     slideOrder: ['sld_playground'],
   }
@@ -105,6 +119,11 @@ export function createPlaygroundAssetHost(): PlaygroundAssetHost {
       if (!hasAsset(assetId)) return fail('asset-missing')
       selectedAssetId = assetId
       status = { kind: 'success', message: 'asset-selected' }
+      return snapshot()
+    },
+    selectElement(elementId) {
+      const elementIds = elementId && engine.getState().document.elements[elementId] ? [elementId] : []
+      engine.dispatch({ type: 'select', elementIds })
       return snapshot()
     },
     insertAsset(assetId) {

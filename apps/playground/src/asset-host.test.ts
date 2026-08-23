@@ -13,13 +13,23 @@ describe('createPlaygroundAssetHost', () => {
     const firstBytes = await host.adapter.get('asset_red')
 
     expect(Object.keys(snapshot.engineState.document.assets ?? {})).toEqual(['asset_red', 'asset_blue'])
-    expect(snapshot.engineState.document.slides.sld_playground?.elementIds).toEqual([])
+    expect(snapshot.engineState.document.slides.sld_playground?.elementIds).toEqual(['shape_demo', 'text_demo', 'table_demo'])
+    expect(Object.keys(snapshot.engineState.document.elements)).toEqual(['shape_demo', 'text_demo', 'table_demo'])
     expect(firstBytes).toBeInstanceOf(Uint8Array)
 
     snapshot.engineState.document.assets!.asset_red!.originalFilename = 'mutated.png'
     firstBytes![0] = 0
     expect(host.getSnapshot().engineState.document.assets!.asset_red!.originalFilename).toBe('red.png')
     expect((await host.adapter.get('asset_red'))![0]).toBe(0x89)
+  })
+
+  it('selects a seeded element without adding an undo entry', () => {
+    const host = createPlaygroundAssetHost()
+
+    const selected = host.selectElement('text_demo')
+
+    expect(selected.engineState.selection).toEqual(['text_demo'])
+    expect(selected.engineState.history).toEqual({ undoDepth: 0, redoDepth: 0 })
   })
 
   it('inserts and replaces existing asset references without writing adapter bytes', () => {

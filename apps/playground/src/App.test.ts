@@ -40,7 +40,23 @@ class TestWorker {
 }
 
 function mountApp() {
-  const bitmapContext = { transferFromImageBitmap: vi.fn() }
+  const bitmapContext = {
+    canvas: { width: 0, height: 0, style: { width: '', height: '' } },
+    transferFromImageBitmap: vi.fn(),
+    clearRect: vi.fn(),
+    setTransform: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    closePath: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    fillText: vi.fn(),
+    strokeRect: vi.fn(),
+    fillRect: vi.fn(),
+  }
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(bitmapContext as unknown as RenderingContext)
   vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
   vi.stubGlobal('Worker', TestWorker)
@@ -69,6 +85,35 @@ afterEach(() => {
 })
 
 describe('Playground asset host wiring', () => {
+  it('renders the seeded scene and selects a node from the slide canvas', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    expect(canvas).not.toBeNull()
+    expect(canvas.width).toBeGreaterThan(0)
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1280,
+      bottom: 720,
+      width: 1280,
+      height: 720,
+      toJSON: () => ({}),
+    })
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 110, bubbles: true }))
+    await nextTick()
+
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('text_demo')
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('0')
+    expect(host.querySelector('[data-selection-overlay]')).not.toBeNull()
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
   it('selects, inserts, and replaces seeded asset references', async () => {
     const { app, host } = mountApp()
     await nextTick()
