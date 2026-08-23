@@ -125,6 +125,10 @@ describe('documentToSceneGraph', () => {
           kind: 'image',
           bounds: { x: 2500000, y: 1800000, w: 5000000, h: 3000000 },
           assetId: 'asset_photo_png',
+          transform: { rotation: 5400000, flipH: true },
+          sourceCrop: { left: 1000, right: 3000 },
+          maskPreset: 'ellipse',
+          effects: [{ type: 'alphaModFix', amount: 50000 }, { type: 'grayscl' }],
         },
       },
       assets: {
@@ -145,6 +149,10 @@ describe('documentToSceneGraph', () => {
       kind: 'image',
       bounds: { x: 2500000, y: 1800000, w: 5000000, h: 3000000 },
       assetId: 'asset_photo_png',
+      transform: { rotation: 5400000, flipH: true },
+      sourceCrop: { left: 1000, right: 3000 },
+      maskPreset: 'ellipse',
+      effects: [{ type: 'alphaModFix', amount: 50000 }, { type: 'grayscl' }],
       metadata: {
         id: 'asset_photo_png',
         mimeType: 'image/png',
@@ -152,6 +160,16 @@ describe('documentToSceneGraph', () => {
         pixelHeight: 900,
         originalFilename: 'photo.png',
       },
+    })
+    const sourceImage = imageDocument.elements.el_image
+    if (sourceImage?.kind !== 'image') throw new Error('expected image fixture')
+    sourceImage.transform!.rotation = 0
+    sourceImage.sourceCrop!.left = 99999
+    sourceImage.effects![0] = { type: 'grayscl' }
+    expect(graph.nodes[1]).toMatchObject({
+      transform: { rotation: 5400000, flipH: true },
+      sourceCrop: { left: 1000, right: 3000 },
+      effects: [{ type: 'alphaModFix', amount: 50000 }, { type: 'grayscl' }],
     })
     expect(structuredClone(graph)).toEqual(graph)
   })
