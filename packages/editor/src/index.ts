@@ -91,3 +91,6 @@ export type {
   InsertImageAssetInput,
   ReplaceImageAssetInput,
 } from './image-asset-controller'
+export { default as AssetLibrary } from './AssetLibrary.vue'
+export { createAssetLibraryModel } from './asset-library'
+export type { AssetLibraryItem, AssetLibraryModel } from './asset-library'

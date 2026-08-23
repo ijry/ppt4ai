@@ -36,6 +36,15 @@ const zhCN = {
       styles: { solid: '实线', dash: '虚线', dot: '点线' },
     },
   },
+  assetLibrary: {
+    title: '图片素材',
+    empty: '暂无图片素材',
+    insert: '插入',
+    replace: '替换',
+    thumbnailFailure: '缩略图不可用',
+    unnamed: '未命名图片（{id}）',
+    unknownDimensions: '尺寸未知',
+  },
 } as const
 
 export default zhCN

@@ -36,6 +36,15 @@ const enUS = {
       styles: { solid: 'Solid', dash: 'Dashed', dot: 'Dotted' },
     },
   },
+  assetLibrary: {
+    title: 'Image assets',
+    empty: 'No image assets',
+    insert: 'Insert',
+    replace: 'Replace',
+    thumbnailFailure: 'Thumbnail unavailable',
+    unnamed: 'Unnamed image ({id})',
+    unknownDimensions: 'Unknown dimensions',
+  },
 } as const
 
 export default enUS
