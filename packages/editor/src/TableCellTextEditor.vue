@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { TextBody } from '@ppt4ai/model'
-import { shallowRef, toRaw, ref, watch } from 'vue'
+import { computed, shallowRef, toRaw, ref, watch } from 'vue'
 import TextBoxEditor from './TextBoxEditor.vue'
 import type { TableCellTextEditorProps } from './table-cell-text-editor'
 
@@ -20,6 +20,15 @@ const composing = ref(false)
 let closed = !props.active
 let pendingClose: 'commit' | 'cancel' | undefined
 let closeScheduled = false
+
+const textEditorProps = computed(() => ({
+  body: draft.value,
+  bounds: props.cell.bounds,
+  transform: props.transform,
+  active: props.active && !closed,
+  selectionFrame: 'none' as const,
+  ...(props.bridgeFactory ? { bridgeFactory: props.bridgeFactory } : {}),
+}))
 
 function updateDraft(body: TextBody): void {
   if (closed) return
@@ -95,12 +104,7 @@ watch(
     @focusout="handleFocusOut"
   >
     <TextBoxEditor
-      :body="draft"
-      :bounds="props.cell.bounds"
-      :transform="props.transform"
-      :active="props.active && !closed"
-      selection-frame="none"
-      :bridge-factory="props.bridgeFactory"
+      v-bind="textEditorProps"
       @update:body="updateDraft"
       @update:composing="updateComposing"
     />
