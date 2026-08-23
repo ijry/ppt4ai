@@ -32,6 +32,15 @@ function selectElement(elementId: string | undefined): void {
   assetSnapshot.value = assetHost.selectElement(elementId)
 }
 
+function moveElement(payload: { nodeId: string; dx: number; dy: number }): void {
+  if (payload.dx === 0 && payload.dy === 0) return
+  assetSnapshot.value = assetHost.moveSelected(payload.nodeId, payload.dx, payload.dy)
+}
+
+function resizeElement(payload: { elementId: string; bounds: { x: number; y: number; w: number; h: number } }): void {
+  assetSnapshot.value = assetHost.resizeElement(payload.elementId, payload.bounds)
+}
+
 function insertAsset(assetId: string): void {
   assetSnapshot.value = assetHost.insertAsset(assetId)
 }
@@ -97,6 +106,8 @@ async function uploadFile(event: Event): Promise<void> {
           :adapter="assetHost.adapter"
           :selected-element-id="selectedElementId"
           @select="selectElement"
+          @move-end="moveElement"
+          @resize="resizeElement"
         />
         <section class="mt-8 border border-slate-200 bg-white p-4">
           <div class="flex flex-wrap items-center justify-between gap-3">

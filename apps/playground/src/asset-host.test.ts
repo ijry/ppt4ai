@@ -32,6 +32,19 @@ describe('createPlaygroundAssetHost', () => {
     expect(selected.engineState.history).toEqual({ undoDepth: 0, redoDepth: 0 })
   })
 
+  it('moves and resizes the selected seeded element as undoable commands', () => {
+    const host = createPlaygroundAssetHost()
+    host.selectElement('text_demo')
+
+    const moved = host.moveSelected('text_demo', 914400, 0)
+    expect(moved.engineState.document.elements.text_demo?.bounds.x).toBe(1828800)
+    expect(moved.engineState.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+
+    const resized = host.resizeElement('text_demo', { x: 1828800, y: 914400, w: 3657600, h: 914400 })
+    expect(resized.engineState.document.elements.text_demo?.bounds).toEqual({ x: 1828800, y: 914400, w: 3657600, h: 914400 })
+    expect(resized.engineState.history).toEqual({ undoDepth: 2, redoDepth: 0 })
+  })
+
   it('inserts and replaces existing asset references without writing adapter bytes', () => {
     const host = createPlaygroundAssetHost()
     let putCalls = 0

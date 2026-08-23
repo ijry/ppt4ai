@@ -114,6 +114,25 @@ describe('Playground asset host wiring', () => {
     mountedApps.splice(mountedApps.indexOf(app), 1)
   })
 
+  it('commits a canvas drag as one undoable move', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1280, height: 720 } as DOMRect)
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 110, pointerId: 3, bubbles: true }))
+    await nextTick()
+    canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: 160, clientY: 130, pointerId: 3, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 160, clientY: 130, pointerId: 3, bubbles: true }))
+    await nextTick()
+
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('text_demo')
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
+    expect(host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('left: 116px')
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
   it('selects, inserts, and replaces seeded asset references', async () => {
     const { app, host } = mountApp()
     await nextTick()

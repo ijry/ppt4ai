@@ -21,6 +21,9 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   render: [result: SlideCanvasRenderResult]
   select: [nodeId: string | undefined]
+  'move-start': [payload: { nodeId: string; point: { x: number; y: number } }]
+  move: [payload: { nodeId: string; dx: number; dy: number }]
+  'move-end': [payload: { nodeId: string; dx: number; dy: number }]
 }>()
 
 const canvas = ref<HTMLCanvasElement>()
@@ -28,6 +31,7 @@ let renderer: SlideCanvasRenderer | undefined
 let rendererAdapter: AssetAdapter | undefined
 let rendererDecoder: ImageDecoder | undefined
 let controller: AbortController | undefined
+let drag: { nodeId: string; pointerId: number; start: { x: number; y: number } } | undefined
 
 function currentRenderer(): SlideCanvasRenderer {
   if (!renderer || rendererAdapter !== props.adapter || rendererDecoder !== props.decoder) {
@@ -55,10 +59,45 @@ async function draw(): Promise<void> {
   if (controller === nextController && !nextController.signal.aborted) emit('render', result)
 }
 
-function select(event: PointerEvent): void {
+function point(event: PointerEvent): { x: number; y: number } | undefined {
   if (!canvas.value) return
-  const point = pointFromCanvasEvent(event, canvas.value, props.zoom)
-  emit('select', hitTestScene(props.scene, point))
+  return pointFromCanvasEvent(event, canvas.value, props.zoom)
+}
+
+function select(event: PointerEvent): void {
+  const nextPoint = point(event)
+  if (!nextPoint || !canvas.value) return
+  const nodeId = hitTestScene(props.scene, nextPoint)
+  emit('select', nodeId)
+  if (!nodeId) return
+  drag = { nodeId, pointerId: event.pointerId, start: nextPoint }
+  canvas.value.setPointerCapture?.(event.pointerId)
+  emit('move-start', { nodeId, point: nextPoint })
+}
+
+function move(event: PointerEvent): void {
+  if (!drag || event.pointerId !== drag.pointerId) return
+  const nextPoint = point(event)
+  if (!nextPoint) return
+  emit('move', { nodeId: drag.nodeId, dx: nextPoint.x - drag.start.x, dy: nextPoint.y - drag.start.y })
+}
+
+function releaseDrag(event: PointerEvent): boolean {
+  if (!drag || event.pointerId !== drag.pointerId) return false
+  canvas.value?.releasePointerCapture?.(event.pointerId)
+  drag = undefined
+  return true
+}
+
+function endMove(event: PointerEvent): void {
+  if (!drag || event.pointerId !== drag.pointerId) return
+  const nextPoint = point(event)
+  if (nextPoint) emit('move-end', { nodeId: drag.nodeId, dx: nextPoint.x - drag.start.x, dy: nextPoint.y - drag.start.y })
+  releaseDrag(event)
+}
+
+function cancelMove(event: PointerEvent): void {
+  releaseDrag(event)
 }
 
 watch(
@@ -74,5 +113,5 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <canvas ref="canvas" class="block max-w-full" data-slide-canvas @pointerdown="select" />
+  <canvas ref="canvas" class="block max-w-full" data-slide-canvas @pointerdown="select" @pointermove="move" @pointerup="endMove" @pointercancel="cancelMove" />
 </template>

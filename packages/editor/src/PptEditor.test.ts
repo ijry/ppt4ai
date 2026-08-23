@@ -63,6 +63,113 @@ describe('PptEditor', () => {
     mounted.app.unmount()
   })
 
+  it('emits one resize intent after a selected handle drag', async () => {
+    const resizeEvents: unknown[] = []
+    const app = createApp({
+      setup() {
+        return () => h(PptEditor, {
+          scene,
+          adapter,
+          selectedElementId: 'shape-1',
+          onResize: (payload: unknown) => resizeEvents.push(payload),
+        })
+      },
+    })
+    app.use(createPpt4aiI18n())
+    const host = document.createElement('div')
+    document.body.append(host)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      canvas: { width: 0, height: 0, style: { width: '', height: '' } },
+      clearRect: vi.fn(),
+      setTransform: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    app.mount(host)
+    await nextTick()
+
+    const handle = host.querySelector('[data-selection-handle="se"]') as HTMLButtonElement
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 288, clientY: 192, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 384, clientY: 288, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: 384, clientY: 288, bubbles: true }))
+
+    expect(resizeEvents).toEqual([{ elementId: 'shape-1', bounds: { x: 914400, y: 914400, w: 2743200, h: 1828800 } }])
+    app.unmount()
+  })
+
+  it('does not preview or commit a resize without an active handle gesture', async () => {
+    const resizeEvents: unknown[] = []
+    const app = createApp({
+      setup() {
+        return () => h(PptEditor, {
+          scene,
+          adapter,
+          selectedElementId: 'shape-1',
+          onResize: (payload: unknown) => resizeEvents.push(payload),
+        })
+      },
+    })
+    app.use(createPpt4aiI18n())
+    const host = document.createElement('div')
+    document.body.append(host)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      canvas: { width: 0, height: 0, style: { width: '', height: '' } },
+      clearRect: vi.fn(),
+      setTransform: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    app.mount(host)
+    await nextTick()
+
+    const handle = host.querySelector('[data-selection-handle="se"]') as HTMLButtonElement
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 384, clientY: 288, pointerId: 9, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: 384, clientY: 288, pointerId: 9, bubbles: true }))
+
+    expect(resizeEvents).toEqual([])
+    expect(host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('width: 192px')
+    app.unmount()
+  })
+
+  it('cancels a resize gesture without retaining its preview', async () => {
+    const resizeEvents: unknown[] = []
+    const app = createApp({
+      setup() {
+        return () => h(PptEditor, {
+          scene,
+          adapter,
+          selectedElementId: 'shape-1',
+          onResize: (payload: unknown) => resizeEvents.push(payload),
+        })
+      },
+    })
+    app.use(createPpt4aiI18n())
+    const host = document.createElement('div')
+    document.body.append(host)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      canvas: { width: 0, height: 0, style: { width: '', height: '' } },
+      clearRect: vi.fn(),
+      setTransform: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    app.mount(host)
+    await nextTick()
+
+    const handle = host.querySelector('[data-selection-handle="se"]') as HTMLButtonElement
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 288, clientY: 192, pointerId: 10, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 384, clientY: 288, pointerId: 10, bubbles: true }))
+    await nextTick()
+    expect(host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('width: 288px')
+
+    handle.dispatchEvent(new PointerEvent('pointercancel', { clientX: 384, clientY: 288, pointerId: 10, bubbles: true }))
+    await nextTick()
+
+    expect(resizeEvents).toEqual([])
+    expect(host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('width: 192px')
+    app.unmount()
+  })
+
   it('keeps localized editor keys symmetric', () => {
     const flatten = (value: Record<string, unknown>, prefix = ''): string[] => Object.entries(value).flatMap(([key, child]) => {
       const path = prefix ? `${prefix}.${key}` : key

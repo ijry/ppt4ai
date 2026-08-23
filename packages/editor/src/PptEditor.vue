@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import type { AssetAdapter } from '@ppt4ai/model'
 import type { SceneGraph } from '@ppt4ai/render'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SlideCanvas from './SlideCanvas.vue'
 import SelectionOverlay from './SelectionOverlay.vue'
 import type { ImageDecoder } from './image-canvas-renderer'
+import { createSelectionOverlay, resizeBounds, type Point, type SelectionHandle } from './selection-overlay'
 
 const { t } = useI18n()
 
@@ -21,16 +22,79 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   select: [nodeId: string | undefined]
   render: [result: unknown]
+  'move-start': [payload: { nodeId: string; point: Point }]
+  move: [payload: { nodeId: string; dx: number; dy: number }]
+  'move-end': [payload: { nodeId: string; dx: number; dy: number }]
+  resize: [payload: { elementId: string; bounds: { x: number; y: number; w: number; h: number } }]
 }>()
 
 const EMU_TO_CSS_PIXEL = 96 / 914400
 
-function selectedBounds(): { x: number; y: number; w: number; h: number } | undefined {
+type ScreenBounds = { x: number; y: number; w: number; h: number }
+
+function selectedBounds(): ScreenBounds | undefined {
   if (!props.scene || !props.selectedElementId) return undefined
   const node = props.scene.nodes.find((entry) => entry.id === props.selectedElementId)
   if (!node) return undefined
   const scale = EMU_TO_CSS_PIXEL * props.zoom
   return { x: node.bounds.x * scale, y: node.bounds.y * scale, w: node.bounds.w * scale, h: node.bounds.h * scale }
+}
+
+const resizePreview = ref<{ elementId: string; bounds: ScreenBounds }>()
+const resizeGesture = ref<{
+  elementId: string
+  handle: SelectionHandle
+  startBounds: ScreenBounds
+  startPoint: Point
+}>()
+
+function overlayBounds(): ScreenBounds | undefined {
+  const preview = resizePreview.value
+  if (!preview || preview.elementId !== props.selectedElementId) return selectedBounds()
+  return preview.bounds
+}
+
+function resizeStart(payload: { handle: SelectionHandle; point: Point }): void {
+  const bounds = selectedBounds()
+  if (!bounds || !props.selectedElementId) return
+  resizeGesture.value = {
+    elementId: props.selectedElementId,
+    handle: payload.handle,
+    startBounds: bounds,
+    startPoint: payload.point,
+  }
+  resizePreview.value = { elementId: props.selectedElementId, bounds }
+}
+
+function resizePreviewMove(payload: { handle: SelectionHandle; point: Point }): void {
+  const gesture = resizeGesture.value
+  if (!gesture || gesture.elementId !== props.selectedElementId || gesture.handle !== payload.handle) return
+  resizePreview.value = { elementId: gesture.elementId, bounds: resizeGestureBounds(gesture, payload.point) }
+}
+
+function resizeEnd(payload: { handle: SelectionHandle; point: Point }): void {
+  const gesture = resizeGesture.value
+  if (!gesture || gesture.elementId !== props.selectedElementId || gesture.handle !== payload.handle) return
+  const next = resizeGestureBounds(gesture, payload.point)
+  const scale = EMU_TO_CSS_PIXEL * props.zoom
+  emit('resize', { elementId: gesture.elementId, bounds: { x: next.x / scale, y: next.y / scale, w: next.w / scale, h: next.h / scale } })
+  resizePreview.value = undefined
+  resizeGesture.value = undefined
+}
+
+function resizeCancel(): void {
+  resizePreview.value = undefined
+  resizeGesture.value = undefined
+}
+
+function resizeGestureBounds(gesture: NonNullable<typeof resizeGesture.value>, point: Point): ScreenBounds {
+  const handle = createSelectionOverlay(gesture.startBounds).handles.find((entry) => entry.name === gesture.handle)
+  if (!handle) return gesture.startBounds
+  const handlePoint = {
+    x: handle.rect.x + handle.rect.w / 2 + point.x - gesture.startPoint.x,
+    y: handle.rect.y + handle.rect.h / 2 + point.y - gesture.startPoint.y,
+  }
+  return resizeBounds(gesture.startBounds, gesture.handle, handlePoint)
 }
 
 const canvasProps = computed(() => ({
@@ -55,8 +119,19 @@ const canvasProps = computed(() => ({
           v-bind="canvasProps"
           @select="emit('select', $event)"
           @render="emit('render', $event)"
+          @move-start="emit('move-start', $event)"
+          @move="emit('move', $event)"
+          @move-end="emit('move-end', $event)"
         />
-        <SelectionOverlay v-if="selectedBounds()" active :bounds="selectedBounds()!" />
+        <SelectionOverlay
+          v-if="overlayBounds()"
+          active
+          :bounds="overlayBounds()!"
+          @resize-start="resizeStart"
+          @resize="resizePreviewMove"
+          @resize-end="resizeEnd"
+          @resize-cancel="resizeCancel"
+        />
       </template>
       <slot v-else />
     </div>

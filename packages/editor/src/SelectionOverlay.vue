@@ -18,6 +18,7 @@ const emit = defineEmits<{
   'resize-start': [payload: { handle: SelectionHandle; point: Point }]
   resize: [payload: { handle: SelectionHandle; point: Point }]
   'resize-end': [payload: { handle: SelectionHandle; point: Point }]
+  'resize-cancel': [payload: { handle: SelectionHandle; point: Point }]
 }>()
 
 const handleCursor: Record<SelectionHandle, string> = {
@@ -35,12 +36,16 @@ function pointFromEvent(event: PointerEvent): Point {
   return { x: event.clientX, y: event.clientY }
 }
 
-function emitPointer(eventName: 'resize-start' | 'resize' | 'resize-end', handle: SelectionHandle, event: PointerEvent): void {
+function emitPointer(eventName: 'resize-start' | 'resize' | 'resize-end' | 'resize-cancel', handle: SelectionHandle, event: PointerEvent): void {
   const payload = { handle, point: pointFromEvent(event) }
+  const target = event.currentTarget as HTMLButtonElement | null
+  if (eventName === 'resize-start') target?.setPointerCapture?.(event.pointerId)
+  if (eventName === 'resize-end' || eventName === 'resize-cancel') target?.releasePointerCapture?.(event.pointerId)
   switch (eventName) {
     case 'resize-start': emit('resize-start', payload); break
     case 'resize': emit('resize', payload); break
     case 'resize-end': emit('resize-end', payload); break
+    case 'resize-cancel': emit('resize-cancel', payload); break
   }
 }
 </script>
@@ -73,6 +78,7 @@ function emitPointer(eventName: 'resize-start' | 'resize' | 'resize-end', handle
       @pointerdown="emitPointer('resize-start', handle.name, $event)"
       @pointermove="emitPointer('resize', handle.name, $event)"
       @pointerup="emitPointer('resize-end', handle.name, $event)"
+      @pointercancel="emitPointer('resize-cancel', handle.name, $event)"
     />
   </div>
 </template>
