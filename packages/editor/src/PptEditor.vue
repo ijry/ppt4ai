@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import type { AssetAdapter } from '@ppt4ai/model'
+import type { AssetAdapter, TextBody } from '@ppt4ai/model'
 import type { SceneGraph } from '@ppt4ai/render'
-import { computed, ref } from 'vue'
+import type { ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
+import { computed, ref, shallowRef, toRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SlideCanvas from './SlideCanvas.vue'
 import SelectionOverlay from './SelectionOverlay.vue'
+import TextBoxEditor from './TextBoxEditor.vue'
 import type { ImageDecoder } from './image-canvas-renderer'
 import { createSelectionOverlay, resizeBounds, type Point, type SelectionHandle } from './selection-overlay'
 
@@ -15,6 +17,8 @@ const props = withDefaults(defineProps<{
   adapter?: AssetAdapter
   decoder?: ImageDecoder
   selectedElementId?: string
+  textBodies?: Record<string, TextBody>
+  bridgeFactory?: (options: ImeInputBridgeOptions) => ImeInputBridge
   zoom?: number
   devicePixelRatio?: number
 }>(), { zoom: 1 })
@@ -26,6 +30,7 @@ const emit = defineEmits<{
   move: [payload: { nodeId: string; dx: number; dy: number }]
   'move-end': [payload: { nodeId: string; dx: number; dy: number }]
   resize: [payload: { elementId: string; bounds: { x: number; y: number; w: number; h: number } }]
+  'text-edit': [payload: { elementId: string; body: TextBody }]
 }>()
 
 const EMU_TO_CSS_PIXEL = 96 / 914400
@@ -47,6 +52,93 @@ const resizeGesture = ref<{
   startBounds: ScreenBounds
   startPoint: Point
 }>()
+const editingElementId = ref<string>()
+const editingDraft = shallowRef<TextBody>()
+const editingComposing = ref(false)
+let pendingTextClose: 'commit' | 'cancel' | undefined
+let textCloseScheduled = false
+
+function cloneBody(body: TextBody): TextBody {
+  return structuredClone(toRaw(body))
+}
+
+function activate(nodeId: string): void {
+  const node = props.scene?.nodes.find((entry) => entry.id === nodeId)
+  const body = props.textBodies?.[nodeId]
+  if (node?.kind !== 'text' || !body) return
+  emit('select', nodeId)
+  editingElementId.value = nodeId
+  editingDraft.value = cloneBody(body)
+  editingComposing.value = false
+  pendingTextClose = undefined
+}
+
+function updateEditingDraft(body: TextBody): void {
+  if (!editingElementId.value) return
+  editingDraft.value = cloneBody(body)
+}
+
+function closeTextEditing(action: 'commit' | 'cancel'): void {
+  const elementId = editingElementId.value
+  const body = editingDraft.value
+  if (!elementId) return
+  editingElementId.value = undefined
+  editingDraft.value = undefined
+  editingComposing.value = false
+  pendingTextClose = undefined
+  if (action === 'commit' && body) emit('text-edit', { elementId, body: cloneBody(body) })
+}
+
+function scheduleTextClose(action: 'commit' | 'cancel'): void {
+  if (!editingElementId.value) return
+  pendingTextClose = action
+  if (editingComposing.value || textCloseScheduled) return
+  textCloseScheduled = true
+  queueMicrotask(() => {
+    textCloseScheduled = false
+    const requested = pendingTextClose
+    if (requested && !editingComposing.value) closeTextEditing(requested)
+  })
+}
+
+function updateEditingComposing(value: boolean): void {
+  editingComposing.value = value
+  if (!value && pendingTextClose) scheduleTextClose(pendingTextClose)
+}
+
+function handleTextKeyDown(event: KeyboardEvent): void {
+  const action = event.key === 'Escape'
+    ? 'cancel'
+    : event.key === 'Enter' && event.ctrlKey
+      ? 'commit'
+      : undefined
+  if (!action) return
+  event.preventDefault()
+  event.stopPropagation()
+  if (editingComposing.value) scheduleTextClose(action)
+  else closeTextEditing(action)
+}
+
+function handleTextFocusOut(event: FocusEvent): void {
+  const nextTarget = event.relatedTarget
+  if (nextTarget instanceof Node && event.currentTarget instanceof Node && event.currentTarget.contains(nextTarget)) return
+  scheduleTextClose('commit')
+}
+
+const editingNode = computed(() => props.scene?.nodes.find((entry) => entry.id === editingElementId.value && entry.kind === 'text'))
+const textEditorProps = computed(() => {
+  const node = editingNode.value
+  const body = editingDraft.value
+  if (!node || node.kind !== 'text' || !body) return undefined
+  return {
+    body,
+    bounds: node.bounds,
+    transform: { originX: 0, originY: 0, scale: EMU_TO_CSS_PIXEL * props.zoom },
+    active: true,
+    selectionFrame: 'none' as const,
+    ...(props.bridgeFactory ? { bridgeFactory: props.bridgeFactory } : {}),
+  }
+})
 
 function overlayBounds(): ScreenBounds | undefined {
   const preview = resizePreview.value
@@ -122,6 +214,7 @@ const canvasProps = computed(() => ({
           @move-start="emit('move-start', $event)"
           @move="emit('move', $event)"
           @move-end="emit('move-end', $event)"
+          @activate="activate"
         />
         <SelectionOverlay
           v-if="overlayBounds()"
@@ -132,6 +225,19 @@ const canvasProps = computed(() => ({
           @resize-end="resizeEnd"
           @resize-cancel="resizeCancel"
         />
+        <div
+          v-if="textEditorProps"
+          class="pointer-events-none absolute inset-0"
+          data-text-element-editor
+          @keydown.capture="handleTextKeyDown"
+          @focusout="handleTextFocusOut"
+        >
+          <TextBoxEditor
+            v-bind="textEditorProps"
+            @update:body="updateEditingDraft"
+            @update:composing="updateEditingComposing"
+          />
+        </div>
       </template>
       <slot v-else />
     </div>

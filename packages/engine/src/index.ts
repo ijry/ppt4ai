@@ -62,6 +62,7 @@ export type EngineCommand =
   | { type: 'replaceImageAssetReference'; elementId: string; assetId: string }
   | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
   | { type: 'setTableCellText'; body: TextBody }
+  | { type: 'setTextBody'; elementId: string; body: TextBody }
   | { type: 'setTableCellFill'; fill: Fill | null }
   | { type: 'setTableCellBorders'; borders: Partial<Record<TableBorderSide, TableBorder | null>> }
   | { type: 'mergeTableCells' }
@@ -596,6 +597,10 @@ export class EditorEngine {
         this.setTableCellText(command.body)
         break
       }
+      case 'setTextBody': {
+        this.setTextBody(command.elementId, command.body)
+        break
+      }
       case 'setTableCellFill': {
         this.setTableCellFill(command.fill)
         break
@@ -684,6 +689,15 @@ export class EditorEngine {
     const source = sourceCellAt(table, selection.row, selection.column)
     if (!source) throw new Error('no table cell is selected')
     this.commit([{ path: ['elements', selection.elementId, 'rows', String(source.row), 'cells', String(source.cellIndex), 'body'], value: body }])
+  }
+
+  private setTextBody(elementId: string, body: TextBody): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`element does not exist: ${elementId}`)
+    if (element.kind !== 'text') throw new Error(`element is not text: ${elementId}`)
+    const validation = validateTextBody(body)
+    if (!validation.valid) throw new Error(`text body is invalid: ${validation.errors.join('; ')}`)
+    this.commit([{ path: ['elements', elementId, 'body'], value: body }])
   }
 
   private selectedTableSourceCells(): { elementId: string; table: TableElement; sources: TableSourceCell[] } | undefined {

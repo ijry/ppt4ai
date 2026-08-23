@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import type { TextBody } from '@ppt4ai/model'
 import { computed, nextTick, ref, shallowRef } from 'vue'
 import { AssetLibrary, PptEditor, ThumbnailCanvas } from '@ppt4ai/editor'
 import { documentToSceneGraph } from '@ppt4ai/render'
+import { normalizeTextElement } from '@ppt4ai/text'
 import { useI18n } from 'vue-i18n'
 import { createPlaygroundAssetHost } from './asset-host'
 import { ImageFileReadError, readImageUploadFile, type PlaygroundImageUploadInput } from './image-file-upload'
@@ -13,6 +15,13 @@ const assetSnapshot = shallowRef(assetHost.getSnapshot())
 const activeSlide = ref<'red' | 'blue'>('red')
 const thumbnailScene = computed(() => createThumbnailScene(activeSlide.value))
 const scene = computed(() => documentToSceneGraph(assetSnapshot.value.engineState.document))
+const textBodies = computed<Record<string, TextBody>>(() => {
+  const bodies: Record<string, TextBody> = {}
+  for (const element of Object.values(assetSnapshot.value.engineState.document.elements)) {
+    if (element.kind === 'text') bodies[element.id] = normalizeTextElement(element)
+  }
+  return bodies
+})
 const thumbnailResult = ref('')
 const fileInput = ref<HTMLInputElement>()
 const pendingUploadIntent = ref<'insert' | 'replace' | undefined>()
@@ -39,6 +48,10 @@ function moveElement(payload: { nodeId: string; dx: number; dy: number }): void 
 
 function resizeElement(payload: { elementId: string; bounds: { x: number; y: number; w: number; h: number } }): void {
   assetSnapshot.value = assetHost.resizeElement(payload.elementId, payload.bounds)
+}
+
+function updateTextElement(payload: { elementId: string; body: TextBody }): void {
+  assetSnapshot.value = assetHost.updateTextElement(payload.elementId, payload.body)
 }
 
 function insertAsset(assetId: string): void {
@@ -105,9 +118,11 @@ async function uploadFile(event: Event): Promise<void> {
           :scene="scene"
           :adapter="assetHost.adapter"
           :selected-element-id="selectedElementId"
+          :text-bodies="textBodies"
           @select="selectElement"
           @move-end="moveElement"
           @resize="resizeElement"
+          @text-edit="updateTextElement"
         />
         <section class="mt-8 border border-slate-200 bg-white p-4">
           <div class="flex flex-wrap items-center justify-between gap-3">

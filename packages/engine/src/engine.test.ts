@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EditorEngine } from './index'
-import type { AssetMetadata, ImageElement, Ppt4aiDocument } from '@ppt4ai/model'
+import type { AssetMetadata, ImageElement, Ppt4aiDocument, TextBody } from '@ppt4ai/model'
 
 function makeDocument(): Ppt4aiDocument {
   return {
@@ -79,6 +79,18 @@ function makeTableDocument(): Ppt4aiDocument {
       { height: 500000, cells: [{ column: 0, colSpan: 2, body: { paragraphs: [{ runs: [{ text: 'Header' }] }] } }] },
       { height: 1500000, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Left' }] }] } }, { column: 1, body: { paragraphs: [{ runs: [{ text: 'Right' }] }] } }] },
     ],
+  }
+  return document
+}
+
+function makeTextDocument(): Ppt4aiDocument {
+  const document = makeDocument()
+  document.slides.sld_1!.elementIds.push('el_text')
+  document.elements.el_text = {
+    id: 'el_text',
+    kind: 'text',
+    bounds: { x: 1000000, y: 3000000, w: 3000000, h: 1000000 },
+    body: { paragraphs: [{ runs: [{ text: 'Before', marks: { bold: true } }] }] },
   }
   return document
 }
@@ -164,6 +176,29 @@ function makeMergedCellDocument(rowSpan = 2, colSpan = 2): Ppt4aiDocument {
 }
 
 describe('EditorEngine', () => {
+  it('sets a text body as one clone-safe undoable command', () => {
+    const engine = new EditorEngine(makeTextDocument())
+    const body: TextBody = { paragraphs: [{ runs: [{ text: 'After', marks: { italic: true } }] }] }
+
+    const state = engine.dispatch({ type: 'setTextBody', elementId: 'el_text', body })
+
+    expect(state.document.elements.el_text).toMatchObject({ kind: 'text', body })
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(structuredClone(state)).toEqual(state)
+    body.paragraphs[0]!.runs[0]!.text = 'Mutated outside'
+    expect(engine.getState().document.elements.el_text).toMatchObject({ body: { paragraphs: [{ runs: [{ text: 'After' }] }] } })
+    expect(engine.dispatch({ type: 'undo' }).document.elements.el_text).toMatchObject({ body: { paragraphs: [{ runs: [{ text: 'Before' }] }] } })
+  })
+
+  it('does not add history for an unchanged text body and rejects non-text elements', () => {
+    const document = makeTextDocument()
+    const engine = new EditorEngine(document)
+    const body = structuredClone((document.elements.el_text as Extract<(typeof document.elements)[string], { kind: 'text' }>).body!)
+
+    expect(engine.dispatch({ type: 'setTextBody', elementId: 'el_text', body }).history).toEqual({ undoDepth: 0, redoDepth: 0 })
+    expect(() => engine.dispatch({ type: 'setTextBody', elementId: 'el_a', body })).toThrow('element is not text: el_a')
+  })
+
   it('inserts an image, registers its asset, and selects it atomically', () => {
     const engine = new EditorEngine(makeDocument())
     const element = imageElement('img_new', 'asset_new')

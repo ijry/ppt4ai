@@ -45,6 +45,18 @@ describe('createPlaygroundAssetHost', () => {
     expect(resized.engineState.history).toEqual({ undoDepth: 2, redoDepth: 0 })
   })
 
+  it('updates a text element in one clone-safe undoable command', () => {
+    const host = createPlaygroundAssetHost()
+    const body = { paragraphs: [{ runs: [{ text: 'Edited in place', marks: { bold: true } }] }] }
+
+    const updated = host.updateTextElement('text_demo', body)
+
+    expect(updated.engineState.document.elements.text_demo).toMatchObject({ kind: 'text', body })
+    expect(updated.engineState.selection).toEqual(['text_demo'])
+    expect(updated.engineState.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(structuredClone(updated)).toEqual(updated)
+  })
+
   it('inserts and replaces existing asset references without writing adapter bytes', () => {
     const host = createPlaygroundAssetHost()
     let putCalls = 0

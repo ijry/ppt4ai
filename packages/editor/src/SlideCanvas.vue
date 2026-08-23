@@ -24,6 +24,7 @@ const emit = defineEmits<{
   'move-start': [payload: { nodeId: string; point: { x: number; y: number } }]
   move: [payload: { nodeId: string; dx: number; dy: number }]
   'move-end': [payload: { nodeId: string; dx: number; dy: number }]
+  activate: [nodeId: string]
 }>()
 
 const canvas = ref<HTMLCanvasElement>()
@@ -75,6 +76,14 @@ function select(event: PointerEvent): void {
   emit('move-start', { nodeId, point: nextPoint })
 }
 
+function activate(event: MouseEvent): void {
+  if (!canvas.value) return
+  const nextPoint = pointFromCanvasEvent(event as unknown as PointerEvent, canvas.value, props.zoom)
+  if (!nextPoint) return
+  const nodeId = hitTestScene(props.scene, nextPoint)
+  if (nodeId) emit('activate', nodeId)
+}
+
 function move(event: PointerEvent): void {
   if (!drag || event.pointerId !== drag.pointerId) return
   const nextPoint = point(event)
@@ -113,5 +122,5 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <canvas ref="canvas" class="block max-w-full" data-slide-canvas @pointerdown="select" @pointermove="move" @pointerup="endMove" @pointercancel="cancelMove" />
+  <canvas ref="canvas" class="block max-w-full" data-slide-canvas @pointerdown="select" @pointermove="move" @pointerup="endMove" @pointercancel="cancelMove" @dblclick="activate" />
 </template>

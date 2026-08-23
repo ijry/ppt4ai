@@ -1,6 +1,6 @@
 import { EditorEngine, type EngineState } from '@ppt4ai/engine'
 import { createImageAssetController, ImageAssetControllerError } from '@ppt4ai/editor'
-import type { AssetAdapter, AssetMetadata, ImageElement, Ppt4aiDocument, Rect } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, ImageElement, Ppt4aiDocument, Rect, TextBody } from '@ppt4ai/model'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
 export interface PlaygroundAssetHostSnapshot {
@@ -18,6 +18,7 @@ export interface PlaygroundAssetHost {
   selectElement(elementId: string | undefined): PlaygroundAssetHostSnapshot
   moveSelected(elementId: string, dx: number, dy: number): PlaygroundAssetHostSnapshot
   resizeElement(elementId: string, bounds: Rect): PlaygroundAssetHostSnapshot
+  updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
   insertAsset(assetId: string): PlaygroundAssetHostSnapshot
   replaceSelectedImage(assetId: string): PlaygroundAssetHostSnapshot
@@ -145,6 +146,17 @@ export function createPlaygroundAssetHost(): PlaygroundAssetHost {
         engine.dispatch({ type: 'resize', elementId, bounds })
         engine.dispatch({ type: 'select', elementIds: [elementId] })
         status = { kind: 'success', message: 'element-resized' }
+      } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    updateTextElement(elementId, body) {
+      if (!engine.getState().document.elements[elementId]) return fail('element-missing')
+      try {
+        engine.dispatch({ type: 'setTextBody', elementId, body })
+        engine.dispatch({ type: 'select', elementIds: [elementId] })
+        status = { kind: 'success', message: 'text-updated' }
       } catch {
         return fail('element-operation-failed')
       }

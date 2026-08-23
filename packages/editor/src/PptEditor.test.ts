@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-import type { AssetAdapter } from '@ppt4ai/model'
+import type { AssetAdapter, TextBody } from '@ppt4ai/model'
 import type { SceneGraph } from '@ppt4ai/render'
+import type { ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
 import { createApp, h, nextTick, type App } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createPpt4aiI18n, locales } from './i18n'
@@ -12,6 +13,32 @@ const scene: SceneGraph = {
   slideId: 'slide-1',
   page: { w: 9144000, h: 5143500 },
   nodes: [{ id: 'shape-1', kind: 'shape', bounds: { x: 914400, y: 914400, w: 1828800, h: 914400 }, path: [] }],
+}
+
+const textBody: TextBody = { paragraphs: [{ runs: [{ text: 'Editable' }] }] }
+const textScene: SceneGraph = {
+  slideId: 'slide-1',
+  page: { w: 9144000, h: 5143500 },
+  nodes: [
+    { id: 'shape-1', kind: 'shape', bounds: { x: 914400, y: 914400, w: 1828800, h: 914400 }, path: [] },
+    { id: 'text-1', kind: 'text', bounds: { x: 3657600, y: 914400, w: 1828800, h: 914400 }, text: 'Editable', layout: { bounds: { x: 3657600, y: 914400, w: 1828800, h: 914400 }, lines: [], fontScale: 100000, overflow: false, contentBounds: { x: 3657600, y: 914400, w: 0, h: 0 } } },
+  ],
+}
+
+interface BridgeHarness {
+  options?: ImeInputBridgeOptions
+}
+
+function createBridgeFactory(harness: BridgeHarness) {
+  return (options: ImeInputBridgeOptions): ImeInputBridge => {
+    harness.options = options
+    return {
+      focus: () => {},
+      setCaretRect: () => {},
+      getCaretClientRect: () => new DOMRect(),
+      destroy: () => {},
+    }
+  }
 }
 
 function mount(selectedElementId: string | undefined): { app: App; host: HTMLElement } {
@@ -61,6 +88,91 @@ describe('PptEditor', () => {
     await nextTick()
     expect(mounted.host.querySelector('[data-selection-overlay]')).toBeNull()
     mounted.app.unmount()
+  })
+
+  it('edits a text node in place and commits one clone-safe session body', async () => {
+    const harness: BridgeHarness = {}
+    const textEditEvents: unknown[] = []
+    const app = createApp({
+      setup: () => () => h(PptEditor, {
+        scene: textScene,
+        adapter,
+        selectedElementId: 'text-1',
+        textBodies: { 'text-1': textBody },
+        bridgeFactory: createBridgeFactory(harness),
+        onTextEdit: (payload: unknown) => textEditEvents.push(payload),
+      }),
+    })
+    app.use(createPpt4aiI18n())
+    const host = document.createElement('div')
+    document.body.append(host)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      canvas: { width: 0, height: 0, style: { width: '', height: '' } },
+      clearRect: vi.fn(),
+      setTransform: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    app.mount(host)
+    await nextTick()
+
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+    canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 385, clientY: 97, bubbles: true }))
+    await nextTick()
+
+    expect(host.querySelector('[data-text-box-editor]')).not.toBeNull()
+    expect(host.querySelector('[data-text-caret]')).not.toBeNull()
+    expect(host.querySelector('[data-selection-border]')).not.toBeNull()
+    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(8)
+
+    harness.options?.onEvent({ type: 'text-input', text: 'A' })
+    await nextTick()
+    const editor = host.querySelector('[data-text-element-editor]') as HTMLElement
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }))
+    await nextTick()
+
+    expect(textEditEvents).toEqual([{ elementId: 'text-1', body: { paragraphs: [{ runs: [{ text: 'AEditable' }] }] } }])
+    expect(structuredClone(textEditEvents[0])).toEqual(textEditEvents[0])
+    expect(host.querySelector('[data-text-box-editor]')).toBeNull()
+
+    canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 385, clientY: 97, bubbles: true }))
+    await nextTick()
+    const reopened = host.querySelector('[data-text-element-editor]') as HTMLElement
+    reopened.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    await nextTick()
+
+    expect(textEditEvents).toHaveLength(1)
+    expect(host.querySelector('[data-text-box-editor]')).toBeNull()
+    app.unmount()
+  })
+
+  it('does not enter text editing when a shape is activated', async () => {
+    const app = createApp({
+      setup: () => () => h(PptEditor, {
+        scene: textScene,
+        adapter,
+        selectedElementId: 'shape-1',
+        textBodies: { 'text-1': textBody },
+      }),
+    })
+    app.use(createPpt4aiI18n())
+    const host = document.createElement('div')
+    document.body.append(host)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      canvas: { width: 0, height: 0, style: { width: '', height: '' } },
+      clearRect: vi.fn(), setTransform: vi.fn(), save: vi.fn(), restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    app.mount(host)
+    await nextTick()
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+
+    canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 97, clientY: 97, bubbles: true }))
+    await nextTick()
+
+    expect(host.querySelector('[data-text-box-editor]')).toBeNull()
+    app.unmount()
   })
 
   it('emits one resize intent after a selected handle drag', async () => {

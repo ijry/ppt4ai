@@ -34,7 +34,7 @@ function context(): CanvasRenderingContext2D {
   } as unknown as CanvasRenderingContext2D
 }
 
-function mount(renderEvents: unknown[], selectEvents: unknown[], moveEvents: unknown[] = []): { app: App; canvas: HTMLCanvasElement } {
+function mount(renderEvents: unknown[], selectEvents: unknown[], moveEvents: unknown[] = [], activateEvents: unknown[] = []): { app: App; canvas: HTMLCanvasElement } {
   const app = createApp({
     setup() {
       return () => h(SlideCanvas, {
@@ -47,6 +47,7 @@ function mount(renderEvents: unknown[], selectEvents: unknown[], moveEvents: unk
         onMoveStart: (payload: unknown) => moveEvents.push({ type: 'start', payload }),
         onMove: (payload: unknown) => moveEvents.push({ type: 'move', payload }),
         onMoveEnd: (payload: unknown) => moveEvents.push({ type: 'end', payload }),
+        onActivate: (id: unknown) => activateEvents.push(id),
       })
     },
   })
@@ -100,6 +101,21 @@ describe('SlideCanvas', () => {
       { type: 'move', payload: { nodeId: 'shape-1', dx: 95250, dy: 190500 } },
       { type: 'end', payload: { nodeId: 'shape-1', dx: 95250, dy: 190500 } },
     ])
+    mounted.app.unmount()
+  })
+
+  it('activates the hit node on double click', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context())
+    const renderEvents: unknown[] = []
+    const selectEvents: unknown[] = []
+    const activateEvents: unknown[] = []
+    const mounted = mount(renderEvents, selectEvents, [], activateEvents)
+
+    await vi.waitFor(() => expect(renderEvents).toHaveLength(1))
+    vi.spyOn(mounted.canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+    mounted.canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 1, clientY: 1, bubbles: true }))
+
+    expect(activateEvents).toEqual(['shape-1'])
     mounted.app.unmount()
   })
 
