@@ -13,8 +13,8 @@ describe('createPlaygroundAssetHost', () => {
     const firstBytes = await host.adapter.get('asset_red')
 
     expect(Object.keys(snapshot.engineState.document.assets ?? {})).toEqual(['asset_red', 'asset_blue'])
-    expect(snapshot.engineState.document.slides.sld_playground?.elementIds).toEqual(['shape_demo', 'text_demo', 'table_demo'])
-    expect(Object.keys(snapshot.engineState.document.elements)).toEqual(['shape_demo', 'text_demo', 'table_demo'])
+    expect(snapshot.engineState.document.slides.sld_playground?.elementIds).toEqual(['group_demo', 'table_demo'])
+    expect(Object.keys(snapshot.engineState.document.elements)).toEqual(['shape_demo', 'text_demo', 'group_demo', 'table_demo'])
     expect(firstBytes).toBeInstanceOf(Uint8Array)
 
     snapshot.engineState.document.assets!.asset_red!.originalFilename = 'mutated.png'
@@ -42,6 +42,22 @@ describe('createPlaygroundAssetHost', () => {
 
     const resized = host.resizeElement('text_demo', { x: 1828800, y: 914400, w: 3657600, h: 914400 })
     expect(resized.engineState.document.elements.text_demo?.bounds).toEqual({ x: 1828800, y: 914400, w: 3657600, h: 914400 })
+    expect(resized.engineState.history).toEqual({ undoDepth: 2, redoDepth: 0 })
+  })
+
+  it('moves and resizes the seeded demo group with all descendants', () => {
+    const host = createPlaygroundAssetHost()
+    const selected = host.selectElement('group_demo')
+
+    expect(selected.engineState.selection).toEqual(['group_demo'])
+    const moved = host.moveSelected('group_demo', 914400, 0)
+    expect(moved.engineState.document.elements.group_demo?.bounds.x).toBe(1828800)
+    expect(moved.engineState.document.elements.shape_demo?.bounds.x).toBe(1828800)
+    expect(moved.engineState.document.elements.text_demo?.bounds.x).toBe(1828800)
+    expect(moved.engineState.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+
+    const resized = host.resizeElement('group_demo', { x: 1828800, y: 914400, w: 5486400, h: 1828800 })
+    expect(resized.engineState.document.elements.group_demo?.bounds).toEqual({ x: 1828800, y: 914400, w: 5486400, h: 1828800 })
     expect(resized.engineState.history).toEqual({ undoDepth: 2, redoDepth: 0 })
   })
 

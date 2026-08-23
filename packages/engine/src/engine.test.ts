@@ -95,6 +95,26 @@ function makeTextDocument(): Ppt4aiDocument {
   return document
 }
 
+function makeNestedGroupDocument(): Ppt4aiDocument {
+  const document = makeDocument()
+  document.slides.sld_1!.elementIds = ['grp_outer']
+  document.elements.el_a!.bounds = { x: 100, y: 200, w: 100, h: 50 }
+  document.elements.el_b!.bounds = { x: 400, y: 500, w: 200, h: 100 }
+  document.elements.grp_inner = {
+    id: 'grp_inner',
+    kind: 'group',
+    bounds: { x: 300, y: 400, w: 400, h: 300 },
+    childIds: ['el_b'],
+  }
+  document.elements.grp_outer = {
+    id: 'grp_outer',
+    kind: 'group',
+    bounds: { x: 0, y: 100, w: 1000, h: 1000 },
+    childIds: ['el_a', 'grp_inner'],
+  }
+  return document
+}
+
 function makeStructureDocument(): Ppt4aiDocument {
   const document = makeDocument()
   document.slides.sld_1!.elementIds.push('el_table')
@@ -736,6 +756,37 @@ describe('EditorEngine', () => {
     expect(engine.dispatch({ type: 'resize', elementId: 'el_a', bounds: { x: 2, y: 3, w: 4, h: 5 } }).document.elements.el_a?.bounds).toEqual({ x: 2, y: 3, w: 4, h: 5 })
     expect(() => engine.dispatch({ type: 'resize', elementId: 'el_a', bounds: { x: 2, y: 3, w: 0, h: 5 } })).toThrow('bounds must be positive')
     expect(engine.getState().history.undoDepth).toBe(1)
+  })
+
+  it('moves nested groups and all descendants in one undo transaction', () => {
+    const engine = new EditorEngine(makeNestedGroupDocument())
+    engine.dispatch({ type: 'select', elementIds: ['grp_outer'] })
+
+    const moved = engine.dispatch({ type: 'move', dx: 50, dy: -25 })
+    expect(moved.document.elements.grp_outer?.bounds).toEqual({ x: 50, y: 75, w: 1000, h: 1000 })
+    expect(moved.document.elements.el_a?.bounds).toEqual({ x: 150, y: 175, w: 100, h: 50 })
+    expect(moved.document.elements.grp_inner?.bounds).toEqual({ x: 350, y: 375, w: 400, h: 300 })
+    expect(moved.document.elements.el_b?.bounds).toEqual({ x: 450, y: 475, w: 200, h: 100 })
+    expect(moved.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+
+    const undone = engine.dispatch({ type: 'undo' })
+    expect(undone.document.elements.grp_outer?.bounds).toEqual({ x: 0, y: 100, w: 1000, h: 1000 })
+    expect(undone.document.elements.el_a?.bounds).toEqual({ x: 100, y: 200, w: 100, h: 50 })
+    expect(undone.document.elements.grp_inner?.bounds).toEqual({ x: 300, y: 400, w: 400, h: 300 })
+    expect(undone.document.elements.el_b?.bounds).toEqual({ x: 400, y: 500, w: 200, h: 100 })
+    expect(engine.dispatch({ type: 'redo' }).document.elements.el_b?.bounds).toEqual({ x: 450, y: 475, w: 200, h: 100 })
+  })
+
+  it('resizes nested groups with non-uniform descendant mapping in one undo transaction', () => {
+    const engine = new EditorEngine(makeNestedGroupDocument())
+    engine.dispatch({ type: 'select', elementIds: ['grp_outer'] })
+
+    const resized = engine.dispatch({ type: 'resize', elementId: 'grp_outer', bounds: { x: 1000, y: 2000, w: 2000, h: 500 } })
+    expect(resized.document.elements.grp_outer?.bounds).toEqual({ x: 1000, y: 2000, w: 2000, h: 500 })
+    expect(resized.document.elements.el_a?.bounds).toEqual({ x: 1200, y: 2050, w: 200, h: 25 })
+    expect(resized.document.elements.grp_inner?.bounds).toEqual({ x: 1600, y: 2150, w: 800, h: 150 })
+    expect(resized.document.elements.el_b?.bounds).toEqual({ x: 1800, y: 2200, w: 400, h: 50 })
+    expect(resized.history).toEqual({ undoDepth: 1, redoDepth: 0 })
   })
 
   it('changes z-order while preserving selected relative order', () => {

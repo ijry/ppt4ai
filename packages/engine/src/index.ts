@@ -488,6 +488,14 @@ function selectionBounds(document: Ppt4aiDocument, elementIds: string[]): Rect |
   return { x: left, y: top, w: right - left, h: bottom - top }
 }
 
+function descendantElementIds(document: Ppt4aiDocument, rootId: string, visited = new Set<string>()): string[] {
+  if (visited.has(rootId) || !document.elements[rootId]) return []
+  visited.add(rootId)
+  const element = document.elements[rootId]!
+  if (element.kind !== 'group') return [rootId]
+  return [rootId, ...element.childIds.flatMap((childId) => descendantElementIds(document, childId, visited))]
+}
+
 interface SnapCandidate {
   delta: number
   position: number
@@ -837,21 +845,40 @@ export class EditorEngine {
       ...(xSnap ? [{ axis: 'x' as const, position: xSnap.position, source: xSnap.source, ...(xSnap.elementId ? { elementId: xSnap.elementId } : {}) }] : []),
       ...(ySnap ? [{ axis: 'y' as const, position: ySnap.position, source: ySnap.source, ...(ySnap.elementId ? { elementId: ySnap.elementId } : {}) }] : []),
     ]
-    this.commit(selectedIds.flatMap((elementId) => {
+    const movedIds = selectedIds.flatMap((elementId) => descendantElementIds(this.document, elementId))
+    this.commit(movedIds.flatMap((elementId) => {
       const element = this.document.elements[elementId]
       if (!element) return []
-      return [{
+      return {
         path: ['elements', elementId, 'bounds'],
         value: { ...element.bounds, x: element.bounds.x + adjustedDx, y: element.bounds.y + adjustedDy },
-      }]
+      }
     }))
   }
 
   private resize(elementId: string, bounds: Rect): void {
     if (bounds.w <= 0 || bounds.h <= 0) throw new Error('bounds must be positive')
     if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) || !Number.isFinite(bounds.w) || !Number.isFinite(bounds.h)) throw new Error('bounds must be finite')
-    if (!this.document.elements[elementId]) return
-    this.commit([{ path: ['elements', elementId, 'bounds'], value: bounds }])
+    const element = this.document.elements[elementId]
+    if (!element) return
+    if (element.kind !== 'group') {
+      this.commit([{ path: ['elements', elementId, 'bounds'], value: bounds }])
+      return
+    }
+    const previous = element.bounds
+    const scaleX = bounds.w / previous.w
+    const scaleY = bounds.h / previous.h
+    const mapBounds = (source: Rect): Rect => ({
+      x: bounds.x + (source.x - previous.x) * scaleX,
+      y: bounds.y + (source.y - previous.y) * scaleY,
+      w: source.w * scaleX,
+      h: source.h * scaleY,
+    })
+    const descendantIds = descendantElementIds(this.document, elementId)
+    this.commit(descendantIds.map((descendantId) => ({
+      path: ['elements', descendantId, 'bounds'],
+      value: descendantId === elementId ? bounds : mapBounds(this.document.elements[descendantId]!.bounds),
+    })))
   }
 
   private zOrder(action: 'front' | 'back' | 'forward' | 'backward'): void {

@@ -10,6 +10,15 @@ export interface SceneGraph {
     h: number
   }
   nodes: SceneNode[]
+  groups?: SceneGroup[]
+}
+
+export interface SceneGroup {
+  id: string
+  bounds: Rect
+  childIds: string[]
+  ancestorIds: string[]
+  paintOrder: number
 }
 
 export interface SceneShapeNode {
@@ -269,13 +278,22 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
     ...(theme ? { theme } : {}),
   }
   const visited = new Set<string>()
-  const appendElement = (elementId: string): void => {
+  const groups: SceneGroup[] = []
+  const appendElement = (elementId: string, ancestorIds: string[] = []): void => {
     if (visited.has(elementId)) return
     visited.add(elementId)
     const element = value.elements[elementId]
     if (!element) return
     if (element.kind === 'group') {
-      for (const childId of element.childIds) appendElement(childId)
+      const groupIndex = groups.push({
+        id: element.id,
+        bounds: structuredClone(element.bounds),
+        childIds: [...element.childIds],
+        ancestorIds: [...ancestorIds],
+        paintOrder: nodes.length - 1,
+      }) - 1
+      for (const childId of element.childIds) appendElement(childId, [...ancestorIds, element.id])
+      groups[groupIndex]!.paintOrder = nodes.length - 1
       return
     }
     const node = createNode(resolveInheritedElement(element, layout, master), context, value.tableStyles, value.assets)
@@ -287,5 +305,6 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
     slideId,
     page: { ...value.page },
     nodes,
+    ...(groups.length > 0 ? { groups } : {}),
   }
 }

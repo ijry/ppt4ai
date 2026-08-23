@@ -15,6 +15,13 @@ const scene: SceneGraph = {
   nodes: [{ id: 'shape-1', kind: 'shape', bounds: { x: 914400, y: 914400, w: 1828800, h: 914400 }, path: [] }],
 }
 
+const groupedScene: SceneGraph = {
+  slideId: 'slide-1',
+  page: { w: 9144000, h: 5143500 },
+  nodes: [{ id: 'group-leaf', kind: 'shape', bounds: { x: 914400, y: 914400, w: 1828800, h: 914400 }, path: [] }],
+  groups: [{ id: 'group-1', bounds: { x: 914400, y: 914400, w: 3657600, h: 1828800 }, childIds: ['group-leaf'], ancestorIds: [], paintOrder: 0 }],
+}
+
 const textBody: TextBody = { paragraphs: [{ runs: [{ text: 'Editable' }] }] }
 const textScene: SceneGraph = {
   slideId: 'slide-1',
@@ -88,6 +95,63 @@ describe('PptEditor', () => {
     await nextTick()
     expect(mounted.host.querySelector('[data-selection-overlay]')).toBeNull()
     mounted.app.unmount()
+  })
+
+  it('renders group bounds with the existing border and eight resize handles', async () => {
+    const app = createApp({
+      setup() {
+        return () => h(PptEditor, { scene: groupedScene, adapter, selectedElementId: 'group-1' })
+      },
+    })
+    app.use(createPpt4aiI18n())
+    const host = document.createElement('div')
+    document.body.append(host)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      canvas: { width: 0, height: 0, style: { width: '', height: '' } },
+      clearRect: vi.fn(),
+      setTransform: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    app.mount(host)
+    await nextTick()
+
+    expect(host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('left: 96px')
+    expect(host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('width: 384px')
+    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(8)
+    app.unmount()
+  })
+
+  it('does not enter text editing when a group is double-clicked', async () => {
+    const groupTextScene: SceneGraph = {
+      ...groupedScene,
+      nodes: [{ id: 'group-text', kind: 'text', bounds: { x: 914400, y: 914400, w: 1828800, h: 914400 }, text: 'Grouped', layout: { bounds: { x: 914400, y: 914400, w: 1828800, h: 914400 }, lines: [], fontScale: 100000, overflow: false, contentBounds: { x: 914400, y: 914400, w: 0, h: 0 } } }],
+      groups: [{ id: 'group-1', bounds: { x: 914400, y: 914400, w: 3657600, h: 1828800 }, childIds: ['group-text'], ancestorIds: [], paintOrder: 0 }],
+    }
+    const app = createApp({
+      setup() {
+        return () => h(PptEditor, { scene: groupTextScene, adapter, textBodies: { 'group-text': textBody } })
+      },
+    })
+    app.use(createPpt4aiI18n())
+    const host = document.createElement('div')
+    document.body.append(host)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      canvas: { width: 0, height: 0, style: { width: '', height: '' } },
+      clearRect: vi.fn(),
+      setTransform: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    app.mount(host)
+    await nextTick()
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+    canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 97, clientY: 97, bubbles: true }))
+    await nextTick()
+
+    expect(host.querySelector('[data-text-box-editor]')).toBeNull()
+    app.unmount()
   })
 
   it('edits a text node in place and commits one clone-safe session body', async () => {

@@ -13,9 +13,26 @@ function contains(bounds: Rect, point: CanvasPoint): boolean {
 }
 
 export function hitTestScene(scene: SceneGraph, point: CanvasPoint): string | undefined {
-  for (let index = scene.nodes.length - 1; index >= 0; index -= 1) {
-    const node = scene.nodes[index]
-    if (node && contains(node.bounds, point)) return node.id
+  const groups = scene.groups ?? []
+  const groupedElementIds = new Set(groups.flatMap((group) => group.childIds))
+  const topLevelGroups = groups
+    .filter((group) => group.ancestorIds.length === 0)
+    .map((group, sourceIndex) => ({ group, sourceIndex }))
+  const targets = [
+    ...topLevelGroups.map(({ group, sourceIndex }) => ({
+      id: group.id,
+      bounds: group.bounds,
+      paintOrder: group.paintOrder,
+      sourceIndex,
+    })),
+    ...scene.nodes.flatMap((node, sourceIndex) => node && !groupedElementIds.has(node.id)
+      ? [{ id: node.id, bounds: node.bounds, paintOrder: sourceIndex, sourceIndex }]
+      : []),
+  ].sort((left, right) => left.paintOrder - right.paintOrder || left.sourceIndex - right.sourceIndex)
+
+  for (let index = targets.length - 1; index >= 0; index -= 1) {
+    const target = targets[index]
+    if (target && contains(target.bounds, point)) return target.id
   }
   return undefined
 }

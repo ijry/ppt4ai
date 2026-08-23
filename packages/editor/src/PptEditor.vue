@@ -39,10 +39,11 @@ type ScreenBounds = { x: number; y: number; w: number; h: number }
 
 function selectedBounds(): ScreenBounds | undefined {
   if (!props.scene || !props.selectedElementId) return undefined
-  const node = props.scene.nodes.find((entry) => entry.id === props.selectedElementId)
-  if (!node) return undefined
+  const selectedGroup = props.scene.groups?.find((entry) => entry.id === props.selectedElementId)
+  const bounds = selectedGroup?.bounds ?? props.scene.nodes.find((entry) => entry.id === props.selectedElementId)?.bounds
+  if (!bounds) return undefined
   const scale = EMU_TO_CSS_PIXEL * props.zoom
-  return { x: node.bounds.x * scale, y: node.bounds.y * scale, w: node.bounds.w * scale, h: node.bounds.h * scale }
+  return { x: bounds.x * scale, y: bounds.y * scale, w: bounds.w * scale, h: bounds.h * scale }
 }
 
 const resizePreview = ref<{ elementId: string; bounds: ScreenBounds }>()

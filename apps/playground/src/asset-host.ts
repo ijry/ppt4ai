@@ -68,10 +68,11 @@ function createDocument(): Ppt4aiDocument {
     version: 1,
     id: 'dck_playground',
     page: { w: 12192000, h: 6858000 },
-    slides: { sld_playground: { id: 'sld_playground', elementIds: ['shape_demo', 'text_demo', 'table_demo'] } },
+    slides: { sld_playground: { id: 'sld_playground', elementIds: ['group_demo', 'table_demo'] } },
     elements: {
       shape_demo: { id: 'shape_demo', kind: 'shape', bounds: { x: 914400, y: 685800, w: 2743200, h: 1371600 }, preset: 'roundRect', fill: { color: { type: 'srgb', v: 'DDEBFF' } } },
       text_demo: { id: 'text_demo', kind: 'text', bounds: { x: 914400, y: 914400, w: 2743200, h: 457200 }, body: { paragraphs: [{ runs: [{ text: 'PPT4AI 编辑画布', marks: { fontSize: 280000 } }] }] } },
+      group_demo: { id: 'group_demo', kind: 'group', bounds: { x: 914400, y: 685800, w: 2743200, h: 1600200 }, childIds: ['shape_demo', 'text_demo'] },
       table_demo: {
         id: 'table_demo',
         kind: 'table',

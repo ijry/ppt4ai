@@ -370,6 +370,60 @@ describe('documentToSceneGraph', () => {
     expect(documentToSceneGraph(groupedDocument).nodes.map((node) => node.id)).toEqual(['el_shape', 'el_text'])
   })
 
+  it('emits clone-safe metadata for nested groups without changing flat paint order', () => {
+    const nestedGroupDocument: Ppt4aiDocument = {
+      ...minimalDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: ['grp_outer', 'el_sibling'] } },
+      elements: {
+        ...minimalDocument.elements,
+        el_text: {
+          id: 'el_text',
+          kind: 'text',
+          bounds: { x: 6000000, y: 1000000, w: 1000000, h: 1000000 },
+          text: 'Grouped',
+        },
+        el_sibling: {
+          id: 'el_sibling',
+          kind: 'shape',
+          preset: 'ellipse',
+          bounds: { x: 9000000, y: 1000000, w: 1000000, h: 1000000 },
+        },
+        grp_inner: {
+          id: 'grp_inner',
+          kind: 'group',
+          bounds: { x: 500000, y: 500000, w: 7000000, h: 2500000 },
+          childIds: ['el_shape', 'el_text'],
+        },
+        grp_outer: {
+          id: 'grp_outer',
+          kind: 'group',
+          bounds: { x: 500000, y: 500000, w: 7000000, h: 2500000 },
+          childIds: ['grp_inner'],
+        },
+      },
+    }
+
+    const graph = documentToSceneGraph(nestedGroupDocument)
+    expect(graph.nodes.map((node) => node.id)).toEqual(['el_shape', 'el_text', 'el_sibling'])
+    expect(graph.groups).toEqual([
+      {
+        id: 'grp_outer',
+        bounds: { x: 500000, y: 500000, w: 7000000, h: 2500000 },
+        childIds: ['grp_inner'],
+        ancestorIds: [],
+        paintOrder: 1,
+      },
+      {
+        id: 'grp_inner',
+        bounds: { x: 500000, y: 500000, w: 7000000, h: 2500000 },
+        childIds: ['el_shape', 'el_text'],
+        ancestorIds: ['grp_outer'],
+        paintOrder: 1,
+      },
+    ])
+    expect(structuredClone(graph)).toEqual(graph)
+  })
+
   it('converts tables into clone-safe layout nodes in slide order', () => {
     const tableDocument: Ppt4aiDocument = {
       ...minimalDocument,

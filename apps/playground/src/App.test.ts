@@ -107,7 +107,7 @@ describe('Playground asset host wiring', () => {
     canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 110, bubbles: true }))
     await nextTick()
 
-    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('text_demo')
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('group_demo')
     expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('0')
     expect(host.querySelector('[data-selection-overlay]')).not.toBeNull()
     app.unmount()
@@ -126,7 +126,7 @@ describe('Playground asset host wiring', () => {
     canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 160, clientY: 130, pointerId: 3, bubbles: true }))
     await nextTick()
 
-    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('text_demo')
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('group_demo')
     expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
     expect(host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('left: 116px')
     app.unmount()

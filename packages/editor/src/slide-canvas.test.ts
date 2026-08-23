@@ -24,4 +24,49 @@ describe('slide canvas hit testing', () => {
     const canvas = { getBoundingClientRect: () => ({ left: 10, top: 20, width: 960, height: 540 }) } as HTMLCanvasElement
     expect(pointFromCanvasEvent({ clientX: 106, clientY: 101 } as PointerEvent, canvas, 2)).toEqual({ x: 457200, y: 385762.5 })
   })
+
+  it('selects the top-level group instead of penetrating grouped leaves', () => {
+    const groupedScene: SceneGraph = {
+      ...scene(),
+      nodes: [
+        ...scene().nodes,
+        { id: 'group-leaf', kind: 'shape', bounds: { x: 120, y: 120, w: 80, h: 80 }, path: [] },
+      ],
+      groups: [
+        {
+          id: 'group-outer',
+          bounds: { x: 100, y: 100, w: 500, h: 500 },
+          childIds: ['group-leaf'],
+          ancestorIds: [],
+          paintOrder: 2,
+        },
+      ],
+    }
+
+    expect(hitTestScene(groupedScene, { x: 130, y: 130 })).toBe('group-outer')
+    expect(hitTestScene(groupedScene, { x: 550, y: 550 })).toBe('group-outer')
+    expect(hitTestScene(groupedScene, { x: 750, y: 300 })).toBe('top')
+  })
+
+  it('keeps a later ungrouped node above an earlier overlapping group', () => {
+    const groupedScene: SceneGraph = {
+      slideId: 'slide-1',
+      page: { w: 9144000, h: 5143500 },
+      nodes: [
+        { id: 'group-leaf', kind: 'shape', bounds: { x: 100, y: 100, w: 500, h: 500 }, path: [] },
+        { id: 'later-node', kind: 'shape', bounds: { x: 200, y: 200, w: 200, h: 200 }, path: [] },
+      ],
+      groups: [
+        {
+          id: 'group-outer',
+          bounds: { x: 100, y: 100, w: 500, h: 500 },
+          childIds: ['group-leaf'],
+          ancestorIds: [],
+          paintOrder: 0,
+        },
+      ],
+    }
+
+    expect(hitTestScene(groupedScene, { x: 250, y: 250 })).toBe('later-node')
+  })
 })

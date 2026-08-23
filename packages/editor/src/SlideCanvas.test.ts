@@ -34,11 +34,11 @@ function context(): CanvasRenderingContext2D {
   } as unknown as CanvasRenderingContext2D
 }
 
-function mount(renderEvents: unknown[], selectEvents: unknown[], moveEvents: unknown[] = [], activateEvents: unknown[] = []): { app: App; canvas: HTMLCanvasElement } {
+function mount(renderEvents: unknown[], selectEvents: unknown[], moveEvents: unknown[] = [], activateEvents: unknown[] = [], sceneValue: SceneGraph = scene()): { app: App; canvas: HTMLCanvasElement } {
   const app = createApp({
     setup() {
       return () => h(SlideCanvas, {
-        scene: scene(),
+        scene: sceneValue,
         adapter,
         decoder: async (): Promise<DecodedImage> => ({ source: {} as CanvasImageSource, width: 1, height: 1 }),
         zoom: 1,
@@ -116,6 +116,28 @@ describe('SlideCanvas', () => {
     mounted.canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 1, clientY: 1, bubbles: true }))
 
     expect(activateEvents).toEqual(['shape-1'])
+    mounted.app.unmount()
+  })
+
+  it('emits the top-level group id for grouped pointer gestures', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context())
+    const renderEvents: unknown[] = []
+    const selectEvents: unknown[] = []
+    const moveEvents: unknown[] = []
+    const mounted = mount(renderEvents, selectEvents, moveEvents, [], {
+      ...scene(),
+      nodes: [{ id: 'group-leaf', kind: 'shape', bounds: { x: 0, y: 0, w: 50000, h: 50000 }, path: [] }],
+      groups: [{ id: 'group-1', bounds: { x: 0, y: 0, w: 50000, h: 50000 }, childIds: ['group-leaf'], ancestorIds: [], paintOrder: 0 }],
+    })
+
+    await vi.waitFor(() => expect(renderEvents).toHaveLength(1))
+    vi.spyOn(mounted.canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+    mounted.canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 1, clientY: 1, pointerId: 12, bubbles: true }))
+    mounted.canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 1, clientY: 1, pointerId: 12, bubbles: true }))
+
+    expect(selectEvents).toEqual(['group-1'])
+    expect(moveEvents[0]).toEqual({ type: 'start', payload: { nodeId: 'group-1', point: { x: 9525, y: 9525 } } })
+    expect(moveEvents[1]).toEqual({ type: 'end', payload: { nodeId: 'group-1', dx: 0, dy: 0 } })
     mounted.app.unmount()
   })
 
