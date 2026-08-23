@@ -50,6 +50,7 @@ interface ScannedElement {
 
 interface ScannedSlide {
   elements: ScannedElement[]
+  invalidPictures: Array<{ expectedId: string; error: Error }>
   nextElementNumber: number
 }
 
@@ -237,8 +238,9 @@ function isImportableTable(element: XmlElement): boolean {
 function slideElements(xml: string, slideId: string, slidePath: string, relationships: SlideRelationship[], entries: Map<string, ZipEntry>, elementNumberStart: number): ScannedSlide {
   const roots = scanXml(xml)
   const tree = descendants(roots, 'spTree')[0]
-  if (!tree) return { elements: [], nextElementNumber: elementNumberStart }
+  if (!tree) return { elements: [], invalidPictures: [], nextElementNumber: elementNumberStart }
   const result: ScannedElement[] = []
+  const invalidPictures: Array<{ expectedId: string; error: Error }> = []
   let elementNumber = elementNumberStart
   const visit = (elements: XmlElement[]): void => {
     for (const element of elements) {
@@ -251,14 +253,20 @@ function slideElements(xml: string, slideId: string, slidePath: string, relation
         result.push({ element, expectedId })
       }
       if (expectedId && element.localName === 'pic') {
-        const image = sourceImage(element, slideId, slidePath, relationships, entries)
-        result.push({ element, expectedId, image })
+        if (hasBounds(element)) {
+          try {
+            const image = sourceImage(element, slideId, slidePath, relationships, entries)
+            result.push({ element, expectedId, image })
+          } catch (error) {
+            invalidPictures.push({ expectedId, error: error instanceof Error ? error : new Error(String(error)) })
+          }
+        }
       }
       visit(element.children)
     }
   }
   visit(tree.children)
-  return { elements: result, nextElementNumber: elementNumber }
+  return { elements: result, invalidPictures, nextElementNumber: elementNumber }
 }
 
 function sourceSlidePaths(entries: Map<string, ZipEntry>): Map<string, string> {
@@ -408,6 +416,8 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
     const slide = document.slides[slideId]
     if (!slide) throw new Error(`PPTX export document slide missing: ${slideId}`)
     if (slide.elementIds.length < scanned.elements.length) throw new Error(`PPTX export element count mismatch for slide ${slideId}`)
+    const invalidPicture = scanned.invalidPictures.find(({ expectedId }) => slide.elementIds.includes(expectedId))
+    if (invalidPicture) throw invalidPicture.error
     const newRelationships: string[] = []
     const relationshipIds = new Set(slideRelationships.map((relationship) => relationship.id))
     const pictures: string[] = []
@@ -436,6 +446,7 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
         continue
       }
       if (sourceElement) {
+        if (element.kind === 'image') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
         if (sourceElement.localName === 'graphicFrame' && element.kind !== 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
         if (sourceElement.localName !== 'graphicFrame' && element.kind === 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
         continue

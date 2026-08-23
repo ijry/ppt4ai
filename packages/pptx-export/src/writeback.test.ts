@@ -229,6 +229,35 @@ describe('exportPptx', () => {
     await expect(exportPptx(document, source)).rejects.toThrow('PPTX export only supports trailing image additions for slide sld_1')
   })
 
+  it('rejects replacing an existing non-image source element with an image', async () => {
+    const source = sourcePackage()
+    const document = await importPptx(source)
+    document.elements.el_2 = {
+      id: 'el_2',
+      kind: 'image',
+      bounds: { x: 1, y: 1, w: 1, h: 1 },
+      assetId: 'asset_new',
+    }
+    document.assets = { asset_new: { id: 'asset_new', mimeType: 'image/png', pixelWidth: 32, pixelHeight: 16 } }
+
+    await expect(exportPptx(document, source, { assetAdapter: new RecordingAssetAdapter(new Map([['asset_new', pngBytes]])) }))
+      .rejects.toThrow('PPTX export element prefix mismatch for slide sld_1')
+  })
+
+  it('skips an unimportable picture while preserving later importer element IDs', async () => {
+    const source = writeStoredZip([
+      { name: 'ppt/presentation.xml', data: new TextEncoder().encode(presentation) },
+      { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(relationships) },
+      { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(`<p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r"><p:cSld><p:spTree><p:pic><p:blipFill><a:blip r:embed="rId1"/></p:blipFill></p:pic>${neighborXml}</p:spTree></p:cSld></p:sld>`) },
+      { name: 'ppt/slides/_rels/slide1.xml.rels', data: new TextEncoder().encode('<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/></Relationships>') },
+      { name: 'ppt/media/image1.png', data: pngBytes },
+    ])
+    const document = await importPptx(source)
+
+    expect(document.slides.sld_1?.elementIds).toEqual(['el_2'])
+    await expect(exportPptx(document, source)).resolves.toEqual(source)
+  })
+
   it('rejects an unresolved source picture relationship', async () => {
     const validSource = imageSourcePackage()
     const document = await importPptx(validSource)
