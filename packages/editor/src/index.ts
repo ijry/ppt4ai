@@ -69,3 +69,16 @@ export type {
   ImageRenderResult,
   ImageViewport,
 } from './image-canvas-renderer'
+export { default as ThumbnailCanvas } from './ThumbnailCanvas.vue'
+export { createThumbnailRenderer, ThumbnailRendererError } from './thumbnail-renderer'
+export type {
+  ThumbnailRenderer,
+  ThumbnailRendererOptions,
+  ThumbnailWorkerFactory,
+  ThumbnailWorkerPort,
+} from './thumbnail-renderer'
+export type {
+  ThumbnailIssueCode,
+  ThumbnailRenderResult,
+  ThumbnailViewport,
+} from './thumbnail-protocol'
