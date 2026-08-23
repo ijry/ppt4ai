@@ -84,3 +84,10 @@ export type {
 } from './thumbnail-protocol'
 export type { AssetAdapter, AssetMetadata } from '@ppt4ai/model'
 export type { SceneGraph } from '@ppt4ai/render'
+export { createImageAssetController, ImageAssetControllerError } from './image-asset-controller'
+export type {
+  ImageAssetController,
+  ImageAssetControllerOptions,
+  InsertImageAssetInput,
+  ReplaceImageAssetInput,
+} from './image-asset-controller'
