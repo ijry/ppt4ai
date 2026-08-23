@@ -30,6 +30,10 @@ describe('image writeback helpers', () => {
     expect(imageExtension('image/webp')).toBe('webp')
   })
 
+  it('rejects unsupported runtime MIME types', () => {
+    expect(() => imageExtension('image/tiff' as never)).toThrow('PPTX export unsupported image MIME type: image/tiff')
+  })
+
   it('allocates first-free media names and relationship IDs', () => {
     const entries = new Set(['ppt/media/image1.png', 'ppt/media/image3.jpg'])
     expect(allocateMediaPath(entries, 'image/png')).toBe('ppt/media/image2.png')

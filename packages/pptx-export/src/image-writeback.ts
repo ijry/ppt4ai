@@ -17,6 +17,7 @@ export function imageExtension(mimeType: ImageMimeType): string {
     case 'image/bmp': return 'bmp'
     case 'image/webp': return 'webp'
   }
+  throw new Error(`PPTX export unsupported image MIME type: ${String(mimeType)}`)
 }
 
 export function stableAssetId(mediaPath: string): string {
@@ -27,7 +28,9 @@ export function allocateMediaPath(entryNames: Set<string>, mimeType: ImageMimeTy
   const extension = imageExtension(mimeType)
   for (let index = 1; ; index += 1) {
     const path = `ppt/media/image${index}.${extension}`
-    if (!entryNames.has(path)) return path
+    const occupied = [...entryNames].some((entryName) => /^ppt\/media\/image\d+\.[^/]+$/iu.test(entryName)
+      && Number(entryName.slice('ppt/media/image'.length, entryName.lastIndexOf('.'))) === index)
+    if (!occupied) return path
   }
 }
 
