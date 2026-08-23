@@ -59,6 +59,7 @@ export {
 export type { TextEditorInteraction, TextViewportTransform } from './text-editor-interaction'
 export { createImageCanvasRenderer } from './image-canvas-renderer'
 export { decodeBrowserImage } from './browser-image-decoder'
+export { default as ImageCanvas } from './ImageCanvas.vue'
 export type {
   DecodedImage,
   ImageCanvasRenderer,
