@@ -58,6 +58,7 @@ export {
 } from './text-editor-interaction'
 export type { TextEditorInteraction, TextViewportTransform } from './text-editor-interaction'
 export { createImageCanvasRenderer } from './image-canvas-renderer'
+export { decodeBrowserImage } from './browser-image-decoder'
 export type {
   DecodedImage,
   ImageCanvasRenderer,

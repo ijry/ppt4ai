@@ -1,5 +1,6 @@
 import type { AssetAdapter, ImageMimeType } from '@ppt4ai/model'
 import type { SceneGraph, SceneImageNode } from '@ppt4ai/render'
+import { decodeBrowserImage } from './browser-image-decoder'
 
 const EMU_PER_CSS_PIXEL = 914400 / 96
 
@@ -58,10 +59,6 @@ interface CacheEntry {
   closed: boolean
 }
 
-function unavailableDecoder(): Promise<DecodedImage> {
-  return Promise.reject(new Error('No browser image decoder configured'))
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -76,7 +73,7 @@ function renderIssue(node: SceneImageNode, code: ImageRenderIssue['code'], error
 }
 
 export function createImageCanvasRenderer(options: ImageCanvasRendererOptions): ImageCanvasRenderer {
-  const decoder = options.decoder ?? (() => unavailableDecoder())
+  const decoder = options.decoder ?? decodeBrowserImage
   const cache = new Map<string, CacheEntry>()
   let disposed = false
 
