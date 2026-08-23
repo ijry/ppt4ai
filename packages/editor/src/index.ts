@@ -16,7 +16,7 @@ export type {
 } from './selection-overlay'
 export { default as TextEditorOverlay } from './TextEditorOverlay.vue'
 export { default as TextBoxEditor } from './TextBoxEditor.vue'
-export type { TextBoxEditorProps, TextBoxEditorResizePayload } from './text-box-editor'
+export type { TextBoxEditorProps, TextBoxEditorResizePayload, TextBoxEditorSelectionFrame } from './text-box-editor'
 export { default as TextFormattingToolbar } from './TextFormattingToolbar.vue'
 export type { TextFormattingToolbarEmit, TextFormattingToolbarProps } from './text-formatting-toolbar'
 export { default as TableEditorOverlay } from './TableEditorOverlay.vue'
@@ -38,6 +38,13 @@ export type {
   TableEditorController,
   TableEditorControllerOptions,
 } from './table-editor-controller'
+export { default as TableCellTextEditor } from './TableCellTextEditor.vue'
+export type { TableCellTextEditorProps } from './table-cell-text-editor'
+export { createTableCellTextEditingController } from './table-cell-text-editing-controller'
+export type {
+  TableCellTextEditingController,
+  TableCellTextEditingControllerOptions,
+} from './table-cell-text-editing-controller'
 export { default as TableFormattingToolbar } from './TableFormattingToolbar.vue'
 export type {
   TableFormattingToolbarEmit,

@@ -20,6 +20,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   select: [selection: TableCellSelection]
   selectEnd: [selection: TableCellSelection]
+  edit: [point: TableCellPoint]
 }>()
 
 const model = computed(() => createTableEditorOverlay(props.table, props.transform))
@@ -117,6 +118,16 @@ function activateCell(event: KeyboardEvent, cell: TableEditorCell): void {
   selection.value = nextSelection
   emitSelection('select', nextSelection)
   emitSelection('selectEnd', nextSelection)
+  if (event.key === 'Enter') emit('edit', clonePoint(cell.point))
+}
+
+function editCell(cell: TableEditorCell): void {
+  const nextSelection = collapsedSelection(cell.point)
+  focusedPoint.value = clonePoint(cell.point)
+  selection.value = nextSelection
+  emitSelection('select', nextSelection)
+  emitSelection('selectEnd', nextSelection)
+  emit('edit', clonePoint(cell.point))
 }
 
 function cellStyle(cell: TableEditorCell): Record<string, string> {
@@ -168,6 +179,7 @@ function cellLabel(cell: TableEditorCell): string {
       :style="cellStyle(cell)"
       @focus="focusedPoint = clonePoint(cell.point)"
       @keydown="activateCell($event, cell)"
+      @dblclick="editCell(cell)"
     />
   </div>
 </template>

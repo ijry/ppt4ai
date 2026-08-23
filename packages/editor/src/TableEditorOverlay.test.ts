@@ -33,7 +33,7 @@ function pointer(type: string, x: number, y: number, options: { button?: number;
   return event
 }
 
-function mountOverlay(active = true, events: { selections: TableCellSelection[]; ends: TableCellSelection[] } = { selections: [], ends: [] }) {
+function mountOverlay(active = true, events: { selections: TableCellSelection[]; ends: TableCellSelection[]; edits: Array<{ row: number; column: number }> } = { selections: [], ends: [], edits: [] }) {
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp({
@@ -43,6 +43,7 @@ function mountOverlay(active = true, events: { selections: TableCellSelection[];
       transform: { originX: 0, originY: 0, scale: 1 },
       onSelect: (selection: TableCellSelection) => events.selections.push(selection),
       onSelectEnd: (selection: TableCellSelection) => events.ends.push(selection),
+      onEdit: (point: { row: number; column: number }) => events.edits.push(point),
     }),
   })
   app.mount(host)
@@ -104,7 +105,7 @@ describe('TableEditorOverlay', () => {
     mounted.host.remove()
   })
 
-  it('ignores secondary-button pointerdown and activates focused cells with Enter and Space', async () => {
+  it('ignores secondary-button pointerdown, edits with Enter, and selects with Space', async () => {
     const mounted = mountOverlay()
     const grid = mounted.host.querySelector('[data-table-editor-overlay]') as HTMLElement
     const firstCell = mounted.host.querySelector('[data-table-cell-row="0"][data-table-cell-column="0"]') as HTMLElement
@@ -116,8 +117,27 @@ describe('TableEditorOverlay', () => {
     await nextTick()
     expect(mounted.events.selections).toHaveLength(2)
     expect(mounted.events.ends).toHaveLength(2)
+    expect(mounted.events.edits).toEqual([{ row: 0, column: 0 }])
     expect(firstCell.className).toContain('focus:ring-2')
     mounted.app.unmount()
     mounted.host.remove()
+  })
+
+  it('requests editing for the merged source cell on double click', () => {
+    const mounted = mountOverlay()
+    const mergedCell = mounted.host.querySelector('[data-table-cell-row="0"][data-table-cell-column="0"]') as HTMLElement
+
+    mergedCell.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+
+    expect(mounted.events.edits).toEqual([{ row: 0, column: 0 }])
+    mounted.app.unmount()
+    mounted.host.remove()
+  })
+
+  it('exports table text editing through the editor entry point', async () => {
+    const entry = await import('./index')
+
+    expect(entry.TableCellTextEditor).toBeDefined()
+    expect(entry.createTableCellTextEditingController).toBeDefined()
   })
 })
