@@ -37,6 +37,23 @@ library itself remains unaware of `EditorEngine` and never calls
 
 ## Host Architecture
 
+The engine adds two reference-only commands alongside the existing byte-
+owning image commands:
+
+```ts
+type EngineCommand =
+  | { type: 'insertImageReference'; slideId: string; element: ImageElement; assetId: string }
+  | { type: 'replaceImageAssetReference'; elementId: string; assetId: string }
+```
+
+`insertImageReference` requires an existing document asset, requires the image
+element's `assetId` to match, appends the element to the slide, selects it,
+and records only the element/slide patch. `replaceImageAssetReference`
+requires an existing, different document asset and an image target, changes
+only the target reference, removes the old metadata when it has no remaining
+image references, and records one atomic patch. Neither command calls an
+adapter or creates asset metadata.
+
 `apps/playground/src/App.vue` owns the following state:
 
 ```ts
