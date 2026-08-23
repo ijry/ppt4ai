@@ -114,6 +114,48 @@ describe('documentToSceneGraph', () => {
     expect(nodes[1]).toEqual(expect.objectContaining({ id: 'el_shape', kind: 'shape' }))
   })
 
+  it('converts image elements into clone-safe nodes with asset metadata', () => {
+    const imageDocument: Ppt4aiDocument = {
+      ...minimalDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: ['el_shape', 'el_image'] } },
+      elements: {
+        ...minimalDocument.elements,
+        el_image: {
+          id: 'el_image',
+          kind: 'image',
+          bounds: { x: 2500000, y: 1800000, w: 5000000, h: 3000000 },
+          assetId: 'asset_photo_png',
+        },
+      },
+      assets: {
+        asset_photo_png: {
+          id: 'asset_photo_png',
+          mimeType: 'image/png',
+          pixelWidth: 1600,
+          pixelHeight: 900,
+          originalFilename: 'photo.png',
+        },
+      },
+    }
+
+    const graph = documentToSceneGraph(imageDocument)
+    expect(graph.nodes.map((node) => node.id)).toEqual(['el_shape', 'el_image'])
+    expect(graph.nodes[1]).toEqual({
+      id: 'el_image',
+      kind: 'image',
+      bounds: { x: 2500000, y: 1800000, w: 5000000, h: 3000000 },
+      assetId: 'asset_photo_png',
+      metadata: {
+        id: 'asset_photo_png',
+        mimeType: 'image/png',
+        pixelWidth: 1600,
+        pixelHeight: 900,
+        originalFilename: 'photo.png',
+      },
+    })
+    expect(structuredClone(graph)).toEqual(graph)
+  })
+
   it('resolves layout and master defaults before creating scene nodes', () => {
     const inheritedDocument: Ppt4aiDocument = {
       ...minimalDocument,

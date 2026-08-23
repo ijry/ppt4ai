@@ -1,6 +1,6 @@
 import { createPresetPath, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveTableCellStyle, type ColorMap, type Element, type Fill, type Ppt4aiDocument, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveTableCellStyle, type AssetMetadata, type ColorMap, type Element, type Fill, type Ppt4aiDocument, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -56,6 +56,14 @@ export interface SceneTableNode {
   stroke?: Fill
 }
 
+export interface SceneImageNode {
+  id: string
+  kind: 'image'
+  bounds: Rect
+  assetId: string
+  metadata?: AssetMetadata
+}
+
 export interface SceneTableLayoutCell extends TableLayoutCell {
   textLayout: SceneTextLayout
   resolvedStyle: ResolvedTableCellStyle
@@ -68,7 +76,7 @@ export interface SceneTableLayout extends Omit<TableLayout, 'cells'> {
   cells: SceneTableLayoutCell[]
 }
 
-export type SceneNode = SceneShapeNode | SceneTextNode | SceneTableNode
+export type SceneNode = SceneShapeNode | SceneTextNode | SceneTableNode | SceneImageNode
 
 export interface SceneResolvedTableTextStyle extends Omit<TableStyleText, 'color'> {
   color?: ResolvedColor
@@ -203,7 +211,23 @@ function createTableNode(element: Extract<Element, { kind: 'table' }>, context: 
   return node
 }
 
-function createNode(element: Element, context: SceneColorContext, tableStyles?: Ppt4aiDocument['tableStyles']): SceneNode | undefined {
+function createImageNode(element: Extract<Element, { kind: 'image' }>, assets?: Ppt4aiDocument['assets']): SceneImageNode {
+  const metadata = assets?.[element.assetId]
+  return {
+    id: element.id,
+    kind: 'image',
+    bounds: structuredClone(element.bounds),
+    assetId: element.assetId,
+    ...(metadata ? { metadata: structuredClone(metadata) } : {}),
+  }
+}
+
+function createNode(
+  element: Element,
+  context: SceneColorContext,
+  tableStyles?: Ppt4aiDocument['tableStyles'],
+  assets?: Ppt4aiDocument['assets'],
+): SceneNode | undefined {
   switch (element.kind) {
     case 'shape':
       return createShapeNode(element, context)
@@ -211,6 +235,8 @@ function createNode(element: Element, context: SceneColorContext, tableStyles?: 
       return createTextNode(element, context)
     case 'table':
       return createTableNode(element, context, tableStyles)
+    case 'image':
+      return createImageNode(element, assets)
     case 'group':
       return undefined
     default:
@@ -244,7 +270,7 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
       for (const childId of element.childIds) appendElement(childId)
       return
     }
-    const node = createNode(resolveInheritedElement(element, layout, master), context, value.tableStyles)
+    const node = createNode(resolveInheritedElement(element, layout, master), context, value.tableStyles, value.assets)
     if (node) nodes.push(node)
   }
   for (const elementId of slide.elementIds) appendElement(elementId)

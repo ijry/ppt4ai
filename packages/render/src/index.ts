@@ -1,6 +1,7 @@
 export {
   documentToSceneGraph,
   type SceneGraph,
+  type SceneImageNode,
   type SceneNode,
   type SceneShapeNode,
   type SceneResolvedTableTextStyle,
