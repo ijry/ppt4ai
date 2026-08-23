@@ -39,6 +39,7 @@ The selected design keeps reuse explicit and limits the shared-component change 
 - owns the browser IME bridge and text editor state;
 - renders provisional composition text, caret, selection, and automatic line wrapping;
 - emits cloned committed composition/body snapshots through `update:body`;
+- emits composition-state changes so a session host can defer close requests;
 - renders the resize selection frame only when `selectionFrame` is absent or equals `resize`.
 
 It remains unaware of tables and the engine.
@@ -51,13 +52,14 @@ It remains unaware of tables and the engine.
 - updates only the local draft while typing or composing;
 - emits `commit` with a cloned final body and `cancel` without a body;
 - treats ordinary Enter as text input rather than a session command;
+- intercepts `Ctrl+Enter` and `Escape` in the capture phase before the hidden IME input handles them;
 - commits on blur or `Ctrl+Enter` and cancels on `Escape` when not composing.
 
 The component does not import or dispatch to `@ppt4ai/engine`.
 
 ### Table-cell text editing controller
 
-The headless controller bridges a session target to the engine:
+The independent headless controller bridges a session target to the engine:
 
 ```ts
 interface TableCellTextEditingController {
@@ -87,10 +89,10 @@ The initial session body is cloned. `update:body` replaces the local draft with 
 ## Keyboard and focus behavior
 
 - `Enter`: insert the normal paragraph or line-break operation supplied by the text editor; never close the session.
-- `Ctrl+Enter`: commit and close the session.
+- `Ctrl+Enter`: commit and close the session. The host handles this in the capture phase so the hidden contenteditable does not also insert a line break.
 - `Escape`: cancel and close the session.
 - blur/focus leaving the table text editor: commit once.
-- composition in progress: session-level `Escape`, `Ctrl+Enter`, and blur handling must not race the browser's composition completion. The text editor remains the owner until composition ends; the final committed composition snapshot becomes the draft before a deferred close is processed.
+- composition in progress: `TextBoxEditor` emits its composing state. Session-level `Escape`, `Ctrl+Enter`, and blur requests are deferred while composing. The final committed composition snapshot becomes the draft before the deferred close is processed.
 
 After commit or cancel, keyboard focus returns to the table source-cell hit surface and the collapsed cell selection remains available for subsequent table commands.
 
@@ -147,6 +149,7 @@ Vue component tests cover:
 - the default `TextBoxEditor` still renders its border and eight handles;
 - draft updates do not call the engine-facing commit event;
 - composition preview and completion remain local until commit;
+- composition-state events defer capture-phase keyboard and focus close requests until the final body snapshot is available;
 - Enter remains text input, while `Ctrl+Enter`, blur, and `Escape` follow commit/cancel semantics;
 - merged source cells use their complete bounds;
 - a session closes only once.
