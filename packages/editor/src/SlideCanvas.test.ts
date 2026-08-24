@@ -78,7 +78,29 @@ describe('SlideCanvas', () => {
 
     expect(mounted.canvas.dataset.slideCanvas).toBe('')
     expect(renderEvents[0]).toMatchObject({ drawnNodeIds: ['shape-1'], cssWidth: 960, cssHeight: 540 })
-    expect(selectEvents).toEqual(['shape-1'])
+    expect(selectEvents).toEqual([{ nodeId: 'shape-1', toggle: false }])
+    mounted.app.unmount()
+  })
+
+  it('reports modifier clicks as toggle selection intents', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context())
+    const renderEvents: unknown[] = []
+    const selectEvents: unknown[] = []
+    const mounted = mount(renderEvents, selectEvents)
+
+    await vi.waitFor(() => expect(renderEvents).toHaveLength(1))
+    vi.spyOn(mounted.canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+    mounted.canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 1, clientY: 1, shiftKey: true, bubbles: true }))
+    mounted.canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 1, clientY: 1, ctrlKey: true, bubbles: true }))
+    mounted.canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 1, clientY: 1, metaKey: true, bubbles: true }))
+    mounted.canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 900, clientY: 500, bubbles: true }))
+
+    expect(selectEvents).toEqual([
+      { nodeId: 'shape-1', toggle: true },
+      { nodeId: 'shape-1', toggle: true },
+      { nodeId: 'shape-1', toggle: true },
+      { nodeId: undefined, toggle: false },
+    ])
     mounted.app.unmount()
   })
 
@@ -137,7 +159,7 @@ describe('SlideCanvas', () => {
     mounted.canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 1, clientY: 1, pointerId: 12, bubbles: true }))
     mounted.canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 1, clientY: 1, pointerId: 12, bubbles: true }))
 
-    expect(selectEvents).toEqual(['group-1'])
+    expect(selectEvents).toEqual([{ nodeId: 'group-1', toggle: false }])
     expect(moveEvents[0]).toEqual({ type: 'start', payload: { nodeId: 'group-1', point: { x: 9525, y: 9525 } } })
     expect(moveEvents[1]).toEqual({ type: 'end', payload: { nodeId: 'group-1', dx: 0, dy: 0 } })
     mounted.app.unmount()
@@ -166,7 +188,7 @@ describe('SlideCanvas', () => {
     mounted.canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 1, clientY: 1, pointerId: 20, bubbles: true }))
     mounted.canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 97, clientY: 1, bubbles: true }))
 
-    expect(selectEvents).toEqual(['outer-leaf'])
+    expect(selectEvents).toEqual([{ nodeId: 'outer-leaf', toggle: false }])
     expect(activateEvents).toEqual([])
     expect(enterGroupEvents).toEqual(['inner'])
     mounted.app.unmount()

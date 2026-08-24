@@ -10,8 +10,10 @@ const props = withDefaults(defineProps<{
   active: boolean
   bounds: Rect
   handleSize?: number
+  showHandles?: boolean
 }>(), {
   handleSize: 8,
+  showHandles: true,
 })
 
 const emit = defineEmits<{
@@ -63,6 +65,7 @@ function emitPointer(eventName: 'resize-start' | 'resize' | 'resize-end' | 'resi
       }"
     />
     <button
+      v-if="props.showHandles"
       v-for="handle in createSelectionOverlay(props.bounds, { handleSize: props.handleSize }).handles"
       :key="handle.name"
       type="button"

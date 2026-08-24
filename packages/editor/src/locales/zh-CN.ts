@@ -6,6 +6,10 @@ const zhCN = {
     },
   },
   toolbar: {
+    object: {
+      group: '组合',
+      ungroup: '取消组合',
+    },
     insert: {
       shape: '插入形状',
     },

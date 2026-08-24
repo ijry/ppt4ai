@@ -6,6 +6,10 @@ const enUS = {
     },
   },
   toolbar: {
+    object: {
+      group: 'Group',
+      ungroup: 'Ungroup',
+    },
     insert: {
       shape: 'Insert shape',
     },

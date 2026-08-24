@@ -15,8 +15,11 @@ export interface PlaygroundAssetHostSnapshot {
 export interface PlaygroundAssetHost {
   adapter: AssetAdapter
   getSnapshot(): PlaygroundAssetHostSnapshot
+  selectElements(elementIds: string[]): PlaygroundAssetHostSnapshot
   selectElement(elementId: string | undefined): PlaygroundAssetHostSnapshot
   moveSelected(elementId: string, dx: number, dy: number): PlaygroundAssetHostSnapshot
+  groupSelected(): PlaygroundAssetHostSnapshot
+  ungroupSelected(groupId: string): PlaygroundAssetHostSnapshot
   resizeElement(elementId: string, bounds: Rect): PlaygroundAssetHostSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
@@ -115,6 +118,13 @@ export function createPlaygroundAssetHost(): PlaygroundAssetHost {
     status = { kind: 'error', message }
     return snapshot()
   }
+  const selectElements = (elementIds: string[]): PlaygroundAssetHostSnapshot => {
+    const validElementIds = elementIds.filter((elementId, index) => (
+      elementIds.indexOf(elementId) === index && Boolean(engine.getState().document.elements[elementId])
+    ))
+    engine.dispatch({ type: 'select', elementIds: validElementIds })
+    return snapshot()
+  }
 
   return {
     adapter,
@@ -125,17 +135,32 @@ export function createPlaygroundAssetHost(): PlaygroundAssetHost {
       status = { kind: 'success', message: 'asset-selected' }
       return snapshot()
     },
+    selectElements,
     selectElement(elementId) {
-      const elementIds = elementId && engine.getState().document.elements[elementId] ? [elementId] : []
-      engine.dispatch({ type: 'select', elementIds })
-      return snapshot()
+      return selectElements(elementId ? [elementId] : [])
     },
     moveSelected(elementId, dx, dy) {
       if (!engine.getState().document.elements[elementId]) return fail('element-missing')
-      engine.dispatch({ type: 'select', elementIds: [elementId] })
+      if (!engine.getState().selection.includes(elementId)) engine.dispatch({ type: 'select', elementIds: [elementId] })
       try {
         engine.dispatch({ type: 'move', dx, dy })
         status = { kind: 'success', message: 'element-moved' }
+      } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    groupSelected() {
+      try {
+        engine.dispatch({ type: 'group' })
+      } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    ungroupSelected(groupId) {
+      try {
+        engine.dispatch({ type: 'ungroup', groupId })
       } catch {
         return fail('element-operation-failed')
       }

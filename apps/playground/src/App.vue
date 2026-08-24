@@ -26,19 +26,30 @@ const thumbnailResult = ref('')
 const fileInput = ref<HTMLInputElement>()
 const pendingUploadIntent = ref<'insert' | 'replace' | undefined>()
 const uploadBusy = ref(false)
-const selectedElementId = computed(() => assetSnapshot.value.engineState.selection.length === 1 ? assetSnapshot.value.engineState.selection[0] : undefined)
+const selectedElementIds = computed(() => [...assetSnapshot.value.engineState.selection])
+const selectedElementId = computed(() => selectedElementIds.value.length === 1 ? selectedElementIds.value[0] : undefined)
 const selectedElementText = computed(() => {
-  if (!selectedElementId.value) return '—'
-  const element = assetSnapshot.value.engineState.document.elements[selectedElementId.value]
-  return element?.kind === 'image' ? `${element.id} → ${element.assetId}` : selectedElementId.value
+  if (selectedElementIds.value.length === 0) return '—'
+  if (selectedElementIds.value.length > 1) return selectedElementIds.value.join(', ')
+  const elementId = selectedElementIds.value[0]!
+  const element = assetSnapshot.value.engineState.document.elements[elementId]
+  return element?.kind === 'image' ? `${element.id} → ${element.assetId}` : elementId
 })
 
 function selectAsset(assetId: string): void {
   assetSnapshot.value = assetHost.selectAsset(assetId)
 }
 
-function selectElement(elementId: string | undefined): void {
-  assetSnapshot.value = assetHost.selectElement(elementId)
+function selectElements(payload: { elementIds: string[] }): void {
+  assetSnapshot.value = assetHost.selectElements(payload.elementIds)
+}
+
+function groupSelected(): void {
+  assetSnapshot.value = assetHost.groupSelected()
+}
+
+function ungroupSelected(payload: { groupId: string }): void {
+  assetSnapshot.value = assetHost.ungroupSelected(payload.groupId)
 }
 
 function moveElement(payload: { nodeId: string; dx: number; dy: number }): void {
@@ -118,8 +129,11 @@ async function uploadFile(event: Event): Promise<void> {
           :scene="scene"
           :adapter="assetHost.adapter"
           :selected-element-id="selectedElementId"
+          :selected-element-ids="selectedElementIds"
           :text-bodies="textBodies"
-          @select="selectElement"
+          @selection-change="selectElements"
+          @group="groupSelected"
+          @ungroup="ungroupSelected"
           @move-end="moveElement"
           @resize="resizeElement"
           @text-edit="updateTextElement"

@@ -1,6 +1,11 @@
 import type { Rect } from '@ppt4ai/model'
 import type { SceneGraph } from '@ppt4ai/render'
 
+export type CanvasSelectionIntent = {
+  nodeId: string | undefined
+  toggle: boolean
+}
+
 const EMU_PER_CSS_PIXEL = 914400 / 96
 
 export interface CanvasPoint {

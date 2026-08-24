@@ -32,6 +32,17 @@ const textScene: SceneGraph = {
   ],
 }
 
+const multiSelectionScene: SceneGraph = {
+  slideId: 'slide-1',
+  page: { w: 9144000, h: 5143500 },
+  nodes: [
+    { id: 'shape-1', kind: 'shape', bounds: { x: 0, y: 0, w: 914400, h: 914400 }, path: [] },
+    { id: 'shape-2', kind: 'shape', bounds: { x: 914400, y: 0, w: 914400, h: 914400 }, path: [] },
+    { id: 'group-leaf', kind: 'shape', bounds: { x: 1828800, y: 914400, w: 914400, h: 914400 }, path: [] },
+  ],
+  groups: [{ id: 'group-1', bounds: { x: 1828800, y: 914400, w: 914400, h: 914400 }, childIds: ['group-leaf'], ancestorIds: [], paintOrder: 2 }],
+}
+
 interface BridgeHarness {
   options?: ImeInputBridgeOptions
 }
@@ -48,18 +59,18 @@ function createBridgeFactory(harness: BridgeHarness) {
   }
 }
 
-function mount(selectedElementId: string | undefined): { app: App; host: HTMLElement } {
+function mountEditor(editorProps: Record<string, unknown>, locale: keyof typeof locales = 'zh-CN'): { app: App; host: HTMLElement } {
   const app = createApp({
     setup() {
       return () => h(PptEditor, {
         scene,
         adapter,
-        ...(selectedElementId ? { selectedElementId } : {}),
         decoder: async (): Promise<DecodedImage> => ({ source: {} as CanvasImageSource, width: 1, height: 1 }),
+        ...editorProps,
       })
     },
   })
-  app.use(createPpt4aiI18n())
+  app.use(createPpt4aiI18n(locale))
   const host = document.createElement('div')
   document.body.append(host)
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
@@ -71,6 +82,10 @@ function mount(selectedElementId: string | undefined): { app: App; host: HTMLEle
   } as unknown as CanvasRenderingContext2D)
   app.mount(host)
   return { app, host }
+}
+
+function mount(selectedElementId: string | undefined): { app: App; host: HTMLElement } {
+  return mountEditor(selectedElementId ? { selectedElementId } : {})
 }
 
 describe('PptEditor', () => {
@@ -97,6 +112,110 @@ describe('PptEditor', () => {
     mounted.app.unmount()
   })
 
+  it('uses controlled multi-selection precedence and renders one union border without resize handles', async () => {
+    const mounted = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementId: 'shape-2',
+      selectedElementIds: ['shape-1', 'group-1'],
+    })
+    await nextTick()
+
+    const style = mounted.host.querySelector('[data-selection-border]')?.getAttribute('style')
+    expect(style).toContain('left: 0px')
+    expect(style).toContain('top: 0px')
+    expect(style).toContain('width: 288px')
+    expect(style).toContain('height: 192px')
+    expect(mounted.host.querySelectorAll('[data-selection-handle]')).toHaveLength(0)
+    mounted.app.unmount()
+  })
+
+  it('normalizes controlled IDs and emits selection changes before the legacy single-selection event', async () => {
+    const events: unknown[] = []
+    const mounted = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementIds: ['shape-1', 'missing', 'shape-1'],
+      onSelectionChange: (payload: unknown) => events.push({ type: 'selection-change', payload }),
+      onSelect: (nodeId: unknown) => events.push({ type: 'select', payload: nodeId }),
+    })
+    await nextTick()
+    const canvas = mounted.host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 97, clientY: 1, shiftKey: true, bubbles: true }))
+
+    expect(events).toEqual([
+      { type: 'selection-change', payload: { elementIds: ['shape-1', 'shape-2'] } },
+      { type: 'select', payload: undefined },
+    ])
+    mounted.app.unmount()
+  })
+
+  it('clears selection on a normal blank click and ignores a modified blank click', async () => {
+    const events: unknown[] = []
+    const mounted = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementIds: ['shape-1', 'shape-2'],
+      onSelectionChange: (payload: unknown) => events.push({ type: 'selection-change', payload }),
+      onSelect: (nodeId: unknown) => events.push({ type: 'select', payload: nodeId }),
+    })
+    await nextTick()
+    const canvas = mounted.host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 900, clientY: 500, ctrlKey: true, bubbles: true }))
+    expect(events).toEqual([])
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 900, clientY: 500, bubbles: true }))
+    expect(events).toEqual([
+      { type: 'selection-change', payload: { elementIds: [] } },
+      { type: 'select', payload: undefined },
+    ])
+    mounted.app.unmount()
+  })
+
+  it('preserves a controlled multi-selection while dragging an already selected member', async () => {
+    const events: unknown[] = []
+    const mounted = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementIds: ['shape-1', 'shape-2'],
+      onSelectionChange: (payload: unknown) => events.push({ type: 'selection-change', payload }),
+      onSelect: (nodeId: unknown) => events.push({ type: 'select', payload: nodeId }),
+    })
+    await nextTick()
+    const canvas = mounted.host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 1, clientY: 1, pointerId: 7, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: 21, clientY: 21, pointerId: 7, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 21, clientY: 21, pointerId: 7, bubbles: true }))
+
+    expect(events).toEqual([])
+    mounted.app.unmount()
+  })
+
+  it('replaces a controlled multi-selection after clicking an already selected member without dragging', async () => {
+    const events: unknown[] = []
+    const mounted = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementIds: ['shape-1', 'shape-2'],
+      onSelectionChange: (payload: unknown) => events.push({ type: 'selection-change', payload }),
+      onSelect: (nodeId: unknown) => events.push({ type: 'select', payload: nodeId }),
+    })
+    await nextTick()
+    const canvas = mounted.host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 1, clientY: 1, pointerId: 8, bubbles: true }))
+    expect(events).toEqual([])
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 1, clientY: 1, pointerId: 8, bubbles: true }))
+
+    expect(events).toEqual([
+      { type: 'selection-change', payload: { elementIds: ['shape-1'] } },
+      { type: 'select', payload: 'shape-1' },
+    ])
+    mounted.app.unmount()
+  })
+
   it('renders group bounds with the existing border and eight resize handles', async () => {
     const app = createApp({
       setup() {
@@ -120,6 +239,84 @@ describe('PptEditor', () => {
     expect(host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('width: 384px')
     expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(8)
     app.unmount()
+  })
+
+  it('enables group and ungroup only for valid top-level selections', async () => {
+    const cases = [
+      { selectedElementIds: [], groupDisabled: true, ungroupDisabled: true },
+      { selectedElementIds: ['shape-1'], groupDisabled: true, ungroupDisabled: true },
+      { selectedElementIds: ['shape-1', 'shape-2'], groupDisabled: false, ungroupDisabled: true },
+      { selectedElementIds: ['group-1'], groupDisabled: true, ungroupDisabled: false },
+      { selectedElementIds: ['group-1', 'shape-1'], groupDisabled: false, ungroupDisabled: true },
+    ]
+
+    for (const entry of cases) {
+      const mounted = mountEditor({ scene: multiSelectionScene, selectedElementIds: entry.selectedElementIds })
+      await nextTick()
+      const groupButton = mounted.host.querySelector('[data-group-button]') as HTMLButtonElement
+      const ungroupButton = mounted.host.querySelector('[data-ungroup-button]') as HTMLButtonElement
+      expect(groupButton.type).toBe('button')
+      expect(ungroupButton.type).toBe('button')
+      expect(groupButton.disabled).toBe(entry.groupDisabled)
+      expect(ungroupButton.disabled).toBe(entry.ungroupDisabled)
+      mounted.app.unmount()
+      mounted.host.remove()
+    }
+  })
+
+  it('localizes native group controls and emits only enabled commands', async () => {
+    const groupEvents: unknown[] = []
+    const disabledUngroupEvents: unknown[] = []
+    const grouped = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementIds: ['shape-1', 'shape-2'],
+      onGroup: () => groupEvents.push('group'),
+      onUngroup: (payload: unknown) => disabledUngroupEvents.push(payload),
+    }, 'en-US')
+    await nextTick()
+    const groupButton = grouped.host.querySelector('[data-group-button]') as HTMLButtonElement
+    const disabledUngroupButton = grouped.host.querySelector('[data-ungroup-button]') as HTMLButtonElement
+
+    expect(groupButton.textContent?.trim()).toBe('Group')
+    expect(groupButton.getAttribute('aria-label')).toBe('Group')
+    expect(groupButton.className).toContain('focus-visible:')
+    expect(groupButton.className).toContain('duration-150')
+    groupButton.click()
+    disabledUngroupButton.click()
+    expect(groupEvents).toEqual(['group'])
+    expect(disabledUngroupEvents).toEqual([])
+    grouped.app.unmount()
+    grouped.host.remove()
+
+    const ungroupEvents: unknown[] = []
+    const ungrouped = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementIds: ['group-1'],
+      onUngroup: (payload: unknown) => ungroupEvents.push(payload),
+    })
+    await nextTick()
+    const ungroupButton = ungrouped.host.querySelector('[data-ungroup-button]') as HTMLButtonElement
+    expect(ungroupButton.textContent?.trim()).toBe('取消组合')
+    expect(ungroupButton.getAttribute('aria-label')).toBe('取消组合')
+    ungroupButton.click()
+    expect(ungroupEvents).toEqual([{ groupId: 'group-1' }])
+    ungrouped.app.unmount()
+  })
+
+  it('keeps group commands disabled while editing inside a group', async () => {
+    const mounted = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementIds: ['shape-1', 'shape-2'],
+    })
+    await nextTick()
+    const canvas = mounted.host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+    canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 193, clientY: 97, bubbles: true }))
+    await nextTick()
+
+    expect((mounted.host.querySelector('[data-group-button]') as HTMLButtonElement).disabled).toBe(true)
+    expect((mounted.host.querySelector('[data-ungroup-button]') as HTMLButtonElement).disabled).toBe(true)
+    mounted.app.unmount()
   })
 
   it('does not enter text editing when a group is double-clicked', async () => {

@@ -32,6 +32,53 @@ describe('createPlaygroundAssetHost', () => {
     expect(selected.engineState.history).toEqual({ undoDepth: 0, redoDepth: 0 })
   })
 
+  it('moves the full controlled selection without collapsing it to the dragged member', () => {
+    const host = createPlaygroundAssetHost()
+    const selected = host.selectElements(['group_demo', 'table_demo'])
+
+    expect(selected.engineState.selection).toEqual(['group_demo', 'table_demo'])
+    expect(selected.engineState.history).toEqual({ undoDepth: 0, redoDepth: 0 })
+
+    const moved = host.moveSelected('group_demo', 914400, 0)
+    expect(moved.engineState.selection).toEqual(['group_demo', 'table_demo'])
+    expect(moved.engineState.document.elements.group_demo?.bounds.x).toBe(1828800)
+    expect(moved.engineState.document.elements.table_demo?.bounds.x).toBe(1828800)
+    expect(moved.engineState.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('replaces selection only when dragging an unselected element', () => {
+    const host = createPlaygroundAssetHost()
+    host.selectElements(['group_demo'])
+
+    const moved = host.moveSelected('table_demo', 914400, 0)
+
+    expect(moved.engineState.selection).toEqual(['table_demo'])
+    expect(moved.engineState.document.elements.group_demo?.bounds.x).toBe(914400)
+    expect(moved.engineState.document.elements.table_demo?.bounds.x).toBe(1828800)
+    expect(moved.engineState.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('groups and ungroups the current top-level selection as atomic commands', () => {
+    const host = createPlaygroundAssetHost()
+    host.selectElements(['group_demo', 'table_demo'])
+
+    const grouped = host.groupSelected()
+    expect(grouped.engineState.selection).toHaveLength(1)
+    const groupId = grouped.engineState.selection[0]!
+    expect(grouped.engineState.document.elements[groupId]).toMatchObject({
+      kind: 'group',
+      childIds: ['group_demo', 'table_demo'],
+    })
+    expect(grouped.engineState.document.slides.sld_playground?.elementIds).toEqual([groupId])
+    expect(grouped.engineState.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+
+    const ungrouped = host.ungroupSelected(groupId)
+    expect(ungrouped.engineState.selection).toEqual(['group_demo', 'table_demo'])
+    expect(ungrouped.engineState.document.elements[groupId]).toBeUndefined()
+    expect(ungrouped.engineState.document.slides.sld_playground?.elementIds).toEqual(['group_demo', 'table_demo'])
+    expect(ungrouped.engineState.history).toEqual({ undoDepth: 2, redoDepth: 0 })
+  })
+
   it('moves and resizes the selected seeded element as undoable commands', () => {
     const host = createPlaygroundAssetHost()
     host.selectElement('text_demo')

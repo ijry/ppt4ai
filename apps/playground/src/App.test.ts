@@ -133,6 +133,65 @@ describe('Playground asset host wiring', () => {
     mountedApps.splice(mountedApps.indexOf(app), 1)
   })
 
+  it('groups and ungroups a modifier multi-selection through the editor toolbar', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1280, height: 720 } as DOMRect)
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 110, pointerId: 31, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 140, clientY: 110, pointerId: 31, bubbles: true }))
+    await nextTick()
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 300, pointerId: 32, shiftKey: true, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 140, clientY: 300, pointerId: 32, shiftKey: true, bubbles: true }))
+    await nextTick()
+
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('group_demo, table_demo')
+    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(0)
+    const groupButton = host.querySelector('[data-group-button]') as HTMLButtonElement
+    expect(groupButton.disabled).toBe(false)
+    groupButton.click()
+    await nextTick()
+
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('grp_1')
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
+    expect((host.querySelector('[data-ungroup-button]') as HTMLButtonElement).disabled).toBe(false)
+    ;(host.querySelector('[data-ungroup-button]') as HTMLButtonElement).click()
+    await nextTick()
+
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('group_demo, table_demo')
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('2')
+    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(0)
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
+  it('preserves a modifier multi-selection while dragging one selected member', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1280, height: 720 } as DOMRect)
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 110, pointerId: 41, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 140, clientY: 110, pointerId: 41, bubbles: true }))
+    await nextTick()
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 300, pointerId: 42, shiftKey: true, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 140, clientY: 300, pointerId: 42, shiftKey: true, bubbles: true }))
+    await nextTick()
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 110, pointerId: 43, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointermove', { clientX: 160, clientY: 130, pointerId: 43, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 160, clientY: 130, pointerId: 43, bubbles: true }))
+    await nextTick()
+
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('group_demo, table_demo')
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
+    expect(host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('left: 116px')
+    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(0)
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
   it('selects, inserts, and replaces seeded asset references', async () => {
     const { app, host } = mountApp()
     await nextTick()

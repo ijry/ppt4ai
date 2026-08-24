@@ -8,7 +8,7 @@ import {
   type SlideCanvasRenderResult,
   type SlideCanvasRenderer,
 } from './slide-canvas-renderer'
-import { hitTestScene, pointFromCanvasEvent } from './slide-canvas'
+import { hitTestScene, pointFromCanvasEvent, type CanvasSelectionIntent } from './slide-canvas'
 
 const props = withDefaults(defineProps<{
   scene: SceneGraph
@@ -21,7 +21,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   render: [result: SlideCanvasRenderResult]
-  select: [nodeId: string | undefined]
+  select: [intent: CanvasSelectionIntent]
   'move-start': [payload: { nodeId: string; point: { x: number; y: number } }]
   move: [payload: { nodeId: string; dx: number; dy: number }]
   'move-end': [payload: { nodeId: string; dx: number; dy: number }]
@@ -71,7 +71,7 @@ function select(event: PointerEvent): void {
   const nextPoint = point(event)
   if (!nextPoint || !canvas.value) return
   const nodeId = hitTestScene(props.scene, nextPoint, props.groupPath)
-  emit('select', nodeId)
+  emit('select', { nodeId, toggle: event.shiftKey || event.ctrlKey || event.metaKey })
   if (!nodeId) return
   drag = { nodeId, pointerId: event.pointerId, start: nextPoint }
   canvas.value.setPointerCapture?.(event.pointerId)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AssetAdapter, TextBody } from '@ppt4ai/model'
+import type { AssetAdapter, Rect, TextBody } from '@ppt4ai/model'
 import type { SceneGraph } from '@ppt4ai/render'
 import type { ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
 import { computed, ref, shallowRef, toRaw, watch } from 'vue'
@@ -9,6 +9,7 @@ import SelectionOverlay from './SelectionOverlay.vue'
 import TextBoxEditor from './TextBoxEditor.vue'
 import type { ImageDecoder } from './image-canvas-renderer'
 import { createSelectionOverlay, resizeBounds, type Point, type SelectionHandle } from './selection-overlay'
+import type { CanvasSelectionIntent } from './slide-canvas'
 
 const { t } = useI18n()
 
@@ -17,6 +18,7 @@ const props = withDefaults(defineProps<{
   adapter?: AssetAdapter
   decoder?: ImageDecoder
   selectedElementId?: string
+  selectedElementIds?: string[]
   textBodies?: Record<string, TextBody>
   bridgeFactory?: (options: ImeInputBridgeOptions) => ImeInputBridge
   zoom?: number
@@ -25,25 +27,81 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   select: [nodeId: string | undefined]
+  'selection-change': [payload: { elementIds: string[] }]
   render: [result: unknown]
   'move-start': [payload: { nodeId: string; point: Point }]
   move: [payload: { nodeId: string; dx: number; dy: number }]
   'move-end': [payload: { nodeId: string; dx: number; dy: number }]
   resize: [payload: { elementId: string; bounds: { x: number; y: number; w: number; h: number } }]
   'text-edit': [payload: { elementId: string; body: TextBody }]
+  group: []
+  ungroup: [payload: { groupId: string }]
 }>()
 
 const EMU_TO_CSS_PIXEL = 96 / 914400
 
-type ScreenBounds = { x: number; y: number; w: number; h: number }
+type ScreenBounds = Rect
 
-function selectedBounds(): ScreenBounds | undefined {
-  if (!props.scene || !props.selectedElementId) return undefined
-  const selectedGroup = props.scene.groups?.find((entry) => entry.id === props.selectedElementId)
-  const bounds = selectedGroup?.bounds ?? props.scene.nodes.find((entry) => entry.id === props.selectedElementId)?.bounds
-  if (!bounds) return undefined
+function elementBounds(elementId: string): Rect | undefined {
+  return props.scene?.groups?.find((entry) => entry.id === elementId)?.bounds
+    ?? props.scene?.nodes.find((entry) => entry.id === elementId)?.bounds
+}
+
+function isInteractiveElementId(elementId: string): boolean {
+  const currentGroupId = groupPath.value[groupPath.value.length - 1]
+  if (currentGroupId) {
+    return props.scene?.groups?.find((group) => group.id === currentGroupId)?.childIds.includes(elementId) ?? false
+  }
+  const group = props.scene?.groups?.find((entry) => entry.id === elementId)
+  if (group) return group.ancestorIds.length === 0
+  return Boolean(props.scene?.nodes.some((entry) => entry.id === elementId))
+    && !props.scene?.groups?.some((entry) => entry.childIds.includes(elementId))
+}
+
+const selectedElementIds = computed(() => {
+  const source = props.selectedElementIds !== undefined
+    ? props.selectedElementIds
+    : props.selectedElementId ? [props.selectedElementId] : []
+  return source.filter((id, index) => source.indexOf(id) === index && isInteractiveElementId(id) && elementBounds(id))
+})
+
+function toScreenBounds(bounds: Rect): ScreenBounds {
   const scale = EMU_TO_CSS_PIXEL * props.zoom
   return { x: bounds.x * scale, y: bounds.y * scale, w: bounds.w * scale, h: bounds.h * scale }
+}
+
+function unionBounds(bounds: Rect[]): Rect {
+  const left = Math.min(...bounds.map((entry) => entry.x))
+  const top = Math.min(...bounds.map((entry) => entry.y))
+  const right = Math.max(...bounds.map((entry) => entry.x + entry.w))
+  const bottom = Math.max(...bounds.map((entry) => entry.y + entry.h))
+  return { x: left, y: top, w: right - left, h: bottom - top }
+}
+
+function selectedBounds(): ScreenBounds | undefined {
+  const bounds = selectedElementIds.value.map(elementBounds).filter((entry): entry is Rect => Boolean(entry))
+  if (bounds.length === 0) return undefined
+  return toScreenBounds(bounds.length === 1 ? bounds[0]! : unionBounds(bounds))
+}
+
+function emitSelection(elementIds: string[]): void {
+  emit('selection-change', { elementIds })
+  emit('select', elementIds.length === 1 ? elementIds[0] : undefined)
+}
+
+const isInsideGroup = computed(() => groupPath.value.length > 0)
+const selectedGroupId = computed(() => {
+  if (selectedElementIds.value.length !== 1) return undefined
+  const elementId = selectedElementIds.value[0]!
+  return props.scene?.groups?.some((group) => group.id === elementId && group.ancestorIds.length === 0)
+    ? elementId
+    : undefined
+})
+const canGroup = computed(() => !isInsideGroup.value && selectedElementIds.value.length >= 2)
+const canUngroup = computed(() => !isInsideGroup.value && Boolean(selectedGroupId.value))
+
+function ungroupSelected(): void {
+  if (selectedGroupId.value) emit('ungroup', { groupId: selectedGroupId.value })
 }
 
 const resizePreview = ref<{ elementId: string; bounds: ScreenBounds }>()
@@ -59,6 +117,7 @@ const editingComposing = ref(false)
 const groupPath = ref<string[]>([])
 let pendingTextClose: 'commit' | 'cancel' | undefined
 let textCloseScheduled = false
+let pendingSelectedMemberId: string | undefined
 
 function cloneBody(body: TextBody): TextBody {
   return structuredClone(toRaw(body))
@@ -68,7 +127,7 @@ function activate(nodeId: string): void {
   const node = props.scene?.nodes.find((entry) => entry.id === nodeId)
   const body = props.textBodies?.[nodeId]
   if (node?.kind !== 'text' || !body) return
-  emit('select', nodeId)
+  emitSelection([nodeId])
   editingElementId.value = nodeId
   editingDraft.value = cloneBody(body)
   editingComposing.value = false
@@ -77,7 +136,7 @@ function activate(nodeId: string): void {
 
 function enterGroup(groupId: string): void {
   groupPath.value = [...groupPath.value, groupId]
-  emit('select', groupId)
+  emitSelection([groupId])
 }
 
 function handleEditorKeyDown(event: KeyboardEvent): void {
@@ -85,7 +144,7 @@ function handleEditorKeyDown(event: KeyboardEvent): void {
   event.preventDefault()
   const nextPath = groupPath.value.slice(0, -1)
   groupPath.value = nextPath
-  emit('select', nextPath[nextPath.length - 1])
+  emitSelection(nextPath.length > 0 ? [nextPath[nextPath.length - 1]!] : [])
 }
 
 function normalizeGroupPath(): void {
@@ -101,11 +160,40 @@ function normalizeGroupPath(): void {
   groupPath.value = normalized
 }
 
-function select(nodeId: string | undefined): void {
+function select(intent: CanvasSelectionIntent): void {
+  const { nodeId } = intent
+  pendingSelectedMemberId = undefined
   const currentGroupId = groupPath.value[groupPath.value.length - 1]
   const currentGroup = props.scene?.groups?.find((group) => group.id === currentGroupId)
-  if (groupPath.value.length > 0 && (!nodeId || !currentGroup?.childIds.includes(nodeId))) groupPath.value = []
-  emit('select', nodeId)
+  if (groupPath.value.length > 0) {
+    if (!nodeId || !currentGroup?.childIds.includes(nodeId)) groupPath.value = []
+    emitSelection(nodeId ? [nodeId] : [])
+    return
+  }
+  if (intent.toggle) {
+    if (!nodeId) return
+    emitSelection(selectedElementIds.value.includes(nodeId)
+      ? selectedElementIds.value.filter((id) => id !== nodeId)
+      : [...selectedElementIds.value, nodeId])
+    return
+  }
+  if (nodeId && selectedElementIds.value.length > 1 && selectedElementIds.value.includes(nodeId)) {
+    pendingSelectedMemberId = nodeId
+    return
+  }
+  emitSelection(nodeId ? [nodeId] : [])
+}
+
+function move(payload: { nodeId: string; dx: number; dy: number }): void {
+  if (payload.dx !== 0 || payload.dy !== 0) pendingSelectedMemberId = undefined
+  emit('move', payload)
+}
+
+function moveEnd(payload: { nodeId: string; dx: number; dy: number }): void {
+  const selectedMemberId = pendingSelectedMemberId
+  pendingSelectedMemberId = undefined
+  if (selectedMemberId && payload.dx === 0 && payload.dy === 0) emitSelection([selectedMemberId])
+  emit('move-end', payload)
 }
 
 function updateEditingDraft(body: TextBody): void {
@@ -177,31 +265,35 @@ const textEditorProps = computed(() => {
 
 function overlayBounds(): ScreenBounds | undefined {
   const preview = resizePreview.value
-  if (!preview || preview.elementId !== props.selectedElementId) return selectedBounds()
+  const selectedElementId = selectedElementIds.value.length === 1 ? selectedElementIds.value[0] : undefined
+  if (!preview || preview.elementId !== selectedElementId) return selectedBounds()
   return preview.bounds
 }
 
 function resizeStart(payload: { handle: SelectionHandle; point: Point }): void {
+  const selectedElementId = selectedElementIds.value.length === 1 ? selectedElementIds.value[0] : undefined
   const bounds = selectedBounds()
-  if (!bounds || !props.selectedElementId) return
+  if (!bounds || !selectedElementId) return
   resizeGesture.value = {
-    elementId: props.selectedElementId,
+    elementId: selectedElementId,
     handle: payload.handle,
     startBounds: bounds,
     startPoint: payload.point,
   }
-  resizePreview.value = { elementId: props.selectedElementId, bounds }
+  resizePreview.value = { elementId: selectedElementId, bounds }
 }
 
 function resizePreviewMove(payload: { handle: SelectionHandle; point: Point }): void {
+  const selectedElementId = selectedElementIds.value.length === 1 ? selectedElementIds.value[0] : undefined
   const gesture = resizeGesture.value
-  if (!gesture || gesture.elementId !== props.selectedElementId || gesture.handle !== payload.handle) return
+  if (!gesture || gesture.elementId !== selectedElementId || gesture.handle !== payload.handle) return
   resizePreview.value = { elementId: gesture.elementId, bounds: resizeGestureBounds(gesture, payload.point) }
 }
 
 function resizeEnd(payload: { handle: SelectionHandle; point: Point }): void {
+  const selectedElementId = selectedElementIds.value.length === 1 ? selectedElementIds.value[0] : undefined
   const gesture = resizeGesture.value
-  if (!gesture || gesture.elementId !== props.selectedElementId || gesture.handle !== payload.handle) return
+  if (!gesture || gesture.elementId !== selectedElementId || gesture.handle !== payload.handle) return
   const next = resizeGestureBounds(gesture, payload.point)
   const scale = EMU_TO_CSS_PIXEL * props.zoom
   emit('resize', { elementId: gesture.elementId, bounds: { x: next.x / scale, y: next.y / scale, w: next.w / scale, h: next.h / scale } })
@@ -238,10 +330,32 @@ watch(() => props.scene, normalizeGroupPath, { immediate: true })
 
 <template>
   <section class="ppt-editor" aria-labelledby="ppt-editor-toolbar" tabindex="0" @keydown.capture="handleEditorKeyDown">
-    <header id="ppt-editor-toolbar" class="ppt-editor__toolbar">
+    <header id="ppt-editor-toolbar" class="ppt-editor__toolbar flex items-center gap-2 border-b border-slate-200 bg-white p-2">
       <button type="button" class="ppt-editor__button">
         {{ t('toolbar.insert.shape') }}
       </button>
+      <div class="flex items-center gap-1" data-object-toolbar>
+        <button
+          type="button"
+          class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+          data-group-button
+          :aria-label="t('toolbar.object.group')"
+          :disabled="!canGroup"
+          @click="emit('group')"
+        >
+          {{ t('toolbar.object.group') }}
+        </button>
+        <button
+          type="button"
+          class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+          data-ungroup-button
+          :aria-label="t('toolbar.object.ungroup')"
+          :disabled="!canUngroup"
+          @click="ungroupSelected"
+        >
+          {{ t('toolbar.object.ungroup') }}
+        </button>
+      </div>
     </header>
     <div class="ppt-editor__canvas relative" role="img" :aria-label="t('editor.canvas.ariaLabel')">
       <template v-if="props.scene && props.adapter">
@@ -250,8 +364,8 @@ watch(() => props.scene, normalizeGroupPath, { immediate: true })
           @select="select"
           @render="emit('render', $event)"
           @move-start="emit('move-start', $event)"
-          @move="emit('move', $event)"
-          @move-end="emit('move-end', $event)"
+          @move="move"
+          @move-end="moveEnd"
           @enter-group="enterGroup"
           @activate="activate"
         />
@@ -259,6 +373,7 @@ watch(() => props.scene, normalizeGroupPath, { immediate: true })
           v-if="overlayBounds()"
           active
           :bounds="overlayBounds()!"
+          :show-handles="selectedElementIds.length === 1"
           @resize-start="resizeStart"
           @resize="resizePreviewMove"
           @resize-end="resizeEnd"
