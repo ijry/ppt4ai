@@ -69,4 +69,34 @@ describe('slide canvas hit testing', () => {
 
     expect(hitTestScene(groupedScene, { x: 250, y: 250 })).toBe('later-node')
   })
+
+  it('selects direct children when a group path is active', () => {
+    const groupedScene: SceneGraph = {
+      slideId: 'slide-1',
+      page: { w: 9144000, h: 5143500 },
+      nodes: [
+        { id: 'outer-leaf', kind: 'shape', bounds: { x: 100, y: 100, w: 100, h: 100 }, path: [] },
+        { id: 'inner-leaf', kind: 'shape', bounds: { x: 300, y: 100, w: 100, h: 100 }, path: [] },
+      ],
+      groups: [
+        { id: 'outer', bounds: { x: 50, y: 50, w: 500, h: 300 }, childIds: ['outer-leaf', 'inner'], ancestorIds: [], paintOrder: 1 },
+        { id: 'inner', bounds: { x: 250, y: 50, w: 250, h: 250 }, childIds: ['inner-leaf'], ancestorIds: ['outer'], paintOrder: 1 },
+      ],
+    }
+
+    expect(hitTestScene(groupedScene, { x: 120, y: 120 }, ['outer'])).toBe('outer-leaf')
+    expect(hitTestScene(groupedScene, { x: 320, y: 120 }, ['outer'])).toBe('inner')
+    expect(hitTestScene(groupedScene, { x: 320, y: 120 }, ['outer', 'inner'])).toBe('inner-leaf')
+  })
+
+  it('falls back to top-level hit testing outside the active group bounds', () => {
+    const groupedScene: SceneGraph = {
+      ...scene(),
+      groups: [
+        { id: 'outer', bounds: { x: 50, y: 50, w: 150, h: 150 }, childIds: [], ancestorIds: [], paintOrder: 1 },
+      ],
+    }
+
+    expect(hitTestScene(groupedScene, { x: 300, y: 300 }, ['outer'])).toBe('top')
+  })
 })

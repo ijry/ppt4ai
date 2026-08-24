@@ -154,6 +154,96 @@ describe('PptEditor', () => {
     app.unmount()
   })
 
+  it('enters a group on double-click and exits one level on Escape', async () => {
+    const nestedScene: SceneGraph = {
+      ...groupedScene,
+      nodes: [
+        { id: 'outer-leaf', kind: 'shape', bounds: { x: 914400, y: 914400, w: 914400, h: 914400 }, path: [] },
+        { id: 'inner-leaf', kind: 'shape', bounds: { x: 2743200, y: 914400, w: 914400, h: 914400 }, path: [] },
+      ],
+      groups: [
+        { id: 'outer', bounds: { x: 914400, y: 914400, w: 4572000, h: 1828800 }, childIds: ['outer-leaf', 'inner'], ancestorIds: [], paintOrder: 1 },
+        { id: 'inner', bounds: { x: 2286000, y: 914400, w: 2743200, h: 1828800 }, childIds: ['inner-leaf'], ancestorIds: ['outer'], paintOrder: 1 },
+      ],
+    }
+    const selectEvents: unknown[] = []
+    const app = createApp({
+      setup: () => () => h(PptEditor, {
+        scene: nestedScene,
+        adapter,
+        onSelect: (id: unknown) => selectEvents.push(id),
+      }),
+    })
+    app.use(createPpt4aiI18n())
+    const host = document.createElement('div')
+    document.body.append(host)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      canvas: { width: 0, height: 0, style: { width: '', height: '' } }, clearRect: vi.fn(), setTransform: vi.fn(), save: vi.fn(), restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    app.mount(host)
+    await nextTick()
+
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+    canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 97, clientY: 97, bubbles: true }))
+    await nextTick()
+    canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 289, clientY: 97, bubbles: true }))
+    await nextTick()
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 289, clientY: 97, pointerId: 21, bubbles: true }))
+    await nextTick()
+
+    expect(selectEvents).toEqual(['outer', 'inner', 'inner-leaf'])
+    const editor = host.querySelector('.ppt-editor') as HTMLElement
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(selectEvents).toEqual(['outer', 'inner', 'inner-leaf', 'outer'])
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    await nextTick()
+    expect(selectEvents).toEqual(['outer', 'inner', 'inner-leaf', 'outer', undefined])
+    app.unmount()
+  })
+
+  it('returns to top-level selection when clicking outside the active group', async () => {
+    const outsideScene: SceneGraph = {
+      ...groupedScene,
+      nodes: [
+        { id: 'group-leaf', kind: 'shape', bounds: { x: 914400, y: 914400, w: 914400, h: 914400 }, path: [] },
+        { id: 'standalone', kind: 'shape', bounds: { x: 6400800, y: 914400, w: 914400, h: 914400 }, path: [] },
+      ],
+      groups: [
+        { id: 'outer', bounds: { x: 914400, y: 914400, w: 1828800, h: 1828800 }, childIds: ['group-leaf'], ancestorIds: [], paintOrder: 0 },
+      ],
+    }
+    const selectEvents: unknown[] = []
+    const app = createApp({
+      setup: () => () => h(PptEditor, {
+        scene: outsideScene,
+        adapter,
+        onSelect: (id: unknown) => selectEvents.push(id),
+      }),
+    })
+    app.use(createPpt4aiI18n())
+    const host = document.createElement('div')
+    document.body.append(host)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      canvas: { width: 0, height: 0, style: { width: '', height: '' } }, clearRect: vi.fn(), setTransform: vi.fn(), save: vi.fn(), restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    app.mount(host)
+    await nextTick()
+
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+    canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 97, clientY: 97, bubbles: true }))
+    await nextTick()
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 673, clientY: 97, pointerId: 22, bubbles: true }))
+    await nextTick()
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 97, clientY: 97, pointerId: 23, bubbles: true }))
+    await nextTick()
+
+    expect(selectEvents).toEqual(['outer', 'standalone', 'outer'])
+    app.unmount()
+  })
+
   it('edits a text node in place and commits one clone-safe session body', async () => {
     const harness: BridgeHarness = {}
     const textEditEvents: unknown[] = []

@@ -34,7 +34,7 @@ function context(): CanvasRenderingContext2D {
   } as unknown as CanvasRenderingContext2D
 }
 
-function mount(renderEvents: unknown[], selectEvents: unknown[], moveEvents: unknown[] = [], activateEvents: unknown[] = [], sceneValue: SceneGraph = scene()): { app: App; canvas: HTMLCanvasElement } {
+function mount(renderEvents: unknown[], selectEvents: unknown[], moveEvents: unknown[] = [], activateEvents: unknown[] = [], sceneValue: SceneGraph = scene(), groupPath: string[] = [], enterGroupEvents: unknown[] = []): { app: App; canvas: HTMLCanvasElement } {
   const app = createApp({
     setup() {
       return () => h(SlideCanvas, {
@@ -42,12 +42,14 @@ function mount(renderEvents: unknown[], selectEvents: unknown[], moveEvents: unk
         adapter,
         decoder: async (): Promise<DecodedImage> => ({ source: {} as CanvasImageSource, width: 1, height: 1 }),
         zoom: 1,
+        groupPath,
         onRender: (result: unknown) => renderEvents.push(result),
         onSelect: (id: unknown) => selectEvents.push(id),
         onMoveStart: (payload: unknown) => moveEvents.push({ type: 'start', payload }),
         onMove: (payload: unknown) => moveEvents.push({ type: 'move', payload }),
         onMoveEnd: (payload: unknown) => moveEvents.push({ type: 'end', payload }),
         onActivate: (id: unknown) => activateEvents.push(id),
+        onEnterGroup: (id: unknown) => enterGroupEvents.push(id),
       })
     },
   })
@@ -138,6 +140,35 @@ describe('SlideCanvas', () => {
     expect(selectEvents).toEqual(['group-1'])
     expect(moveEvents[0]).toEqual({ type: 'start', payload: { nodeId: 'group-1', point: { x: 9525, y: 9525 } } })
     expect(moveEvents[1]).toEqual({ type: 'end', payload: { nodeId: 'group-1', dx: 0, dy: 0 } })
+    mounted.app.unmount()
+  })
+
+  it('uses the active group path for pointer selection and group entry', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context())
+    const renderEvents: unknown[] = []
+    const selectEvents: unknown[] = []
+    const activateEvents: unknown[] = []
+    const enterGroupEvents: unknown[] = []
+    const mounted = mount(renderEvents, selectEvents, [], activateEvents, {
+      ...scene(),
+      nodes: [
+        { id: 'outer-leaf', kind: 'shape', bounds: { x: 0, y: 0, w: 50000, h: 50000 }, path: [] },
+        { id: 'inner-leaf', kind: 'shape', bounds: { x: 100000, y: 0, w: 50000, h: 50000 }, path: [] },
+      ],
+      groups: [
+        { id: 'outer', bounds: { x: 0, y: 0, w: 2000000, h: 50000 }, childIds: ['outer-leaf', 'inner'], ancestorIds: [], paintOrder: 1 },
+        { id: 'inner', bounds: { x: 900000, y: 0, w: 1000000, h: 50000 }, childIds: ['inner-leaf'], ancestorIds: ['outer'], paintOrder: 1 },
+      ],
+    }, ['outer'], enterGroupEvents)
+
+    await vi.waitFor(() => expect(renderEvents).toHaveLength(1))
+    vi.spyOn(mounted.canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+    mounted.canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 1, clientY: 1, pointerId: 20, bubbles: true }))
+    mounted.canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: 97, clientY: 1, bubbles: true }))
+
+    expect(selectEvents).toEqual(['outer-leaf'])
+    expect(activateEvents).toEqual([])
+    expect(enterGroupEvents).toEqual(['inner'])
     mounted.app.unmount()
   })
 

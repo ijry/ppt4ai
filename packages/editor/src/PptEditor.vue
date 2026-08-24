@@ -2,7 +2,7 @@
 import type { AssetAdapter, TextBody } from '@ppt4ai/model'
 import type { SceneGraph } from '@ppt4ai/render'
 import type { ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
-import { computed, ref, shallowRef, toRaw } from 'vue'
+import { computed, ref, shallowRef, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SlideCanvas from './SlideCanvas.vue'
 import SelectionOverlay from './SelectionOverlay.vue'
@@ -56,6 +56,7 @@ const resizeGesture = ref<{
 const editingElementId = ref<string>()
 const editingDraft = shallowRef<TextBody>()
 const editingComposing = ref(false)
+const groupPath = ref<string[]>([])
 let pendingTextClose: 'commit' | 'cancel' | undefined
 let textCloseScheduled = false
 
@@ -72,6 +73,39 @@ function activate(nodeId: string): void {
   editingDraft.value = cloneBody(body)
   editingComposing.value = false
   pendingTextClose = undefined
+}
+
+function enterGroup(groupId: string): void {
+  groupPath.value = [...groupPath.value, groupId]
+  emit('select', groupId)
+}
+
+function handleEditorKeyDown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || editingElementId.value || groupPath.value.length === 0) return
+  event.preventDefault()
+  const nextPath = groupPath.value.slice(0, -1)
+  groupPath.value = nextPath
+  emit('select', nextPath[nextPath.length - 1])
+}
+
+function normalizeGroupPath(): void {
+  const groups = props.scene?.groups ?? []
+  let parentId: string | undefined
+  const normalized: string[] = []
+  for (const id of groupPath.value) {
+    const group = groups.find((entry) => entry.id === id)
+    if (!group || (parentId ? group.ancestorIds[group.ancestorIds.length - 1] !== parentId : group.ancestorIds.length !== 0)) break
+    normalized.push(id)
+    parentId = id
+  }
+  groupPath.value = normalized
+}
+
+function select(nodeId: string | undefined): void {
+  const currentGroupId = groupPath.value[groupPath.value.length - 1]
+  const currentGroup = props.scene?.groups?.find((group) => group.id === currentGroupId)
+  if (groupPath.value.length > 0 && (!nodeId || !currentGroup?.childIds.includes(nodeId))) groupPath.value = []
+  emit('select', nodeId)
 }
 
 function updateEditingDraft(body: TextBody): void {
@@ -196,11 +230,14 @@ const canvasProps = computed(() => ({
   ...(props.decoder ? { decoder: props.decoder } : {}),
   zoom: props.zoom,
   ...(props.devicePixelRatio === undefined ? {} : { devicePixelRatio: props.devicePixelRatio }),
+  groupPath: groupPath.value,
 }))
+
+watch(() => props.scene, normalizeGroupPath, { immediate: true })
 </script>
 
 <template>
-  <section class="ppt-editor" aria-labelledby="ppt-editor-toolbar">
+  <section class="ppt-editor" aria-labelledby="ppt-editor-toolbar" tabindex="0" @keydown.capture="handleEditorKeyDown">
     <header id="ppt-editor-toolbar" class="ppt-editor__toolbar">
       <button type="button" class="ppt-editor__button">
         {{ t('toolbar.insert.shape') }}
@@ -210,11 +247,12 @@ const canvasProps = computed(() => ({
       <template v-if="props.scene && props.adapter">
         <SlideCanvas
           v-bind="canvasProps"
-          @select="emit('select', $event)"
+          @select="select"
           @render="emit('render', $event)"
           @move-start="emit('move-start', $event)"
           @move="emit('move', $event)"
           @move-end="emit('move-end', $event)"
+          @enter-group="enterGroup"
           @activate="activate"
         />
         <SelectionOverlay

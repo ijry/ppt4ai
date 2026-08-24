@@ -16,7 +16,8 @@ const props = withDefaults(defineProps<{
   decoder?: ImageDecoder
   zoom?: number
   devicePixelRatio?: number
-}>(), { zoom: 1 })
+  groupPath?: string[]
+}>(), { zoom: 1, groupPath: () => [] })
 
 const emit = defineEmits<{
   render: [result: SlideCanvasRenderResult]
@@ -25,6 +26,7 @@ const emit = defineEmits<{
   move: [payload: { nodeId: string; dx: number; dy: number }]
   'move-end': [payload: { nodeId: string; dx: number; dy: number }]
   activate: [nodeId: string]
+  'enter-group': [groupId: string]
 }>()
 
 const canvas = ref<HTMLCanvasElement>()
@@ -68,7 +70,7 @@ function point(event: PointerEvent): { x: number; y: number } | undefined {
 function select(event: PointerEvent): void {
   const nextPoint = point(event)
   if (!nextPoint || !canvas.value) return
-  const nodeId = hitTestScene(props.scene, nextPoint)
+  const nodeId = hitTestScene(props.scene, nextPoint, props.groupPath)
   emit('select', nodeId)
   if (!nodeId) return
   drag = { nodeId, pointerId: event.pointerId, start: nextPoint }
@@ -80,8 +82,10 @@ function activate(event: MouseEvent): void {
   if (!canvas.value) return
   const nextPoint = pointFromCanvasEvent(event as unknown as PointerEvent, canvas.value, props.zoom)
   if (!nextPoint) return
-  const nodeId = hitTestScene(props.scene, nextPoint)
-  if (nodeId) emit('activate', nodeId)
+  const nodeId = hitTestScene(props.scene, nextPoint, props.groupPath)
+  if (!nodeId) return
+  if (props.scene.groups?.some((group) => group.id === nodeId)) emit('enter-group', nodeId)
+  else emit('activate', nodeId)
 }
 
 function move(event: PointerEvent): void {
