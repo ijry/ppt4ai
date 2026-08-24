@@ -195,6 +195,76 @@ describe('thumbnail worker runtime', () => {
     expect(harness.messages.filter((message) => message.type === 'resource-request')).toHaveLength(0)
   })
 
+  it('paints nested group leaves once in scene order without reporting group ids', async () => {
+    const harness = createHarness()
+    harness.runtime.handleMessage({
+      type: 'render',
+      requestId: 13,
+      scene: {
+        slideId: 'slide-1',
+        page: { w: 1000, h: 500 },
+        nodes: [
+          {
+            id: 'shape-leaf',
+            kind: 'shape',
+            bounds: { x: 0, y: 0, w: 200, h: 100 },
+            path: [{ type: 'move', x: 0, y: 0 }, { type: 'line', x: 200, y: 0 }, { type: 'close' }],
+            resolvedFillColor: { rgb: '112233', alpha: 100000 },
+          },
+          tableNode('table-leaf'),
+          {
+            id: 'text-leaf',
+            kind: 'text',
+            bounds: { x: 400, y: 0, w: 200, h: 100 },
+            text: 'Grouped',
+            layout: {
+              bounds: { x: 400, y: 0, w: 200, h: 100 },
+              fontScale: 100000,
+              overflow: false,
+              contentBounds: { x: 400, y: 0, w: 200, h: 100 },
+              lines: [{ paragraphIndex: 0, x: 400, y: 0, width: 200, height: 20, runs: [{ text: 'Grouped', x: 400, width: 200, marks: { fontSize: 1 } }] }],
+            },
+          },
+        ],
+        groups: [
+          { id: 'outer', bounds: { x: 0, y: 0, w: 600, h: 100 }, childIds: ['shape-leaf', 'inner'], ancestorIds: [], paintOrder: 2 },
+          { id: 'inner', bounds: { x: 200, y: 0, w: 400, h: 100 }, childIds: ['table-leaf', 'text-leaf'], ancestorIds: ['outer'], paintOrder: 2 },
+        ],
+      },
+      viewport: { width: 200, height: 100 },
+    })
+    await vi.waitFor(() => expect(harness.messages.some((message) => message.type === 'render-result')).toBe(true))
+
+    const result = harness.messages.find((message): message is ThumbnailRenderResponse => message.type === 'render-result')!
+    expect(result.result.drawnNodeIds).toEqual(['shape-leaf', 'table-leaf', 'text-leaf'])
+    expect(result.result.skippedNodeIds).toEqual([])
+    expect(result.result.issues).toEqual([])
+    expect(result.result.drawnNodeIds).not.toContain('outer')
+    expect(result.result.drawnNodeIds).not.toContain('inner')
+    expect(harness.messages.filter((message) => message.type === 'resource-request')).toHaveLength(0)
+  })
+
+  it('treats group metadata without drawable leaves as a successful empty thumbnail', async () => {
+    const harness = createHarness()
+    harness.runtime.handleMessage({
+      type: 'render',
+      requestId: 14,
+      scene: {
+        slideId: 'slide-1',
+        page: { w: 1000, h: 500 },
+        nodes: [],
+        groups: [{ id: 'empty-group', bounds: { x: 0, y: 0, w: 100, h: 100 }, childIds: [], ancestorIds: [], paintOrder: -1 }],
+      },
+      viewport: { width: 200, height: 100 },
+    })
+    await vi.waitFor(() => expect(harness.messages.some((message) => message.type === 'render-result')).toBe(true))
+
+    const result = harness.messages.find((message): message is ThumbnailRenderResponse => message.type === 'render-result')!
+    expect(result.result).toEqual({ drawnNodeIds: [], skippedNodeIds: [], issues: [] })
+    expect(harness.canvas.context.events).toEqual([])
+    expect(harness.messages.filter((message) => message.type === 'resource-request')).toHaveLength(0)
+  })
+
   it('isolates invalid tables, draws later nodes and empty tables, and requests no resources', async () => {
     const harness = createHarness()
     const emptyTable = tableNode('empty-table', '')
@@ -424,6 +494,49 @@ describe('thumbnail worker runtime', () => {
     expect(result.result.drawnNodeIds).toEqual(['good-shape'])
     expect(result.result.issues).toMatchObject([{ nodeId: 'bad-shape', code: 'draw-failed' }])
     expect(harness.messages.filter((message) => message.type === 'resource-request')).toHaveLength(0)
+  })
+
+  it('isolates a failing grouped leaf and loads a later grouped image normally', async () => {
+    const harness = createHarness()
+    harness.runtime.handleMessage({
+      type: 'render',
+      requestId: 15,
+      scene: {
+        slideId: 'slide-1',
+        page: { w: 1000, h: 500 },
+        nodes: [
+          {
+            id: 'bad-shape',
+            kind: 'shape',
+            bounds: { x: 0, y: 0, w: 200, h: 100 },
+            path: [{ type: 'move', x: 0, y: 0 }, { type: 'close' }],
+            resolvedFillColor: { rgb: 'broken', alpha: 100000 },
+          },
+          {
+            id: 'grouped-image',
+            kind: 'image',
+            bounds: { x: 200, y: 0, w: 200, h: 100 },
+            assetId: 'asset-grouped',
+            metadata: { id: 'asset-grouped', mimeType: 'image/png' },
+          },
+        ],
+        groups: [
+          { id: 'outer', bounds: { x: 0, y: 0, w: 400, h: 100 }, childIds: ['bad-shape', 'grouped-image'], ancestorIds: [], paintOrder: 1 },
+        ],
+      },
+      viewport: { width: 200, height: 100 },
+    })
+    await vi.waitFor(() => expect(harness.messages.some((message) => message.type === 'resource-request')).toBe(true))
+    await resolveResource(harness.runtime, harness.messages)
+    await vi.waitFor(() => expect(harness.messages.some((message) => message.type === 'render-result')).toBe(true))
+
+    const result = harness.messages.find((message): message is ThumbnailRenderResponse => message.type === 'render-result')!
+    expect(result.result.drawnNodeIds).toEqual(['grouped-image'])
+    expect(result.result.skippedNodeIds).toEqual(['bad-shape'])
+    expect(result.result.issues).toMatchObject([{ nodeId: 'bad-shape', code: 'draw-failed' }])
+    expect(result.result.issues.every((entry) => entry.nodeId !== 'outer')).toBe(true)
+    expect(harness.messages.filter((message) => message.type === 'resource-request')).toHaveLength(1)
+    expect(structuredClone(result.result)).toEqual(result.result)
   })
 
   it('deduplicates resources, paints in order, and transfers a bitmap', async () => {

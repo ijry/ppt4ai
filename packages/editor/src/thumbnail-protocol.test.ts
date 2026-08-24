@@ -9,12 +9,23 @@ describe('thumbnail protocol', () => {
       scene: {
         slideId: 'slide-1',
         page: { w: 914400, h: 514350 },
-        nodes: [],
+        nodes: [{
+          id: 'leaf-1',
+          kind: 'shape',
+          bounds: { x: 0, y: 0, w: 100, h: 100 },
+          path: [],
+        }],
+        groups: [
+          { id: 'outer', bounds: { x: 0, y: 0, w: 200, h: 200 }, childIds: ['inner'], ancestorIds: [], paintOrder: 0 },
+          { id: 'inner', bounds: { x: 0, y: 0, w: 100, h: 100 }, childIds: ['leaf-1'], ancestorIds: ['outer'], paintOrder: 0 },
+        ],
       },
       viewport: { width: 96, height: 54 },
     }
 
-    expect(isThumbnailMessage(structuredClone(message))).toBe(true)
+    const cloned = structuredClone(message)
+    expect(isThumbnailMessage(cloned)).toBe(true)
+    expect(cloned.scene.groups).toEqual(message.scene.groups)
     expect(isThumbnailMessage({ ...message, requestId: 0 })).toBe(false)
   })
 
