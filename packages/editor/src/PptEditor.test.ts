@@ -2,7 +2,7 @@
 import type { AssetAdapter, TextBody } from '@ppt4ai/model'
 import type { SceneGraph } from '@ppt4ai/render'
 import type { ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
-import { createApp, h, nextTick, type App } from 'vue'
+import { createApp, h, nextTick, ref, type App } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createPpt4aiI18n, locales } from './i18n'
 import PptEditor from './PptEditor.vue'
@@ -125,7 +125,7 @@ describe('PptEditor', () => {
     expect(style).toContain('top: 0px')
     expect(style).toContain('width: 288px')
     expect(style).toContain('height: 192px')
-    expect(mounted.host.querySelectorAll('[data-selection-handle]')).toHaveLength(0)
+    expect(mounted.host.querySelectorAll('[data-selection-handle]')).toHaveLength(8)
     mounted.app.unmount()
   })
 
@@ -557,6 +557,143 @@ describe('PptEditor', () => {
     handle.dispatchEvent(new PointerEvent('pointerup', { clientX: 384, clientY: 288, bubbles: true }))
 
     expect(resizeEvents).toEqual([{ elementId: 'shape-1', bounds: { x: 914400, y: 914400, w: 2743200, h: 1828800 } }])
+    app.unmount()
+  })
+
+  it('renders eight resize handles for a controlled multi-selection', async () => {
+    const mounted = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementIds: ['shape-1', 'shape-2'],
+    })
+    await nextTick()
+
+    expect(mounted.host.querySelectorAll('[data-selection-handle]')).toHaveLength(8)
+    expect(mounted.host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('width: 192px')
+    mounted.app.unmount()
+  })
+
+  it('emits one multi-selection resize intent from the gesture-start selection', async () => {
+    const resizeEvents: unknown[] = []
+    const mounted = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementIds: ['shape-1', 'shape-2'],
+      onResizeSelection: (payload: unknown) => resizeEvents.push(payload),
+    })
+    await nextTick()
+
+    const handle = mounted.host.querySelector('[data-selection-handle="se"]') as HTMLButtonElement
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 192, clientY: 96, pointerId: 20, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 288, clientY: 192, pointerId: 20, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: 288, clientY: 192, pointerId: 20, bubbles: true }))
+
+    expect(resizeEvents).toEqual([{
+      elementIds: ['shape-1', 'shape-2'],
+      bounds: { x: 0, y: 0, w: 2743200, h: 1828800 },
+    }])
+    mounted.app.unmount()
+  })
+
+  it('keeps a multi-selection corner resize proportional while Shift is held', async () => {
+    const resizeEvents: unknown[] = []
+    const mounted = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementIds: ['shape-1', 'shape-2'],
+      onResizeSelection: (payload: unknown) => resizeEvents.push(payload),
+    })
+    await nextTick()
+
+    const handle = mounted.host.querySelector('[data-selection-handle="se"]') as HTMLButtonElement
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 192, clientY: 96, pointerId: 21, shiftKey: true, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 288, clientY: 160, pointerId: 21, shiftKey: true, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: 288, clientY: 160, pointerId: 21, shiftKey: true, bubbles: true }))
+
+    expect(resizeEvents).toEqual([{
+      elementIds: ['shape-1', 'shape-2'],
+      bounds: { x: 0, y: 0, w: 3048000, h: 1524000 },
+    }])
+    mounted.app.unmount()
+  })
+
+  it('previews a snapped resize guide without changing the controlled selection', async () => {
+    const snapScene: SceneGraph = {
+      slideId: 'slide-1',
+      page: { w: 9144000, h: 5143500 },
+      nodes: [
+        { id: 'shape-1', kind: 'shape', bounds: { x: 0, y: 0, w: 914400, h: 914400 }, path: [] },
+        { id: 'shape-2', kind: 'shape', bounds: { x: 2743200, y: 0, w: 914400, h: 914400 }, path: [] },
+      ],
+    }
+    const mounted = mountEditor({
+      scene: snapScene,
+      selectedElementIds: ['shape-1'],
+      snapOptions: { enabled: true, threshold: 100000 },
+    })
+    await nextTick()
+
+    const handle = mounted.host.querySelector('[data-selection-handle="e"]') as HTMLButtonElement
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 96, clientY: 48, pointerId: 22, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 278, clientY: 48, pointerId: 22, bubbles: true }))
+    await nextTick()
+
+    expect(mounted.host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('width: 288px')
+    expect(mounted.host.querySelectorAll('[data-snap-guide][data-snap-axis="x"]')).toHaveLength(1)
+    expect(mounted.host.querySelector('[data-snap-guide]')?.getAttribute('style')).toContain('left: 288px')
+    mounted.app.unmount()
+  })
+
+  it('clears resize preview and guides when the handle gesture is cancelled', async () => {
+    const mounted = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementIds: ['shape-1', 'shape-2'],
+      snapOptions: { enabled: true, threshold: 100000 },
+    })
+    await nextTick()
+
+    const handle = mounted.host.querySelector('[data-selection-handle="se"]') as HTMLButtonElement
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 192, clientY: 96, pointerId: 23, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 288, clientY: 192, pointerId: 23, bubbles: true }))
+    await nextTick()
+    expect(mounted.host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('width: 288px')
+
+    handle.dispatchEvent(new PointerEvent('pointercancel', { clientX: 288, clientY: 192, pointerId: 23, bubbles: true }))
+    await nextTick()
+
+    expect(mounted.host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('width: 192px')
+    expect(mounted.host.querySelectorAll('[data-snap-guide]')).toHaveLength(0)
+    mounted.app.unmount()
+  })
+
+  it('does not commit a resize after the controlled selection changes mid-gesture', async () => {
+    const resizeEvents: unknown[] = []
+    const selectedIds = ref(['shape-1', 'shape-2'])
+    const app = createApp({
+      setup() {
+        return () => h(PptEditor, {
+          scene: multiSelectionScene,
+          adapter,
+          selectedElementIds: selectedIds.value,
+          onResizeSelection: (payload: unknown) => resizeEvents.push(payload),
+        })
+      },
+    })
+    app.use(createPpt4aiI18n())
+    const host = document.createElement('div')
+    document.body.append(host)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      canvas: { width: 0, height: 0, style: { width: '', height: '' } },
+      clearRect: vi.fn(), setTransform: vi.fn(), save: vi.fn(), restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    app.mount(host)
+    await nextTick()
+
+    const handle = host.querySelector('[data-selection-handle="se"]') as HTMLButtonElement
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 192, clientY: 96, pointerId: 24, bubbles: true }))
+    selectedIds.value = ['shape-1']
+    await nextTick()
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 288, clientY: 192, pointerId: 24, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: 288, clientY: 192, pointerId: 24, bubbles: true }))
+
+    expect(resizeEvents).toEqual([])
     app.unmount()
   })
 

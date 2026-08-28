@@ -79,6 +79,21 @@ describe('createPlaygroundAssetHost', () => {
     expect(ungrouped.engineState.history).toEqual({ undoDepth: 2, redoDepth: 0 })
   })
 
+  it('resizes selected roots atomically and preserves selection order', () => {
+    const host = createPlaygroundAssetHost()
+    const result = host.resizeSelected(
+      ['group_demo', 'table_demo'],
+      { x: 914400, y: 685800, w: 5486400, h: 5943600 },
+    )
+
+    expect(result.engineState.selection).toEqual(['group_demo', 'table_demo'])
+    expect(result.engineState.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(result.engineState.document.elements.group_demo?.bounds.w).toBe(5486400)
+    expect(result.engineState.document.elements.table_demo?.bounds.w).toBe(5486400)
+    expect(result.engineState.document.elements.shape_demo?.bounds.w).toBe(5486400)
+    expect(structuredClone(result)).toEqual(result)
+  })
+
   it('moves and resizes the selected seeded element as undoable commands', () => {
     const host = createPlaygroundAssetHost()
     host.selectElement('text_demo')

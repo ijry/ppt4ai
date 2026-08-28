@@ -1,4 +1,4 @@
-import { EditorEngine, type EngineState } from '@ppt4ai/engine'
+import { EditorEngine, type EngineState, type SnapOptions } from '@ppt4ai/engine'
 import { createImageAssetController, ImageAssetControllerError } from '@ppt4ai/editor'
 import type { AssetAdapter, AssetMetadata, ImageElement, Ppt4aiDocument, Rect, TextBody } from '@ppt4ai/model'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
@@ -14,12 +14,14 @@ export interface PlaygroundAssetHostSnapshot {
 
 export interface PlaygroundAssetHost {
   adapter: AssetAdapter
+  readonly snapOptions: SnapOptions
   getSnapshot(): PlaygroundAssetHostSnapshot
   selectElements(elementIds: string[]): PlaygroundAssetHostSnapshot
   selectElement(elementId: string | undefined): PlaygroundAssetHostSnapshot
   moveSelected(elementId: string, dx: number, dy: number): PlaygroundAssetHostSnapshot
   groupSelected(): PlaygroundAssetHostSnapshot
   ungroupSelected(groupId: string): PlaygroundAssetHostSnapshot
+  resizeSelected(elementIds: string[], bounds: Rect): PlaygroundAssetHostSnapshot
   resizeElement(elementId: string, bounds: Rect): PlaygroundAssetHostSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
@@ -27,6 +29,12 @@ export interface PlaygroundAssetHost {
   replaceSelectedImage(assetId: string): PlaygroundAssetHostSnapshot
   uploadAndInsert(input: PlaygroundImageUploadInput): Promise<PlaygroundAssetHostSnapshot>
   uploadAndReplace(input: PlaygroundImageUploadInput): Promise<PlaygroundAssetHostSnapshot>
+}
+
+export const playgroundSnapOptions: SnapOptions = {
+  enabled: true,
+  gridSize: 914400,
+  threshold: 91440,
 }
 
 const redPng = new Uint8Array([
@@ -93,7 +101,7 @@ function createDocument(): Ppt4aiDocument {
 }
 
 export function createPlaygroundAssetHost(): PlaygroundAssetHost {
-  const engine = new EditorEngine(createDocument())
+  const engine = new EditorEngine(createDocument(), { snap: structuredClone(playgroundSnapOptions) })
   const adapter = createMemoryAssetAdapter()
   let selectedAssetId: string | undefined
   let imageSequence = 1
@@ -128,6 +136,7 @@ export function createPlaygroundAssetHost(): PlaygroundAssetHost {
 
   return {
     adapter,
+    snapOptions: structuredClone(playgroundSnapOptions),
     getSnapshot: snapshot,
     selectAsset(assetId) {
       if (!hasAsset(assetId)) return fail('asset-missing')
@@ -162,6 +171,22 @@ export function createPlaygroundAssetHost(): PlaygroundAssetHost {
       try {
         engine.dispatch({ type: 'ungroup', groupId })
       } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    resizeSelected(elementIds, bounds) {
+      const validElementIds = elementIds.filter((elementId, index) => (
+        elementIds.indexOf(elementId) === index && Boolean(engine.getState().document.elements[elementId])
+      ))
+      if (validElementIds.length === 0) return fail('element-missing')
+      const previousSelection = engine.getState().selection
+      engine.dispatch({ type: 'select', elementIds: validElementIds })
+      try {
+        engine.dispatch({ type: 'resizeSelection', bounds })
+        status = { kind: 'success', message: 'element-resized' }
+      } catch {
+        engine.dispatch({ type: 'select', elementIds: previousSelection })
         return fail('element-operation-failed')
       }
       return snapshot()

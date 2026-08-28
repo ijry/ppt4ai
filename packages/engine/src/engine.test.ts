@@ -777,6 +777,54 @@ describe('EditorEngine', () => {
     expect(engine.dispatch({ type: 'redo' }).document.elements.el_b?.bounds).toEqual({ x: 450, y: 475, w: 200, h: 100 })
   })
 
+  it('resizes two selected roots from one union coordinate system', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a', 'el_b'] })
+
+    const state = engine.dispatch({
+      type: 'resizeSelection',
+      bounds: { x: 0, y: 0, w: 8000000, h: 2000000 },
+    })
+
+    expect(state.document.elements.el_a?.bounds).toEqual({ x: 0, y: 0, w: 2000000, h: 2000000 })
+    expect(state.document.elements.el_b?.bounds).toEqual({ x: 6000000, y: 0, w: 2000000, h: 2000000 })
+    expect(state.selection).toEqual(['el_a', 'el_b'])
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('maps nested descendants and filters a selected child below its group root', () => {
+    const document = makeNestedGroupDocument()
+    document.elements.el_c = { id: 'el_c', kind: 'shape', preset: 'rect', bounds: { x: 1100, y: 100, w: 100, h: 100 } }
+    document.slides.sld_1!.elementIds = ['grp_outer', 'el_c']
+    const engine = new EditorEngine(document)
+    engine.dispatch({ type: 'select', elementIds: ['grp_outer', 'el_a', 'el_c', 'el_c', 'missing'] })
+
+    const state = engine.dispatch({
+      type: 'resizeSelection',
+      bounds: { x: 0, y: 0, w: 2400, h: 2000 },
+    })
+
+    expect(state.selection).toEqual(['grp_outer', 'el_a', 'el_c'])
+    expect(state.document.elements.grp_outer?.bounds).toEqual({ x: 0, y: 0, w: 2000, h: 2000 })
+    expect(state.document.elements.el_a?.bounds).toEqual({ x: 200, y: 200, w: 200, h: 100 })
+    expect(state.document.elements.grp_inner?.bounds).toEqual({ x: 600, y: 600, w: 800, h: 600 })
+    expect(state.document.elements.el_b?.bounds).toEqual({ x: 800, y: 800, w: 400, h: 200 })
+    expect(state.document.elements.el_c?.bounds).toEqual({ x: 2200, y: 0, w: 200, h: 200 })
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('keeps resizeSelection no-ops and invalid bounds side-effect free', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a', 'el_b'] })
+    const source = engine.getState()
+
+    expect(engine.dispatch({ type: 'resizeSelection', bounds: { x: 1000000, y: 1000000, w: 4000000, h: 1000000 } })).toEqual(source)
+    expect(() => engine.dispatch({ type: 'resizeSelection', bounds: { x: 0, y: 0, w: 0, h: 1 } })).toThrow('bounds must be positive')
+    expect(() => engine.dispatch({ type: 'resizeSelection', bounds: { x: Number.NaN, y: 0, w: 1, h: 1 } })).toThrow('bounds must be finite')
+    expect(engine.getState()).toEqual(source)
+    expect(structuredClone(engine.getState())).toEqual(engine.getState())
+  })
+
   it('resizes nested groups with non-uniform descendant mapping in one undo transaction', () => {
     const engine = new EditorEngine(makeNestedGroupDocument())
     engine.dispatch({ type: 'select', elementIds: ['grp_outer'] })

@@ -5,10 +5,13 @@ export type { EditorLocale } from './i18n'
 export { createTextEditorController } from './text-editor-controller'
 export type { TextEditorController, TextEditorControllerOptions } from './text-editor-controller'
 export { default as SelectionOverlay } from './SelectionOverlay.vue'
-export { createSelectionOverlay, resizeBounds } from './selection-overlay'
+export { createSelectionOverlay, resizeBounds, resizeBoundsWithAspectRatio } from './selection-overlay'
+export { snapResizeBounds } from './resize-snapping'
+export type { ResizeSnapRequest, ResizeSnapResult } from './resize-snapping'
 export type {
   Point,
   ResizeOptions,
+  ResizePointerPayload,
   SelectionHandle,
   SelectionHandleRect,
   SelectionOverlayModel,

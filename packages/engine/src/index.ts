@@ -75,6 +75,7 @@ export type EngineCommand =
   | { type: 'redo' }
   | { type: 'move'; dx: number; dy: number }
   | { type: 'resize'; elementId: string; bounds: Rect }
+  | { type: 'resizeSelection'; bounds: Rect }
   | { type: 'zOrder'; action: 'front' | 'back' | 'forward' | 'backward' }
   | { type: 'group' }
   | { type: 'ungroup'; groupId: string }
@@ -496,6 +497,13 @@ function descendantElementIds(document: Ppt4aiDocument, rootId: string, visited 
   return [rootId, ...element.childIds.flatMap((childId) => descendantElementIds(document, childId, visited))]
 }
 
+function selectionRoots(document: Ppt4aiDocument, elementIds: string[]): string[] {
+  const selectedIds = validSelection(document, elementIds)
+  return selectedIds.filter((elementId) => !selectedIds.some((candidateId) => (
+    candidateId !== elementId && descendantElementIds(document, candidateId).includes(elementId)
+  )))
+}
+
 interface SnapCandidate {
   delta: number
   position: number
@@ -652,6 +660,9 @@ export class EditorEngine {
         break
       case 'resize':
         this.resize(command.elementId, command.bounds)
+        break
+      case 'resizeSelection':
+        this.resizeSelection(command.bounds)
         break
       case 'zOrder':
         this.zOrder(command.action)
@@ -879,6 +890,30 @@ export class EditorEngine {
       path: ['elements', descendantId, 'bounds'],
       value: descendantId === elementId ? bounds : mapBounds(this.document.elements[descendantId]!.bounds),
     })))
+  }
+
+  private resizeSelection(bounds: Rect): void {
+    if (bounds.w <= 0 || bounds.h <= 0) throw new Error('bounds must be positive')
+    if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) || !Number.isFinite(bounds.w) || !Number.isFinite(bounds.h)) throw new Error('bounds must be finite')
+    const roots = selectionRoots(this.document, this.selection)
+    const previous = selectionBounds(this.document, roots)
+    if (!previous) return
+    const scaleX = bounds.w / previous.w
+    const scaleY = bounds.h / previous.h
+    const mappedIds = [...new Set(roots.flatMap((rootId) => descendantElementIds(this.document, rootId)))]
+    this.commit(mappedIds.map((elementId) => {
+      const source = this.document.elements[elementId]
+      if (!source) return { path: ['elements', elementId, 'bounds'], value: undefined }
+      return {
+        path: ['elements', elementId, 'bounds'],
+        value: {
+          x: bounds.x + (source.bounds.x - previous.x) * scaleX,
+          y: bounds.y + (source.bounds.y - previous.y) * scaleY,
+          w: source.bounds.w * scaleX,
+          h: source.bounds.h * scaleY,
+        },
+      }
+    }))
   }
 
   private zOrder(action: 'front' | 'back' | 'forward' | 'backward'): void {

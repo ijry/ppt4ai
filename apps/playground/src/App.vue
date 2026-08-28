@@ -52,6 +52,10 @@ function ungroupSelected(payload: { groupId: string }): void {
   assetSnapshot.value = assetHost.ungroupSelected(payload.groupId)
 }
 
+function resizeSelected(payload: { elementIds: string[]; bounds: { x: number; y: number; w: number; h: number } }): void {
+  assetSnapshot.value = assetHost.resizeSelected(payload.elementIds, payload.bounds)
+}
+
 function moveElement(payload: { nodeId: string; dx: number; dy: number }): void {
   if (payload.dx === 0 && payload.dy === 0) return
   assetSnapshot.value = assetHost.moveSelected(payload.nodeId, payload.dx, payload.dy)
@@ -128,12 +132,14 @@ async function uploadFile(event: Event): Promise<void> {
         <PptEditor
           :scene="scene"
           :adapter="assetHost.adapter"
+          :snap-options="assetHost.snapOptions"
           :selected-element-id="selectedElementId"
           :selected-element-ids="selectedElementIds"
           :text-bodies="textBodies"
           @selection-change="selectElements"
           @group="groupSelected"
           @ungroup="ungroupSelected"
+          @resize-selection="resizeSelected"
           @move-end="moveElement"
           @resize="resizeElement"
           @text-edit="updateTextElement"

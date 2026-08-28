@@ -147,7 +147,7 @@ describe('Playground asset host wiring', () => {
     await nextTick()
 
     expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('group_demo, table_demo')
-    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(0)
+    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(8)
     const groupButton = host.querySelector('[data-group-button]') as HTMLButtonElement
     expect(groupButton.disabled).toBe(false)
     groupButton.click()
@@ -161,7 +161,7 @@ describe('Playground asset host wiring', () => {
 
     expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('group_demo, table_demo')
     expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('2')
-    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(0)
+    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(8)
     app.unmount()
     mountedApps.splice(mountedApps.indexOf(app), 1)
   })
@@ -187,7 +187,35 @@ describe('Playground asset host wiring', () => {
     expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('group_demo, table_demo')
     expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
     expect(host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('left: 116px')
-    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(0)
+    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(8)
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
+  it('resizes a modifier multi-selection through one selection-handle transaction', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1280, height: 720 } as DOMRect)
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 110, pointerId: 51, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 140, clientY: 110, pointerId: 51, bubbles: true }))
+    await nextTick()
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 300, pointerId: 52, shiftKey: true, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 140, clientY: 300, pointerId: 52, shiftKey: true, bubbles: true }))
+    await nextTick()
+
+    const handle = host.querySelector('[data-selection-handle="se"]') as HTMLButtonElement
+    expect(handle).not.toBeNull()
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 384, clientY: 372, pointerId: 53, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 480, clientY: 372, pointerId: 53, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: 480, clientY: 372, pointerId: 53, bubbles: true }))
+    await nextTick()
+
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('group_demo, table_demo')
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
+    expect(host.querySelector('[data-selection-border]')?.getAttribute('style')).toContain('width: 384px')
+    expect(host.querySelectorAll('[data-selection-handle]')).toHaveLength(8)
     app.unmount()
     mountedApps.splice(mountedApps.indexOf(app), 1)
   })

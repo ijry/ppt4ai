@@ -4,7 +4,7 @@ import { EditorEngine } from '@ppt4ai/engine'
 import type { Rect } from '@ppt4ai/model'
 import { describe, expect, it } from 'vitest'
 import SelectionOverlay from './SelectionOverlay.vue'
-import { createSelectionOverlay, resizeBounds, type SelectionHandle } from './selection-overlay'
+import { createSelectionOverlay, resizeBounds, resizeBoundsWithAspectRatio, type SelectionHandle } from './selection-overlay'
 
 const bounds: Rect = { x: 10, y: 20, w: 100, h: 60 }
 
@@ -39,6 +39,30 @@ describe('selection overlay geometry', () => {
       w: 30,
       h: 25,
     })
+  })
+
+  it('keeps the starting ratio for a corner resize with aspect locking', () => {
+    expect(resizeBoundsWithAspectRatio(
+      bounds,
+      'se',
+      { x: 150, y: 104 },
+    )).toEqual({ x: 10, y: 20, w: 140, h: 84 })
+  })
+
+  it('keeps the opposite corner fixed while locking a north-west resize', () => {
+    expect(resizeBoundsWithAspectRatio(
+      bounds,
+      'nw',
+      { x: -20, y: 2 },
+    )).toEqual({ x: -20, y: 2, w: 130, h: 78 })
+  })
+
+  it('does not force an aspect ratio for an edge handle', () => {
+    expect(resizeBoundsWithAspectRatio(
+      bounds,
+      'e',
+      { x: 160, y: 100 },
+    )).toEqual({ x: 10, y: 20, w: 150, h: 60 })
   })
 
   it('rejects non-finite pointer values', () => {
@@ -88,6 +112,33 @@ describe('selection overlay geometry', () => {
     app.mount(host)
 
     expect(host.querySelector('.ppt-selection-overlay')).toBeNull()
+
+    app.unmount()
+    host.remove()
+  })
+
+  it('emits the current Shift modifier with resize pointer payloads', () => {
+    const events: unknown[] = []
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp({
+      setup: () => () => h(SelectionOverlay, {
+        active: true,
+        bounds,
+        onResizeStart: (payload: unknown) => events.push(payload),
+        onResize: (payload: unknown) => events.push(payload),
+      }),
+    })
+    app.mount(host)
+
+    const handle = host.querySelector('[data-selection-handle="se"]') as HTMLButtonElement
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 80, pointerId: 5, shiftKey: true, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 150, clientY: 90, pointerId: 5, shiftKey: false, bubbles: true }))
+
+    expect(events).toEqual([
+      { handle: 'se', point: { x: 140, y: 80 }, shiftKey: true },
+      { handle: 'se', point: { x: 150, y: 90 }, shiftKey: false },
+    ])
 
     app.unmount()
     host.remove()

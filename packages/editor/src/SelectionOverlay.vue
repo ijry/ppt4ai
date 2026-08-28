@@ -4,6 +4,7 @@ import {
   createSelectionOverlay,
   type Point,
   type SelectionHandle,
+  type ResizePointerPayload,
 } from './selection-overlay'
 
 const props = withDefaults(defineProps<{
@@ -17,10 +18,10 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  'resize-start': [payload: { handle: SelectionHandle; point: Point }]
-  resize: [payload: { handle: SelectionHandle; point: Point }]
-  'resize-end': [payload: { handle: SelectionHandle; point: Point }]
-  'resize-cancel': [payload: { handle: SelectionHandle; point: Point }]
+  'resize-start': [payload: ResizePointerPayload]
+  resize: [payload: ResizePointerPayload]
+  'resize-end': [payload: ResizePointerPayload]
+  'resize-cancel': [payload: ResizePointerPayload]
 }>()
 
 const handleCursor: Record<SelectionHandle, string> = {
@@ -39,7 +40,7 @@ function pointFromEvent(event: PointerEvent): Point {
 }
 
 function emitPointer(eventName: 'resize-start' | 'resize' | 'resize-end' | 'resize-cancel', handle: SelectionHandle, event: PointerEvent): void {
-  const payload = { handle, point: pointFromEvent(event) }
+  const payload: ResizePointerPayload = { handle, point: pointFromEvent(event), shiftKey: event.shiftKey }
   const target = event.currentTarget as HTMLButtonElement | null
   if (eventName === 'resize-start') target?.setPointerCapture?.(event.pointerId)
   if (eventName === 'resize-end' || eventName === 'resize-cancel') target?.releasePointerCapture?.(event.pointerId)

@@ -2,6 +2,12 @@ import type { Rect } from '@ppt4ai/model'
 
 export type SelectionHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
+export interface ResizePointerPayload {
+  handle: SelectionHandle
+  point: Point
+  shiftKey: boolean
+}
+
 export interface Point {
   x: number
   y: number
@@ -88,4 +94,27 @@ export function resizeBounds(startBounds: Rect, handle: SelectionHandle, pointer
   const nextTop = movesNorth ? Math.min(pointer.y, bottom - minHeight) : startBounds.y
   const nextBottom = movesSouth ? Math.max(pointer.y, startBounds.y + minHeight) : bottom
   return { x: nextLeft, y: nextTop, w: nextRight - nextLeft, h: nextBottom - nextTop }
+}
+
+export function resizeBoundsWithAspectRatio(startBounds: Rect, handle: SelectionHandle, pointer: Point, options: ResizeOptions = {}): Rect {
+  const raw = resizeBounds(startBounds, handle, pointer, options)
+  if (!(handle.includes('n') || handle.includes('s')) || !(handle.includes('e') || handle.includes('w'))) return raw
+
+  const minWidth = options.minWidth ?? 1
+  const minHeight = options.minHeight ?? 1
+  const ratio = startBounds.w / startBounds.h
+  const widthChange = Math.abs(raw.w - startBounds.w) / startBounds.w
+  const heightChange = Math.abs(raw.h - startBounds.h) / startBounds.h
+  const drivingWidth = widthChange >= heightChange
+  let width = drivingWidth ? raw.w : raw.h * ratio
+  width = Math.max(width, minWidth, minHeight * ratio)
+  const height = width / ratio
+  const right = startBounds.x + startBounds.w
+  const bottom = startBounds.y + startBounds.h
+  return {
+    x: handle.includes('w') ? right - width : startBounds.x,
+    y: handle.includes('n') ? bottom - height : startBounds.y,
+    w: width,
+    h: height,
+  }
 }
