@@ -14,6 +14,7 @@ export type {
   Point,
   ResizeOptions,
   ResizePointerPayload,
+  RotatePointerPayload,
   SelectionHandle,
   SelectionHandleRect,
   SelectionOverlayModel,

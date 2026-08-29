@@ -9,6 +9,11 @@ export interface ResizePointerPayload {
   altKey: boolean
 }
 
+export interface RotatePointerPayload {
+  point: Point
+  shiftKey: boolean
+}
+
 export interface Point {
   x: number
   y: number

@@ -2,7 +2,7 @@
 import { createApp, h } from 'vue'
 import { EditorEngine } from '@ppt4ai/engine'
 import type { Rect } from '@ppt4ai/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import SelectionOverlay from './SelectionOverlay.vue'
 import { createSelectionOverlay, resizeBounds, resizeBoundsWithAspectRatio, type SelectionHandle } from './selection-overlay'
 
@@ -162,6 +162,100 @@ describe('selection overlay geometry', () => {
       { handle: 'se', point: { x: 140, y: 80 }, shiftKey: true, altKey: true },
       { handle: 'se', point: { x: 150, y: 90 }, shiftKey: false, altKey: false },
     ])
+
+    app.unmount()
+    host.remove()
+  })
+
+  it('renders an optional rotation handle and rotates the selection frame', () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp({
+      setup: () => () => h(SelectionOverlay, {
+        active: true,
+        bounds,
+        rotation: 5400000,
+        showRotationHandle: true,
+      }),
+    })
+    app.mount(host)
+
+    expect(host.querySelectorAll('[data-selection-rotation-handle]')).toHaveLength(1)
+    expect(host.querySelectorAll('[data-selection-rotation-connector]')).toHaveLength(1)
+    expect((host.querySelector('[data-selection-frame]') as HTMLElement).style.transform).toBe('rotate(90deg)')
+
+    app.unmount()
+    host.remove()
+
+    const defaultHost = document.createElement('div')
+    document.body.append(defaultHost)
+    const defaultApp = createApp({
+      setup: () => () => h(SelectionOverlay, { active: true, bounds }),
+    })
+    defaultApp.mount(defaultHost)
+
+    expect(defaultHost.querySelector('[data-selection-rotation-handle]')).toBeNull()
+
+    defaultApp.unmount()
+    defaultHost.remove()
+  })
+
+  it('emits current rotation modifiers and releases capture on cancel', () => {
+    const events: unknown[] = []
+    const cancelEvents: unknown[] = []
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp({
+      setup: () => () => h(SelectionOverlay, {
+        active: true,
+        bounds,
+        showRotationHandle: true,
+        onRotateStart: (payload: unknown) => events.push(payload),
+        onRotate: (payload: unknown) => events.push(payload),
+        onRotateCancel: (payload: unknown) => cancelEvents.push(payload),
+      }),
+    })
+    app.mount(host)
+
+    const handle = host.querySelector('[data-selection-rotation-handle]') as HTMLButtonElement
+    const setPointerCapture = vi.fn()
+    const releasePointerCapture = vi.fn()
+    handle.setPointerCapture = setPointerCapture
+    handle.releasePointerCapture = releasePointerCapture
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 20, pointerId: 7, shiftKey: true, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 150, clientY: 30, pointerId: 7, shiftKey: false, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointercancel', { clientX: 160, clientY: 40, pointerId: 7, shiftKey: true, bubbles: true }))
+
+    expect(events).toEqual([
+      { point: { x: 140, y: 20 }, shiftKey: true },
+      { point: { x: 150, y: 30 }, shiftKey: false },
+    ])
+    expect(cancelEvents).toEqual([{ point: { x: 160, y: 40 }, shiftKey: true }])
+    expect(setPointerCapture).toHaveBeenCalledWith(7)
+    expect(releasePointerCapture).toHaveBeenCalledWith(7)
+
+    app.unmount()
+    host.remove()
+  })
+
+  it('releases rotation pointer capture on pointerup', () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp({
+      setup: () => () => h(SelectionOverlay, { active: true, bounds, showRotationHandle: true }),
+    })
+    app.mount(host)
+
+    const handle = host.querySelector('[data-selection-rotation-handle]') as HTMLButtonElement
+    const setPointerCapture = vi.fn()
+    const releasePointerCapture = vi.fn()
+    handle.setPointerCapture = setPointerCapture
+    handle.releasePointerCapture = releasePointerCapture
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 20, pointerId: 8, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: 150, clientY: 30, pointerId: 8, bubbles: true }))
+
+    expect(setPointerCapture).toHaveBeenCalledWith(8)
+    expect(releasePointerCapture).toHaveBeenCalledWith(8)
 
     app.unmount()
     host.remove()
