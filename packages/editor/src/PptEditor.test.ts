@@ -5,6 +5,7 @@ import type { ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
 import { createApp, h, nextTick, ref, type App } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createPpt4aiI18n, locales } from './i18n'
+import { rotationFromPointer } from './image-transform'
 import PptEditor from './PptEditor.vue'
 import type { DecodedImage, ImageDecoder } from './image-canvas-renderer'
 
@@ -41,6 +42,31 @@ const multiSelectionScene: SceneGraph = {
     { id: 'group-leaf', kind: 'shape', bounds: { x: 1828800, y: 914400, w: 914400, h: 914400 }, path: [] },
   ],
   groups: [{ id: 'group-1', bounds: { x: 1828800, y: 914400, w: 914400, h: 914400 }, childIds: ['group-leaf'], ancestorIds: [], paintOrder: 2 }],
+}
+
+const imageScene: SceneGraph = {
+  slideId: 'slide-1',
+  page: { w: 9144000, h: 5143500 },
+  nodes: [
+    {
+      id: 'image-1',
+      kind: 'image',
+      bounds: { x: 914400, y: 914400, w: 1828800, h: 914400 },
+      assetId: 'asset-1',
+      transform: { rotation: 900000 },
+    },
+    { id: 'image-guide', kind: 'shape', bounds: { x: 3657600, y: 3657600, w: 914400, h: 914400 }, path: [] },
+  ],
+}
+
+function rotateScreenPoint(point: { x: number; y: number }, center: { x: number; y: number }, degrees: number): { x: number; y: number } {
+  const radians = degrees * Math.PI / 180
+  const dx = point.x - center.x
+  const dy = point.y - center.y
+  return {
+    x: center.x + dx * Math.cos(radians) - dy * Math.sin(radians),
+    y: center.y + dx * Math.sin(radians) + dy * Math.cos(radians),
+  }
 }
 
 interface BridgeHarness {
@@ -109,6 +135,57 @@ describe('PptEditor', () => {
     const mounted = mount('missing')
     await nextTick()
     expect(mounted.host.querySelector('[data-selection-overlay]')).toBeNull()
+    mounted.app.unmount()
+  })
+
+  it('shows the rotation handle only for a single selected image', async () => {
+    const imageMounted = mountEditor({ scene: imageScene, selectedElementId: 'image-1' })
+    await nextTick()
+
+    expect(imageMounted.host.querySelectorAll('[data-selection-rotation-handle]')).toHaveLength(1)
+    expect(imageMounted.host.querySelector('[data-selection-overlay]')).not.toBeNull()
+    expect(imageMounted.host.querySelector('[data-selection-border]')).not.toBeNull()
+    imageMounted.app.unmount()
+
+    const shapeMounted = mount('shape-1')
+    await nextTick()
+    expect(shapeMounted.host.querySelector('[data-selection-rotation-handle]')).toBeNull()
+    shapeMounted.app.unmount()
+  })
+
+  it('emits exact image rotation values and snaps Shift gestures to fifteen degrees', async () => {
+    const rotateEvents: Array<{ elementId: string; rotation: number }> = []
+    const mounted = mountEditor({
+      scene: imageScene,
+      selectedElementId: 'image-1',
+      onRotateImage: (payload: { elementId: string; rotation: number }) => rotateEvents.push(payload),
+    })
+    await nextTick()
+    const canvasHost = mounted.host.querySelector('.ppt-editor__canvas') as HTMLElement
+    vi.spyOn(canvasHost, 'getBoundingClientRect').mockReturnValue({ left: 40, top: 30, width: 960, height: 540 } as DOMRect)
+    const handle = mounted.host.querySelector('[data-selection-rotation-handle]') as HTMLButtonElement
+    const center = { x: 232, y: 174 }
+    const startPoint = { x: 232, y: 110 }
+    const currentPoint = { x: 296, y: 174 }
+
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: startPoint.x, clientY: startPoint.y, pointerId: 30, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: currentPoint.x, clientY: currentPoint.y, pointerId: 30, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: currentPoint.x, clientY: currentPoint.y, pointerId: 30, bubbles: true }))
+
+    expect(rotateEvents[0]).toEqual({
+      elementId: 'image-1',
+      rotation: rotationFromPointer(900000, center, startPoint, currentPoint),
+    })
+
+    const shiftedPoint = { x: 262, y: 112 }
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: startPoint.x, clientY: startPoint.y, pointerId: 31, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: shiftedPoint.x, clientY: shiftedPoint.y, pointerId: 31, shiftKey: true, bubbles: true }))
+
+    expect(rotateEvents[1]).toEqual({
+      elementId: 'image-1',
+      rotation: rotationFromPointer(900000, center, startPoint, shiftedPoint, true),
+    })
+    expect(rotateEvents[1]!.rotation % 900000).toBe(0)
     mounted.app.unmount()
   })
 
@@ -560,6 +637,59 @@ describe('PptEditor', () => {
     app.unmount()
   })
 
+  it('keeps a rotated image center during Alt resize and shows the used snap guide', async () => {
+    const resizeEvents: Array<{ elementId: string; bounds: { x: number; y: number; w: number; h: number } }> = []
+    const mounted = mountEditor({
+      scene: imageScene,
+      selectedElementId: 'image-1',
+      snapOptions: { enabled: true, threshold: 100000 },
+      onResize: (payload: { elementId: string; bounds: { x: number; y: number; w: number; h: number } }) => resizeEvents.push(payload),
+    })
+    await nextTick()
+    const canvas = mounted.host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+    const handle = mounted.host.querySelector('[data-selection-handle="e"]') as HTMLButtonElement
+    const center = { x: 192, y: 144 }
+    const startPoint = rotateScreenPoint({ x: 288, y: 144 }, center, 15)
+    const currentPoint = rotateScreenPoint({ x: 384, y: 144 }, center, 15)
+
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: startPoint.x, clientY: startPoint.y, pointerId: 32, altKey: true, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: currentPoint.x, clientY: currentPoint.y, pointerId: 32, altKey: true, bubbles: true }))
+    await nextTick()
+    expect(mounted.host.querySelectorAll('[data-snap-guide][data-snap-axis="x"]')).toHaveLength(1)
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: currentPoint.x, clientY: currentPoint.y, pointerId: 32, altKey: true, bubbles: true }))
+
+    const resized = resizeEvents[0]!.bounds
+    expect(resized.x + resized.w / 2).toBe(1828800)
+    expect(resized.y + resized.h / 2).toBe(1371600)
+    mounted.app.unmount()
+  })
+
+  it('keeps a rotated image center and ratio during Alt-Shift corner resize', async () => {
+    const resizeEvents: Array<{ elementId: string; bounds: { x: number; y: number; w: number; h: number } }> = []
+    const mounted = mountEditor({
+      scene: imageScene,
+      selectedElementId: 'image-1',
+      onResize: (payload: { elementId: string; bounds: { x: number; y: number; w: number; h: number } }) => resizeEvents.push(payload),
+    })
+    await nextTick()
+    const canvas = mounted.host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+    const handle = mounted.host.querySelector('[data-selection-handle="se"]') as HTMLButtonElement
+    const center = { x: 192, y: 144 }
+    const startPoint = rotateScreenPoint({ x: 288, y: 192 }, center, 15)
+    const currentPoint = rotateScreenPoint({ x: 336, y: 216 }, center, 15)
+
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: startPoint.x, clientY: startPoint.y, pointerId: 33, shiftKey: true, altKey: true, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: currentPoint.x, clientY: currentPoint.y, pointerId: 33, shiftKey: true, altKey: true, bubbles: true }))
+
+    const resized = resizeEvents[0]!.bounds
+    expect(resized.w / resized.h).toBeCloseTo(2)
+    expect(resized.x + resized.w / 2).toBeCloseTo(1828800)
+    expect(resized.y + resized.h / 2).toBeCloseTo(1371600)
+    mounted.app.unmount()
+  })
+
   it('renders eight resize handles for a controlled multi-selection', async () => {
     const mounted = mountEditor({
       scene: multiSelectionScene,
@@ -693,6 +823,53 @@ describe('PptEditor', () => {
     handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 288, clientY: 192, pointerId: 24, bubbles: true }))
     handle.dispatchEvent(new PointerEvent('pointerup', { clientX: 288, clientY: 192, pointerId: 24, bubbles: true }))
 
+    expect(resizeEvents).toEqual([])
+    app.unmount()
+  })
+
+  it('does not commit image gestures after controlled selection or scene changes', async () => {
+    const rotateEvents: unknown[] = []
+    const resizeEvents: unknown[] = []
+    const selectedIds = ref(['image-1'])
+    const controlledScene = ref(imageScene)
+    const app = createApp({
+      setup() {
+        return () => h(PptEditor, {
+          scene: controlledScene.value,
+          adapter,
+          decoder: async (): Promise<DecodedImage> => ({ source: {} as CanvasImageSource, width: 1, height: 1 }),
+          selectedElementIds: selectedIds.value,
+          onRotateImage: (payload: unknown) => rotateEvents.push(payload),
+          onResize: (payload: unknown) => resizeEvents.push(payload),
+        })
+      },
+    })
+    app.use(createPpt4aiI18n())
+    const host = document.createElement('div')
+    document.body.append(host)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      canvas: { width: 0, height: 0, style: { width: '', height: '' } },
+      clearRect: vi.fn(), setTransform: vi.fn(), save: vi.fn(), restore: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    app.mount(host)
+    await nextTick()
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 960, height: 540 } as DOMRect)
+    const rotationHandle = host.querySelector('[data-selection-rotation-handle]') as HTMLButtonElement
+
+    rotationHandle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 192, clientY: 80, pointerId: 34, bubbles: true }))
+    selectedIds.value = ['image-guide']
+    await nextTick()
+    rotationHandle.dispatchEvent(new PointerEvent('pointerup', { clientX: 256, clientY: 144, pointerId: 34, bubbles: true }))
+    expect(rotateEvents).toEqual([])
+
+    selectedIds.value = ['image-1']
+    await nextTick()
+    const resizeHandle = host.querySelector('[data-selection-handle="se"]') as HTMLButtonElement
+    resizeHandle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 288, clientY: 192, pointerId: 35, bubbles: true }))
+    controlledScene.value = structuredClone(imageScene)
+    await nextTick()
+    resizeHandle.dispatchEvent(new PointerEvent('pointerup', { clientX: 336, clientY: 240, pointerId: 35, bubbles: true }))
     expect(resizeEvents).toEqual([])
     app.unmount()
   })

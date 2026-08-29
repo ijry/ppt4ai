@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import type { SnapGuide, SnapOptions } from '@ppt4ai/engine'
 import type { AssetAdapter, Rect, TextBody } from '@ppt4ai/model'
-import type { SceneGraph } from '@ppt4ai/render'
+import type { SceneGraph, SceneImageNode } from '@ppt4ai/render'
 import type { ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
 import { computed, onBeforeUnmount, ref, shallowRef, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SlideCanvas from './SlideCanvas.vue'
 import SelectionOverlay from './SelectionOverlay.vue'
 import TextBoxEditor from './TextBoxEditor.vue'
+import { rotationFromPointer, type ImageFlipAxis } from './image-transform'
 import type { ImageDecoder } from './image-canvas-renderer'
-import { createSelectionOverlay, resizeBounds, resizeBoundsWithAspectRatio, type Point, type ResizePointerPayload, type SelectionHandle } from './selection-overlay'
+import { createSelectionOverlay, resizeBounds, resizeBoundsWithAspectRatio, type Point, type ResizePointerPayload, type RotatePointerPayload, type SelectionHandle } from './selection-overlay'
 import type { CanvasSelectionIntent } from './slide-canvas'
 import { snapResizeBounds } from './resize-snapping'
 
@@ -37,6 +38,8 @@ const emit = defineEmits<{
   'move-end': [payload: { nodeId: string; dx: number; dy: number }]
   resize: [payload: { elementId: string; bounds: { x: number; y: number; w: number; h: number } }]
   'resize-selection': [payload: { elementIds: string[]; bounds: Rect }]
+  'rotate-image': [payload: { elementId: string; rotation: number }]
+  'flip-image': [payload: { elementId: string; axis: ImageFlipAxis }]
   'text-edit': [payload: { elementId: string; body: TextBody }]
   group: []
   ungroup: [payload: { groupId: string }]
@@ -109,6 +112,12 @@ const selectedGroupId = computed(() => {
 })
 const canGroup = computed(() => !isInsideGroup.value && selectedElementIds.value.length >= 2)
 const canUngroup = computed(() => !isInsideGroup.value && Boolean(selectedGroupId.value))
+const selectedImageNode = computed<SceneImageNode | undefined>(() => {
+  if (selectedElementIds.value.length !== 1) return undefined
+  const node = props.scene?.nodes.find((entry) => entry.id === selectedElementIds.value[0])
+  return node?.kind === 'image' ? node : undefined
+})
+const imageTransformEnabled = computed(() => Boolean(selectedImageNode.value))
 
 function ungroupSelected(): void {
   if (selectedGroupId.value) emit('ungroup', { groupId: selectedGroupId.value })
@@ -122,10 +131,21 @@ const resizeGesture = ref<{
   startDocumentBounds: Rect
   startPoint: Point
   shiftKey: boolean
+  rotation: number
+  center: Point
+}>()
+const rotationPreview = ref<{ elementId: string; rotation: number }>()
+const rotationGesture = ref<{
+  elementId: string
+  startRotation: number
+  center: Point
+  startPoint: Point
+  shiftKey: boolean
 }>()
 const editingElementId = ref<string>()
 const editingDraft = shallowRef<TextBody>()
 const editingComposing = ref(false)
+const canvasElement = ref<HTMLElement>()
 const groupPath = ref<string[]>([])
 let pendingTextClose: 'commit' | 'cancel' | undefined
 let textCloseScheduled = false
@@ -281,6 +301,14 @@ function overlayBounds(): ScreenBounds | undefined {
   return preview.bounds
 }
 
+function overlayRotation(): number {
+  const image = selectedImageNode.value
+  if (!image) return 0
+  return rotationPreview.value?.elementId === image.id
+    ? rotationPreview.value.rotation
+    : image.transform?.rotation ?? 0
+}
+
 function sameIds(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((elementId, index) => elementId === right[index])
 }
@@ -288,6 +316,11 @@ function sameIds(left: readonly string[], right: readonly string[]): boolean {
 function toDocumentBounds(bounds: ScreenBounds): Rect {
   const scale = EMU_TO_CSS_PIXEL * props.zoom
   return { x: bounds.x / scale, y: bounds.y / scale, w: bounds.w / scale, h: bounds.h / scale }
+}
+
+function toOverlayPoint(point: Point): Point {
+  const rect = canvasElement.value?.getBoundingClientRect()
+  return rect ? { x: point.x - rect.left, y: point.y - rect.top } : { ...point }
 }
 
 function snapGuideKey(guide: SnapGuide): string {
@@ -306,8 +339,13 @@ function clearResizeGesture(): void {
   resizeGesture.value = undefined
 }
 
+function clearRotationGesture(): void {
+  rotationPreview.value = undefined
+  rotationGesture.value = undefined
+}
+
 function resizePreviewFor(gesture: NonNullable<typeof resizeGesture.value>, payload: ResizePointerPayload): { bounds: ScreenBounds; guides: SnapGuide[] } {
-  const proposedBounds = toDocumentBounds(resizeGestureBounds(gesture, payload.point, payload.shiftKey))
+  const proposedBounds = toDocumentBounds(resizeGestureBounds(gesture, payload))
   const snapped = snapResizeBounds({
     scene: props.scene!,
     selectedElementIds: gesture.elementIds,
@@ -316,6 +354,7 @@ function resizePreviewFor(gesture: NonNullable<typeof resizeGesture.value>, payl
     handle: gesture.handle,
     ...(props.snapOptions ? { options: props.snapOptions } : {}),
     aspectRatioLocked: payload.shiftKey,
+    centered: payload.altKey,
   })
   return { bounds: toScreenBounds(snapped.bounds), guides: snapped.guides }
 }
@@ -325,6 +364,7 @@ function resizeStart(payload: ResizePointerPayload): void {
   const bounds = selectedBounds()
   const documentBounds = selectedDocumentBounds()
   if (!bounds || !documentBounds || elementIds.length === 0 || !props.scene) return
+  const image = selectedImageNode.value
   resizeGesture.value = {
     elementIds,
     handle: payload.handle,
@@ -332,6 +372,8 @@ function resizeStart(payload: ResizePointerPayload): void {
     startDocumentBounds: documentBounds,
     startPoint: payload.point,
     shiftKey: payload.shiftKey,
+    rotation: image && image.id === elementIds[0] ? image.transform?.rotation ?? 0 : 0,
+    center: { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
   }
   resizePreview.value = { elementIds, bounds, guides: [] }
 }
@@ -366,16 +408,79 @@ function resizeCancel(): void {
   clearResizeGesture()
 }
 
-function resizeGestureBounds(gesture: NonNullable<typeof resizeGesture.value>, point: Point, shiftKey: boolean): ScreenBounds {
+function rotatePointAround(point: Point, center: Point, rotation: number): Point {
+  if (rotation === 0) return { ...point }
+  const radians = rotation * Math.PI / 10800000
+  const dx = point.x - center.x
+  const dy = point.y - center.y
+  return {
+    x: center.x + dx * Math.cos(radians) - dy * Math.sin(radians),
+    y: center.y + dx * Math.sin(radians) + dy * Math.cos(radians),
+  }
+}
+
+function resizeGestureBounds(gesture: NonNullable<typeof resizeGesture.value>, payload: ResizePointerPayload): ScreenBounds {
   const handle = createSelectionOverlay(gesture.startBounds).handles.find((entry) => entry.name === gesture.handle)
   if (!handle) return gesture.startBounds
+  const localStart = rotatePointAround(toOverlayPoint(gesture.startPoint), gesture.center, -gesture.rotation)
+  const localCurrent = rotatePointAround(toOverlayPoint(payload.point), gesture.center, -gesture.rotation)
   const handlePoint = {
-    x: handle.rect.x + handle.rect.w / 2 + point.x - gesture.startPoint.x,
-    y: handle.rect.y + handle.rect.h / 2 + point.y - gesture.startPoint.y,
+    x: handle.rect.x + handle.rect.w / 2 + localCurrent.x - localStart.x,
+    y: handle.rect.y + handle.rect.h / 2 + localCurrent.y - localStart.y,
   }
-  return shiftKey
-    ? resizeBoundsWithAspectRatio(gesture.startBounds, gesture.handle, handlePoint)
-    : resizeBounds(gesture.startBounds, gesture.handle, handlePoint)
+  const options = { center: payload.altKey }
+  return payload.shiftKey
+    ? resizeBoundsWithAspectRatio(gesture.startBounds, gesture.handle, handlePoint, options)
+    : resizeBounds(gesture.startBounds, gesture.handle, handlePoint, options)
+}
+
+function rotationStart(payload: RotatePointerPayload): void {
+  const image = selectedImageNode.value
+  if (!image) return
+  const bounds = toScreenBounds(image.bounds)
+  const startRotation = image.transform?.rotation ?? 0
+  rotationGesture.value = {
+    elementId: image.id,
+    startRotation,
+    center: { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
+    startPoint: toOverlayPoint(payload.point),
+    shiftKey: payload.shiftKey,
+  }
+  rotationPreview.value = { elementId: image.id, rotation: startRotation }
+}
+
+function currentRotation(gesture: NonNullable<typeof rotationGesture.value>, payload: RotatePointerPayload): number {
+  return rotationFromPointer(
+    gesture.startRotation,
+    gesture.center,
+    gesture.startPoint,
+    toOverlayPoint(payload.point),
+    payload.shiftKey,
+  )
+}
+
+function rotationMove(payload: RotatePointerPayload): void {
+  const gesture = rotationGesture.value
+  if (!gesture || selectedImageNode.value?.id !== gesture.elementId) {
+    if (gesture) clearRotationGesture()
+    return
+  }
+  gesture.shiftKey = payload.shiftKey
+  rotationPreview.value = { elementId: gesture.elementId, rotation: currentRotation(gesture, payload) }
+}
+
+function rotationEnd(payload: RotatePointerPayload): void {
+  const gesture = rotationGesture.value
+  if (!gesture || selectedImageNode.value?.id !== gesture.elementId) {
+    clearRotationGesture()
+    return
+  }
+  emit('rotate-image', { elementId: gesture.elementId, rotation: currentRotation(gesture, payload) })
+  clearRotationGesture()
+}
+
+function rotationCancel(): void {
+  clearRotationGesture()
 }
 
 const canvasProps = computed(() => ({
@@ -390,11 +495,24 @@ const canvasProps = computed(() => ({
 watch(() => props.scene, () => {
   normalizeGroupPath()
   if (resizeGesture.value) clearResizeGesture()
+  if (rotationGesture.value) clearRotationGesture()
 }, { immediate: true })
 watch(selectedElementIds, (next) => {
   if (resizeGesture.value && !sameIds(resizeGesture.value.elementIds, next)) clearResizeGesture()
+  if (rotationGesture.value && selectedImageNode.value?.id !== rotationGesture.value.elementId) clearRotationGesture()
 }, { deep: true })
-onBeforeUnmount(clearResizeGesture)
+watch(() => props.zoom, () => {
+  if (resizeGesture.value) clearResizeGesture()
+  if (rotationGesture.value) clearRotationGesture()
+})
+watch(groupPath, () => {
+  if (resizeGesture.value) clearResizeGesture()
+  if (rotationGesture.value) clearRotationGesture()
+}, { deep: true })
+onBeforeUnmount(() => {
+  clearResizeGesture()
+  clearRotationGesture()
+})
 </script>
 
 <template>
@@ -426,7 +544,7 @@ onBeforeUnmount(clearResizeGesture)
         </button>
       </div>
     </header>
-    <div class="ppt-editor__canvas relative" role="img" :aria-label="t('editor.canvas.ariaLabel')">
+    <div ref="canvasElement" class="ppt-editor__canvas relative" role="img" :aria-label="t('editor.canvas.ariaLabel')">
       <template v-if="props.scene && props.adapter">
         <SlideCanvas
           v-bind="canvasProps"
@@ -451,10 +569,16 @@ onBeforeUnmount(clearResizeGesture)
           active
           :bounds="overlayBounds()!"
           :show-handles="selectedElementIds.length > 0"
+          :rotation="overlayRotation()"
+          :show-rotation-handle="imageTransformEnabled"
           @resize-start="resizeStart"
           @resize="resizePreviewMove"
           @resize-end="resizeEnd"
           @resize-cancel="resizeCancel"
+          @rotate-start="rotationStart"
+          @rotate="rotationMove"
+          @rotate-end="rotationEnd"
+          @rotate-cancel="rotationCancel"
         />
         <div
           v-if="textEditorProps"
