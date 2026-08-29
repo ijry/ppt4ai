@@ -65,6 +65,29 @@ describe('selection overlay geometry', () => {
     )).toEqual({ x: 10, y: 20, w: 150, h: 60 })
   })
 
+  it('resizes an east edge symmetrically around the starting center', () => {
+    expect(resizeBounds(bounds, 'e', { x: 160, y: 50 }, { center: true })).toEqual({
+      x: -40, y: 20, w: 200, h: 60,
+    })
+  })
+
+  it('keeps the center and ratio for an Alt-Shift corner resize', () => {
+    expect(resizeBoundsWithAspectRatio(
+      bounds,
+      'se',
+      { x: 150, y: 104 },
+      { center: true },
+    )).toEqual({ x: -30, y: -4, w: 180, h: 108 })
+  })
+
+  it('clamps centered resize at the minimum without crossing the center', () => {
+    expect(resizeBounds(bounds, 'nw', { x: 55, y: 52 }, {
+      center: true,
+      minWidth: 30,
+      minHeight: 25,
+    })).toEqual({ x: 45, y: 37.5, w: 30, h: 25 })
+  })
+
   it('rejects non-finite pointer values', () => {
     expect(() => resizeBounds(bounds, 'n', { x: Number.NaN, y: 0 })).toThrow('pointer must be finite')
   })
@@ -117,7 +140,7 @@ describe('selection overlay geometry', () => {
     host.remove()
   })
 
-  it('emits the current Shift modifier with resize pointer payloads', () => {
+  it('emits the current Shift and Alt modifiers with resize pointer payloads', () => {
     const events: unknown[] = []
     const host = document.createElement('div')
     document.body.append(host)
@@ -132,12 +155,12 @@ describe('selection overlay geometry', () => {
     app.mount(host)
 
     const handle = host.querySelector('[data-selection-handle="se"]') as HTMLButtonElement
-    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 80, pointerId: 5, shiftKey: true, bubbles: true }))
-    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 150, clientY: 90, pointerId: 5, shiftKey: false, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 80, pointerId: 5, shiftKey: true, altKey: true, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: 150, clientY: 90, pointerId: 5, shiftKey: false, altKey: false, bubbles: true }))
 
     expect(events).toEqual([
-      { handle: 'se', point: { x: 140, y: 80 }, shiftKey: true },
-      { handle: 'se', point: { x: 150, y: 90 }, shiftKey: false },
+      { handle: 'se', point: { x: 140, y: 80 }, shiftKey: true, altKey: true },
+      { handle: 'se', point: { x: 150, y: 90 }, shiftKey: false, altKey: false },
     ])
 
     app.unmount()

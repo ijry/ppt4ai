@@ -6,6 +6,7 @@ export interface ResizePointerPayload {
   handle: SelectionHandle
   point: Point
   shiftKey: boolean
+  altKey: boolean
 }
 
 export interface Point {
@@ -30,6 +31,7 @@ export interface SelectionOverlayOptions {
 export interface ResizeOptions {
   minWidth?: number
   minHeight?: number
+  center?: boolean
 }
 
 const handleNames: SelectionHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
@@ -83,6 +85,27 @@ export function resizeBounds(startBounds: Rect, handle: SelectionHandle, pointer
   if (!Number.isFinite(minWidth) || minWidth <= 0) throw new Error('minWidth must be positive')
   if (!Number.isFinite(minHeight) || minHeight <= 0) throw new Error('minHeight must be positive')
 
+  if (options.center) {
+    const centerX = startBounds.x + startBounds.w / 2
+    const centerY = startBounds.y + startBounds.h / 2
+    const halfWidth = handle.includes('w')
+      ? Math.max(minWidth / 2, centerX - pointer.x)
+      : handle.includes('e')
+        ? Math.max(minWidth / 2, pointer.x - centerX)
+        : startBounds.w / 2
+    const halfHeight = handle.includes('n')
+      ? Math.max(minHeight / 2, centerY - pointer.y)
+      : handle.includes('s')
+        ? Math.max(minHeight / 2, pointer.y - centerY)
+        : startBounds.h / 2
+    return {
+      x: centerX - halfWidth,
+      y: centerY - halfHeight,
+      w: halfWidth * 2,
+      h: halfHeight * 2,
+    }
+  }
+
   const right = startBounds.x + startBounds.w
   const bottom = startBounds.y + startBounds.h
   const movesWest = handle.includes('w')
@@ -109,6 +132,16 @@ export function resizeBoundsWithAspectRatio(startBounds: Rect, handle: Selection
   let width = drivingWidth ? raw.w : raw.h * ratio
   width = Math.max(width, minWidth, minHeight * ratio)
   const height = width / ratio
+  if (options.center) {
+    const centerX = startBounds.x + startBounds.w / 2
+    const centerY = startBounds.y + startBounds.h / 2
+    return {
+      x: centerX - width / 2,
+      y: centerY - height / 2,
+      w: width,
+      h: height,
+    }
+  }
   const right = startBounds.x + startBounds.w
   const bottom = startBounds.y + startBounds.h
   return {

@@ -40,7 +40,7 @@ function pointFromEvent(event: PointerEvent): Point {
 }
 
 function emitPointer(eventName: 'resize-start' | 'resize' | 'resize-end' | 'resize-cancel', handle: SelectionHandle, event: PointerEvent): void {
-  const payload: ResizePointerPayload = { handle, point: pointFromEvent(event), shiftKey: event.shiftKey }
+  const payload: ResizePointerPayload = { handle, point: pointFromEvent(event), shiftKey: event.shiftKey, altKey: event.altKey }
   const target = event.currentTarget as HTMLButtonElement | null
   if (eventName === 'resize-start') target?.setPointerCapture?.(event.pointerId)
   if (eventName === 'resize-end' || eventName === 'resize-cancel') target?.releasePointerCapture?.(event.pointerId)
