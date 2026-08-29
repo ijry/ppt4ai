@@ -19,6 +19,23 @@ const scene: SceneGraph = {
   ],
 }
 
+const centeredScene: SceneGraph = {
+  slideId: 'slide-1',
+  page: { w: 1000, h: 800 },
+  nodes: [
+    { id: 'selected', kind: 'shape', bounds: { x: 100, y: 100, w: 100, h: 60 }, path: [] },
+    { id: 'guide', kind: 'shape', bounds: { x: 260, y: 400, w: 20, h: 20 }, path: [] },
+  ],
+}
+
+const centeredAspectScene: SceneGraph = {
+  ...centeredScene,
+  nodes: [
+    centeredScene.nodes[0]!,
+    { id: 'aspect-guide', kind: 'shape', bounds: { x: 220, y: 400, w: 10, h: 10 }, path: [] },
+  ],
+}
+
 describe('resize snapping', () => {
   it('snaps an east edge to an unselected object edge', () => {
     const result = snapResizeBounds({
@@ -153,5 +170,51 @@ describe('resize snapping', () => {
       bounds: { x: 100, y: 100, w: 5, h: 3 },
       guides: [],
     })
+  })
+
+  it('snaps a centered east edge while retaining the source center', () => {
+    expect(snapResizeBounds({
+      scene: centeredScene,
+      selectedElementIds: ['selected'],
+      sourceBounds: { x: 100, y: 100, w: 100, h: 60 },
+      proposedBounds: { x: 50, y: 100, w: 200, h: 60 },
+      handle: 'e',
+      centered: true,
+      options: { enabled: true, threshold: 10, gridSize: 0 },
+    })).toEqual({
+      bounds: { x: 40, y: 100, w: 220, h: 60 },
+      guides: [{ axis: 'x', position: 260, source: 'element', elementId: 'guide' }],
+    })
+  })
+
+  it('uses one centered guide for a Shift corner resize', () => {
+    const result = snapResizeBounds({
+      scene: centeredAspectScene,
+      selectedElementIds: ['selected'],
+      sourceBounds: { x: 100, y: 100, w: 100, h: 50 },
+      proposedBounds: { x: 80, y: 90, w: 140, h: 70 },
+      handle: 'se',
+      centered: true,
+      aspectRatioLocked: true,
+      options: { enabled: true, threshold: 5, gridSize: 0 },
+    })
+    expect(result.bounds.w / result.bounds.h).toBe(2)
+    expect(result.bounds.x + result.bounds.w / 2).toBe(150)
+    expect(result.bounds.y + result.bounds.h / 2).toBe(125)
+    expect(result.guides).toEqual([
+      { axis: 'x', position: 220, source: 'element', elementId: 'aspect-guide' },
+    ])
+  })
+
+  it('keeps legacy fixed-edge snapping unchanged when centered is absent', () => {
+    const result = snapResizeBounds({
+      scene,
+      selectedElementIds: ['selected'],
+      sourceBounds: { x: 100, y: 100, w: 100, h: 100 },
+      proposedBounds: { x: 100, y: 100, w: 195, h: 100 },
+      handle: 'e',
+      options: { enabled: true, threshold: 10 },
+    })
+    expect(result.bounds).toEqual({ x: 100, y: 100, w: 200, h: 100 })
   })
 })

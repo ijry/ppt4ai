@@ -11,6 +11,7 @@ export interface ResizeSnapRequest {
   handle: SelectionHandle
   options?: SnapOptions
   aspectRatioLocked?: boolean
+  centered?: boolean
 }
 
 export interface ResizeSnapResult {
@@ -95,6 +96,28 @@ function applyDelta(bounds: Rect, handle: SelectionHandle, axis: Axis, delta: nu
   return cloneBounds(bounds)
 }
 
+function applyCenteredDelta(
+  sourceBounds: Rect,
+  proposedBounds: Rect,
+  handle: SelectionHandle,
+  axis: Axis,
+  delta: number,
+): Rect {
+  const edge = activeEdge(proposedBounds, handle, axis)
+  if (edge === undefined) return cloneBounds(proposedBounds)
+  const center = axis === 'x'
+    ? sourceBounds.x + sourceBounds.w / 2
+    : sourceBounds.y + sourceBounds.h / 2
+  const halfSize = axis === 'x'
+    ? handle.includes('w') ? center - edge - delta : edge + delta - center
+    : handle.includes('n') ? center - edge - delta : edge + delta - center
+  if (halfSize <= 0) return { ...proposedBounds, [axis === 'x' ? 'w' : 'h']: 0 }
+  if (axis === 'x') {
+    return { ...proposedBounds, x: center - halfSize, w: halfSize * 2 }
+  }
+  return { ...proposedBounds, y: center - halfSize, h: halfSize * 2 }
+}
+
 function guide(candidate: SnapCandidate): SnapGuide {
   return {
     axis: candidate.axis,
@@ -143,10 +166,26 @@ function nearestCandidate(
   return candidate && Math.abs(candidate.delta) <= options.threshold ? candidate : undefined
 }
 
-function aspectBounds(source: Rect, proposed: Rect, handle: SelectionHandle, drivingAxis: Axis): Rect {
+function aspectBounds(
+  source: Rect,
+  proposed: Rect,
+  handle: SelectionHandle,
+  drivingAxis: Axis,
+  centered = false,
+): Rect {
   const ratio = source.w / source.h
   const width = drivingAxis === 'x' ? proposed.w : proposed.h * ratio
   const height = drivingAxis === 'x' ? proposed.w / ratio : proposed.h
+  if (centered) {
+    const centerX = source.x + source.w / 2
+    const centerY = source.y + source.h / 2
+    return {
+      x: centerX - width / 2,
+      y: centerY - height / 2,
+      w: width,
+      h: height,
+    }
+  }
   const right = source.x + source.w
   const bottom = source.y + source.h
   return {
@@ -185,20 +224,29 @@ export function snapResizeBounds(request: ResizeSnapRequest): ResizeSnapResult {
       || (left.axis === right.axis ? 0 : left.axis === 'x' ? -1 : 1)
     ))
     const chosen = candidates[0]!
-    const snapped = applyDelta(proposedBounds, request.handle, chosen.axis, chosen.delta)
+    const snapped = request.centered
+      ? applyCenteredDelta(request.sourceBounds, proposedBounds, request.handle, chosen.axis, chosen.delta)
+      : applyDelta(proposedBounds, request.handle, chosen.axis, chosen.delta)
     if (!validBounds(snapped)) return { bounds: proposedBounds, guides: [] }
-    return { bounds: aspectBounds(request.sourceBounds, snapped, request.handle, chosen.axis), guides: [guide(chosen)] }
+    return {
+      bounds: aspectBounds(request.sourceBounds, snapped, request.handle, chosen.axis, request.centered),
+      guides: [guide(chosen)],
+    }
   }
 
   let bounds = proposedBounds
   const guides: SnapGuide[] = []
   if (xCandidate) {
-    bounds = applyDelta(bounds, request.handle, 'x', xCandidate.delta)
+    bounds = request.centered
+      ? applyCenteredDelta(request.sourceBounds, bounds, request.handle, 'x', xCandidate.delta)
+      : applyDelta(bounds, request.handle, 'x', xCandidate.delta)
     if (validBounds(bounds)) guides.push(guide(xCandidate))
     else bounds = proposedBounds
   }
   if (yCandidate) {
-    const next = applyDelta(bounds, request.handle, 'y', yCandidate.delta)
+    const next = request.centered
+      ? applyCenteredDelta(request.sourceBounds, bounds, request.handle, 'y', yCandidate.delta)
+      : applyDelta(bounds, request.handle, 'y', yCandidate.delta)
     if (validBounds(next)) {
       bounds = next
       guides.push(guide(yCandidate))
