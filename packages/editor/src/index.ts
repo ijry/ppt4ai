@@ -6,6 +6,8 @@ export { createTextEditorController } from './text-editor-controller'
 export type { TextEditorController, TextEditorControllerOptions } from './text-editor-controller'
 export { default as SelectionOverlay } from './SelectionOverlay.vue'
 export { createSelectionOverlay, resizeBounds, resizeBoundsWithAspectRatio } from './selection-overlay'
+export { IMAGE_ROTATION_SNAP_STEP, rotationFromPointer } from './image-transform'
+export type { ImageFlipAxis } from './image-transform'
 export { snapResizeBounds } from './resize-snapping'
 export type { ResizeSnapRequest, ResizeSnapResult } from './resize-snapping'
 export type {
