@@ -78,6 +78,18 @@ function emitRotatePointer(eventName: 'rotate-start' | 'rotate' | 'rotate-end' |
 <template>
   <div v-if="props.active" class="ppt-selection-overlay pointer-events-none absolute" data-selection-overlay>
     <div
+      class="pointer-events-none absolute border-2 border-blue-500"
+      data-selection-border
+      :style="{
+        left: `${props.bounds.x}px`,
+        top: `${props.bounds.y}px`,
+        width: `${props.bounds.w}px`,
+        height: `${props.bounds.h}px`,
+        transform: `rotate(${props.rotation / 60000}deg)`,
+        transformOrigin: 'center center',
+      }"
+    />
+    <div
       class="pointer-events-none absolute"
       data-selection-frame
       :style="{
@@ -89,16 +101,6 @@ function emitRotatePointer(eventName: 'rotate-start' | 'rotate' | 'rotate-end' |
         transformOrigin: 'center center',
       }"
     >
-      <div
-        class="pointer-events-none absolute border-2 border-blue-500"
-        data-selection-border
-        :style="{
-          left: '0px',
-          top: '0px',
-          width: `${props.bounds.w}px`,
-          height: `${props.bounds.h}px`,
-        }"
-      />
       <button
         v-if="props.showHandles"
         v-for="handle in createSelectionOverlay({ x: 0, y: 0, w: props.bounds.w, h: props.bounds.h }, { handleSize: props.handleSize }).handles"
