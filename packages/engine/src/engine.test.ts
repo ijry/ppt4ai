@@ -277,6 +277,44 @@ describe('EditorEngine', () => {
     expect(engine.dispatch({ type: 'redo' }).document).toEqual(state.document)
   })
 
+  it('sets only image rotation and preserves every other appearance field', () => {
+    const engine = new EditorEngine(makeImageDocument())
+    engine.dispatch({ type: 'select', elementIds: ['img_1'] })
+    const state = engine.dispatch({ type: 'setImageRotation', elementId: 'img_1', rotation: 2700000 })
+    expect(state.document.elements.img_1).toMatchObject({
+      transform: { rotation: 2700000, flipH: true },
+      sourceCrop: { left: 1000, bottom: 2000 },
+      maskPreset: 'roundRect',
+      effects: [{ type: 'grayscl' }],
+    })
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(state.selection).toEqual(['img_1'])
+  })
+
+  it('toggles one image flip axis and removes an empty transform', () => {
+    const engine = new EditorEngine(makeImageDocument())
+    engine.dispatch({ type: 'toggleImageFlip', elementId: 'img_1', axis: 'horizontal' })
+    expect(engine.getState().document.elements.img_1).toMatchObject({ transform: { rotation: 900000 } })
+    engine.dispatch({ type: 'setImageRotation', elementId: 'img_1', rotation: 0 })
+    engine.dispatch({ type: 'toggleImageFlip', elementId: 'img_1', axis: 'vertical' })
+    expect(engine.getState().document.elements.img_1).toMatchObject({ transform: { flipV: true } })
+  })
+
+  it('rejects invalid image commands atomically and restores them with undo/redo', () => {
+    const engine = new EditorEngine(makeImageDocument())
+    const before = engine.getState()
+    expect(() => engine.dispatch({ type: 'setImageRotation', elementId: 'el_a', rotation: 1 })).toThrow('element is not an image: el_a')
+    expect(() => engine.dispatch({ type: 'setImageRotation', elementId: 'img_1', rotation: 1.5 })).toThrow('rotation must be an integer')
+    expect(() => engine.dispatch({ type: 'toggleImageFlip', elementId: 'img_1', axis: 'diagonal' as never })).toThrow('unsupported image flip axis: diagonal')
+    expect(engine.getState()).toEqual(before)
+    engine.dispatch({ type: 'setImageRotation', elementId: 'img_1', rotation: 1800000 })
+    engine.dispatch({ type: 'undo' })
+    expect(engine.getState().document.elements.img_1).toEqual(before.document.elements.img_1)
+    engine.dispatch({ type: 'redo' })
+    expect(engine.getState().document.elements.img_1).toMatchObject({ transform: { rotation: 1800000 } })
+    expect(structuredClone(engine.getState())).toEqual(engine.getState())
+  })
+
   it('keeps shared old asset metadata until its final reference is replaced', () => {
     const engine = new EditorEngine(makeImageDocument(true))
     engine.dispatch({ type: 'replaceImageAsset', elementId: 'img_1', asset: imageAsset('asset_new') })

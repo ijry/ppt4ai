@@ -1,4 +1,4 @@
-import { validateDocument, validateTextBody, type AssetMetadata, type Element, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody } from '@ppt4ai/model'
+import { validateDocument, validateTextBody, type AssetMetadata, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -54,12 +54,16 @@ export interface TableCellSelection {
   column: number
 }
 
+export type ImageFlipAxis = 'horizontal' | 'vertical'
+
 export type EngineCommand =
   | { type: 'select'; elementIds: string[]; additive?: boolean }
   | { type: 'insertImage'; slideId: string; element: ImageElement; asset: AssetMetadata }
   | { type: 'insertImageReference'; slideId: string; element: ImageElement; assetId: string }
   | { type: 'replaceImageAsset'; elementId: string; asset: AssetMetadata }
   | { type: 'replaceImageAssetReference'; elementId: string; assetId: string }
+  | { type: 'setImageRotation'; elementId: string; rotation: number }
+  | { type: 'toggleImageFlip'; elementId: string; axis: ImageFlipAxis }
   | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
   | { type: 'setTableCellText'; body: TextBody }
   | { type: 'setTextBody'; elementId: string; body: TextBody }
@@ -605,6 +609,14 @@ export class EditorEngine {
         this.replaceImageAssetReference(command.elementId, command.assetId)
         break
       }
+      case 'setImageRotation': {
+        this.setImageRotation(command.elementId, command.rotation)
+        break
+      }
+      case 'toggleImageFlip': {
+        this.toggleImageFlip(command.elementId, command.axis)
+        break
+      }
       case 'selectTableCell': {
         this.selectTableCell(command.elementId, command.row, command.column, command.extend)
         break
@@ -1071,6 +1083,45 @@ export class EditorEngine {
       { path: ['assets'], value: nextDocument.assets },
       { path: ['elements', elementId], value: nextDocument.elements[elementId] },
     ])
+  }
+
+  private setImageRotation(elementId: string, rotation: number): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`element does not exist: ${elementId}`)
+    if (element.kind !== 'image') throw new Error(`element is not an image: ${elementId}`)
+    if (!Number.isInteger(rotation)) throw new Error('rotation must be an integer')
+    const transform = this.normalizeImageTransform({ ...element.transform, rotation })
+    this.commitImageTransform(elementId, transform)
+  }
+
+  private toggleImageFlip(elementId: string, axis: ImageFlipAxis): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`element does not exist: ${elementId}`)
+    if (element.kind !== 'image') throw new Error(`element is not an image: ${elementId}`)
+    if (axis !== 'horizontal' && axis !== 'vertical') throw new Error(`unsupported image flip axis: ${String(axis)}`)
+    const transform: ElementTransform = { ...element.transform }
+    if (axis === 'horizontal') transform.flipH = !transform.flipH
+    else transform.flipV = !transform.flipV
+    this.commitImageTransform(elementId, this.normalizeImageTransform(transform))
+  }
+
+  private normalizeImageTransform(transform: ElementTransform): ElementTransform | undefined {
+    const normalized = { ...transform }
+    if (normalized.rotation === 0) delete normalized.rotation
+    if (!normalized.flipH) delete normalized.flipH
+    if (!normalized.flipV) delete normalized.flipV
+    return Object.keys(normalized).length > 0 ? normalized : undefined
+  }
+
+  private commitImageTransform(elementId: string, transform: ElementTransform | undefined): void {
+    const nextDocument = clone(this.document)
+    const element = nextDocument.elements[elementId]
+    if (!element || element.kind !== 'image') throw new Error(`element is not an image: ${elementId}`)
+    if (transform) element.transform = clone(transform)
+    else delete element.transform
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`image transform is invalid: ${elementId}: ${validation.errors.join('; ')}`)
+    this.commit([{ path: ['elements', elementId, 'transform'], value: transform }])
   }
 
   private applyHistoryEntry(source: HistoryEntry[], target: HistoryEntry[]): void {
