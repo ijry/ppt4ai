@@ -248,6 +248,39 @@ describe('Playground asset host wiring', () => {
     mountedApps.splice(mountedApps.indexOf(app), 1)
   })
 
+  it('wires all image transform buttons to the real asset host', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+
+    ;(host.querySelector('[data-asset-id="asset_red"] [data-asset-insert]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(host.querySelectorAll('[data-image-transform-button]')).toHaveLength(4)
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
+
+    ;(host.querySelector('[data-image-transform-button="rotate-right"]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('2')
+    expect(host.querySelector('[data-testid="asset-status"]')?.textContent).toContain('图片已旋转')
+    expect(host.querySelector('[data-selection-frame]')?.getAttribute('style')).toContain('rotate(90deg)')
+
+    ;(host.querySelector('[data-image-transform-button="flip-horizontal"]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('3')
+    expect(host.querySelector('[data-testid="asset-status"]')?.textContent).toContain('图片已翻转')
+
+    ;(host.querySelector('[data-image-transform-button="rotate-left"]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('4')
+    expect(host.querySelector('[data-selection-frame]')?.getAttribute('style')).toContain('rotate(0deg)')
+
+    ;(host.querySelector('[data-image-transform-button="flip-vertical"]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('5')
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('image_1')
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
   it('reports a localized target error without changing history', async () => {
     const { app, host } = mountApp()
     await nextTick()

@@ -157,6 +157,45 @@ describe('createPlaygroundAssetHost', () => {
     expect(putCalls).toBe(0)
   })
 
+  it('rotates and flips an inserted image through one engine command each', () => {
+    const host = createPlaygroundAssetHost()
+    const inserted = host.insertAsset('asset_red')
+    const imageId = inserted.engineState.selection[0]!
+
+    const rotated = host.rotateSelectedImage(imageId, 5400000)
+    expect(rotated.engineState.document.elements[imageId]).toMatchObject({ transform: { rotation: 5400000 } })
+    expect(rotated.engineState.history.undoDepth).toBe(inserted.engineState.history.undoDepth + 1)
+    expect(rotated.engineState.selection).toEqual([imageId])
+
+    const flipped = host.toggleSelectedImageFlip(imageId, 'horizontal')
+    expect(flipped.engineState.document.elements[imageId]).toMatchObject({ transform: { rotation: 5400000, flipH: true } })
+    expect(flipped.engineState.history.undoDepth).toBe(rotated.engineState.history.undoDepth + 1)
+    expect(flipped.status).toEqual({ kind: 'success', message: 'image-flipped' })
+  })
+
+  it('reports image transform failures without changing document or history', () => {
+    const host = createPlaygroundAssetHost()
+    const beforeMissing = host.getSnapshot()
+    const missing = host.rotateSelectedImage('missing', 5400000)
+    expect(missing.status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+    expect(missing.engineState.document).toEqual(beforeMissing.engineState.document)
+    expect(missing.engineState.history).toEqual(beforeMissing.engineState.history)
+
+    const beforeShape = host.getSnapshot()
+    const shape = host.rotateSelectedImage('group_demo', 5400000)
+    expect(shape.status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+    expect(shape.engineState.document).toEqual(beforeShape.engineState.document)
+    expect(shape.engineState.history).toEqual(beforeShape.engineState.history)
+
+    const inserted = host.insertAsset('asset_red')
+    const imageId = inserted.engineState.selection[0]!
+    const beforeInvalid = host.getSnapshot()
+    const invalid = host.rotateSelectedImage(imageId, 1.5)
+    expect(invalid.status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+    expect(invalid.engineState.document).toEqual(beforeInvalid.engineState.document)
+    expect(invalid.engineState.history).toEqual(beforeInvalid.engineState.history)
+  })
+
   it('reports missing assets and missing image targets without changing history', () => {
     const host = createPlaygroundAssetHost()
     const missingAsset = host.insertAsset('asset_missing')

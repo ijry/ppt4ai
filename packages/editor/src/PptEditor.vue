@@ -123,6 +123,17 @@ function ungroupSelected(): void {
   if (selectedGroupId.value) emit('ungroup', { groupId: selectedGroupId.value })
 }
 
+function rotateSelectedImage(delta: number): void {
+  const image = selectedImageNode.value
+  if (!image) return
+  emit('rotate-image', { elementId: image.id, rotation: (image.transform?.rotation ?? 0) + delta })
+}
+
+function flipSelectedImage(axis: ImageFlipAxis): void {
+  const image = selectedImageNode.value
+  if (image) emit('flip-image', { elementId: image.id, axis })
+}
+
 const resizePreview = ref<{ elementIds: string[]; bounds: ScreenBounds; guides: SnapGuide[] }>()
 const resizeGesture = ref<{
   elementIds: string[]
@@ -542,6 +553,44 @@ onBeforeUnmount(() => {
         >
           {{ t('toolbar.object.ungroup') }}
         </button>
+        <template v-if="imageTransformEnabled">
+          <button
+            type="button"
+            class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            data-image-transform-button="rotate-left"
+            :aria-label="t('toolbar.object.rotateLeft')"
+            @click="rotateSelectedImage(-5400000)"
+          >
+            {{ t('toolbar.object.rotateLeft') }}
+          </button>
+          <button
+            type="button"
+            class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            data-image-transform-button="rotate-right"
+            :aria-label="t('toolbar.object.rotateRight')"
+            @click="rotateSelectedImage(5400000)"
+          >
+            {{ t('toolbar.object.rotateRight') }}
+          </button>
+          <button
+            type="button"
+            class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            data-image-transform-button="flip-horizontal"
+            :aria-label="t('toolbar.object.flipHorizontal')"
+            @click="flipSelectedImage('horizontal')"
+          >
+            {{ t('toolbar.object.flipHorizontal') }}
+          </button>
+          <button
+            type="button"
+            class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            data-image-transform-button="flip-vertical"
+            :aria-label="t('toolbar.object.flipVertical')"
+            @click="flipSelectedImage('vertical')"
+          >
+            {{ t('toolbar.object.flipVertical') }}
+          </button>
+        </template>
       </div>
     </header>
     <div ref="canvasElement" class="ppt-editor__canvas relative" role="img" :aria-label="t('editor.canvas.ariaLabel')">

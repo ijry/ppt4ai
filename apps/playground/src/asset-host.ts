@@ -1,4 +1,4 @@
-import { EditorEngine, type EngineState, type SnapOptions } from '@ppt4ai/engine'
+import { EditorEngine, type EngineState, type ImageFlipAxis, type SnapOptions } from '@ppt4ai/engine'
 import { createImageAssetController, ImageAssetControllerError } from '@ppt4ai/editor'
 import type { AssetAdapter, AssetMetadata, ImageElement, Ppt4aiDocument, Rect, TextBody } from '@ppt4ai/model'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
@@ -23,6 +23,8 @@ export interface PlaygroundAssetHost {
   ungroupSelected(groupId: string): PlaygroundAssetHostSnapshot
   resizeSelected(elementIds: string[], bounds: Rect): PlaygroundAssetHostSnapshot
   resizeElement(elementId: string, bounds: Rect): PlaygroundAssetHostSnapshot
+  rotateSelectedImage(elementId: string, rotation: number): PlaygroundAssetHostSnapshot
+  toggleSelectedImageFlip(elementId: string, axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
   insertAsset(assetId: string): PlaygroundAssetHostSnapshot
@@ -197,6 +199,28 @@ export function createPlaygroundAssetHost(): PlaygroundAssetHost {
         engine.dispatch({ type: 'resize', elementId, bounds })
         engine.dispatch({ type: 'select', elementIds: [elementId] })
         status = { kind: 'success', message: 'element-resized' }
+      } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    rotateSelectedImage(elementId, rotation) {
+      const element = engine.getState().document.elements[elementId]
+      if (!element || element.kind !== 'image') return fail('element-operation-failed')
+      try {
+        engine.dispatch({ type: 'setImageRotation', elementId, rotation })
+        status = { kind: 'success', message: 'image-rotated' }
+      } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    toggleSelectedImageFlip(elementId, axis) {
+      const element = engine.getState().document.elements[elementId]
+      if (!element || element.kind !== 'image') return fail('element-operation-failed')
+      try {
+        engine.dispatch({ type: 'toggleImageFlip', elementId, axis })
+        status = { kind: 'success', message: 'image-flipped' }
       } catch {
         return fail('element-operation-failed')
       }

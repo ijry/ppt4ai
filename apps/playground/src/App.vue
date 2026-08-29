@@ -65,6 +65,14 @@ function resizeElement(payload: { elementId: string; bounds: { x: number; y: num
   assetSnapshot.value = assetHost.resizeElement(payload.elementId, payload.bounds)
 }
 
+function rotateImage(payload: { elementId: string; rotation: number }): void {
+  assetSnapshot.value = assetHost.rotateSelectedImage(payload.elementId, payload.rotation)
+}
+
+function flipImage(payload: { elementId: string; axis: 'horizontal' | 'vertical' }): void {
+  assetSnapshot.value = assetHost.toggleSelectedImageFlip(payload.elementId, payload.axis)
+}
+
 function updateTextElement(payload: { elementId: string; body: TextBody }): void {
   assetSnapshot.value = assetHost.updateTextElement(payload.elementId, payload.body)
 }
@@ -79,6 +87,8 @@ function replaceAsset(assetId: string): void {
 
 function statusText(): string {
   const message = assetSnapshot.value.status.message
+  if (message === 'image-rotated') return t('status.imageRotated')
+  if (message === 'image-flipped') return t('status.imageFlipped')
   return message ? t(`playground.assetHost.status.${message}`) : t('playground.assetHost.status.idle')
 }
 
@@ -142,6 +152,8 @@ async function uploadFile(event: Event): Promise<void> {
           @resize-selection="resizeSelected"
           @move-end="moveElement"
           @resize="resizeElement"
+          @rotate-image="rotateImage"
+          @flip-image="flipImage"
           @text-edit="updateTextElement"
         />
         <section class="mt-8 border border-slate-200 bg-white p-4">

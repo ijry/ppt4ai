@@ -9,6 +9,10 @@ const enUS = {
     object: {
       group: 'Group',
       ungroup: 'Ungroup',
+      rotateLeft: 'Rotate left 90°',
+      rotateRight: 'Rotate right 90°',
+      flipHorizontal: 'Flip horizontally',
+      flipVertical: 'Flip vertically',
     },
     insert: {
       shape: 'Insert shape',
@@ -49,6 +53,10 @@ const enUS = {
     thumbnailFailure: 'Thumbnail unavailable',
     unnamed: 'Unnamed image ({id})',
     unknownDimensions: 'Unknown dimensions',
+  },
+  status: {
+    imageRotated: 'Image rotated',
+    imageFlipped: 'Image flipped',
   },
   playground: {
     assetHost: {

@@ -9,6 +9,10 @@ const zhCN = {
     object: {
       group: '组合',
       ungroup: '取消组合',
+      rotateLeft: '向左旋转 90°',
+      rotateRight: '向右旋转 90°',
+      flipHorizontal: '水平翻转',
+      flipVertical: '垂直翻转',
     },
     insert: {
       shape: '插入形状',
@@ -49,6 +53,10 @@ const zhCN = {
     thumbnailFailure: '缩略图不可用',
     unnamed: '未命名图片（{id}）',
     unknownDimensions: '尺寸未知',
+  },
+  status: {
+    imageRotated: '图片已旋转',
+    imageFlipped: '图片已翻转',
   },
   playground: {
     assetHost: {

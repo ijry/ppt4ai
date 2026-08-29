@@ -153,6 +153,55 @@ describe('PptEditor', () => {
     shapeMounted.app.unmount()
   })
 
+  it('renders image transform buttons only for a single image and emits typed intents', async () => {
+    const rotateEvents: unknown[] = []
+    const flipEvents: unknown[] = []
+    const imageMounted = mountEditor({
+      scene: imageScene,
+      selectedElementId: 'image-1',
+      onRotateImage: (payload: unknown) => rotateEvents.push(payload),
+      onFlipImage: (payload: unknown) => flipEvents.push(payload),
+    })
+    await nextTick()
+
+    expect(imageMounted.host.querySelectorAll('[data-image-transform-button]')).toHaveLength(4)
+    expect([...imageMounted.host.querySelectorAll('[data-image-transform-button]')].map((button) => button.getAttribute('data-image-transform-button'))).toEqual([
+      'rotate-left',
+      'rotate-right',
+      'flip-horizontal',
+      'flip-vertical',
+    ])
+    ;(imageMounted.host.querySelector('[data-image-transform-button="rotate-left"]') as HTMLButtonElement).click()
+    ;(imageMounted.host.querySelector('[data-image-transform-button="rotate-right"]') as HTMLButtonElement).click()
+    ;(imageMounted.host.querySelector('[data-image-transform-button="flip-horizontal"]') as HTMLButtonElement).click()
+    ;(imageMounted.host.querySelector('[data-image-transform-button="flip-vertical"]') as HTMLButtonElement).click()
+    expect(rotateEvents).toEqual([
+      { elementId: 'image-1', rotation: -4500000 },
+      { elementId: 'image-1', rotation: 6300000 },
+    ])
+    expect(flipEvents).toEqual([
+      { elementId: 'image-1', axis: 'horizontal' },
+      { elementId: 'image-1', axis: 'vertical' },
+    ])
+    imageMounted.app.unmount()
+
+    const shapeMounted = mount('shape-1')
+    await nextTick()
+    expect(shapeMounted.host.querySelectorAll('[data-image-transform-button]')).toHaveLength(0)
+    shapeMounted.app.unmount()
+  })
+
+  it('exposes localized image transform labels and statuses in both locales', () => {
+    for (const locale of Object.values(locales)) {
+      expect(locale.toolbar.object.rotateLeft).toBeTruthy()
+      expect(locale.toolbar.object.rotateRight).toBeTruthy()
+      expect(locale.toolbar.object.flipHorizontal).toBeTruthy()
+      expect(locale.toolbar.object.flipVertical).toBeTruthy()
+      expect(locale.status.imageRotated).toBeTruthy()
+      expect(locale.status.imageFlipped).toBeTruthy()
+    }
+  })
+
   it('emits exact image rotation values and snaps Shift gestures to fifteen degrees', async () => {
     const rotateEvents: Array<{ elementId: string; rotation: number }> = []
     const mounted = mountEditor({
