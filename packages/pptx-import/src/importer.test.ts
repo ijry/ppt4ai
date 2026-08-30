@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { AssetAdapter, AssetMetadata } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, type AssetAdapter, type AssetMetadata } from '@ppt4ai/model'
 import { importPptx, parseXml, readZipEntries } from './index'
 
 function createStoredZip(files: Record<string, string | Uint8Array>): Uint8Array {
@@ -338,7 +338,8 @@ describe('importPptx', () => {
   })
 
   it('imports a real OOXML relationship chain into the JSON model', async () => {
-    const imported = await importPptx(createStoredZip(files))
+    const input = createStoredZip(files)
+    const imported = await importPptx(input)
     expect(imported.page).toEqual({ w: 12192000, h: 6858000 })
     expect(imported.slideOrder).toEqual(['sld_1'])
     expect(imported.slides.sld_1).toMatchObject({ layoutId: 'lyt_1', masterId: 'mst_1' })
@@ -355,6 +356,9 @@ describe('importPptx', () => {
       placeholder: 'title',
     })
     expect(imported.source?.entries['ppt/slides/slide1.xml']).toContain('Imported title')
+    expect(imported.source?.packageFingerprint).toBe(fingerprintBytes(input))
+    expect(imported.source?.modelFingerprint).toBe(fingerprintDocument(imported))
+    expect(structuredClone(imported).source).toEqual(imported.source)
     expect(structuredClone(imported)).toEqual(imported)
   })
 
@@ -373,13 +377,13 @@ describe('importPptx', () => {
     expect(imported.slides.sld_2).toMatchObject({ layoutId: 'lyt_1', masterId: 'mst_1' })
     expect(imported.slides.sld_1?.elementIds).toEqual(['el_1'])
     expect(imported.slides.sld_2?.elementIds).toEqual(['el_2'])
-    expect(imported.slides.sld_1?.source).toEqual({
+    expect(imported.slides.sld_1?.source).toMatchObject({
       originId: 'sld_1',
       partPath: 'ppt/slides/slide1.xml',
       relationshipId: 'rId1',
       presentationId: '256',
     })
-    expect(imported.slides.sld_2?.source).toEqual({
+    expect(imported.slides.sld_2?.source).toMatchObject({
       originId: 'sld_2',
       partPath: 'ppt/slides/slide2.xml',
       relationshipId: 'rId2',

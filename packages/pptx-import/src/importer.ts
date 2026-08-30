@@ -1,4 +1,4 @@
-import { parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextBody, type TextBullet, type TextParagraph, type TextRun, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextBody, type TextBullet, type TextParagraph, type TextRun, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -827,7 +827,7 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
   }
 
   const page = parseSlideSize(presentation.xml)
-  return {
+  const document: Ppt4aiDocument = {
     format: 'ppt4ai',
     version: 1,
     id: 'dck_imported',
@@ -840,6 +840,9 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
     masters,
     ...(Object.keys(themes).length > 0 ? { themes } : {}),
     ...(Object.keys(tableStyles).length > 0 ? { tableStyles } : {}),
-    source: { entries: xmlEntries(entries) },
+    source: { entries: xmlEntries(entries), packageFingerprint: fingerprintBytes(input) },
   }
+  if (!document.source) throw new Error('PPTX import source metadata missing')
+  document.source.modelFingerprint = fingerprintDocument(document)
+  return document
 }
