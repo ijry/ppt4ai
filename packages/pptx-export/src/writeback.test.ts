@@ -136,6 +136,31 @@ function sharedDependentSourcePackage(): Uint8Array {
 }
 
 describe('exportPptx', () => {
+  it('returns exact source bytes for an unchanged imported package', async () => {
+    const base = structuralSourcePackage()
+    const source = new Uint8Array([...base, 0x13, 0x37, 0x42])
+    const document = await importPptx(source)
+    const adapter = new RecordingAssetAdapter(new Map())
+
+    const output = await exportPptx(document, source, { assetAdapter: adapter })
+
+    expect(output).toEqual(source)
+    expect(output).not.toBe(source)
+    expect(adapter.requests).toEqual([])
+  })
+
+  it('falls back to write-back when supplied source bytes differ', async () => {
+    const base = structuralSourcePackage()
+    const source = new Uint8Array([...base, 0x13, 0x37, 0x42])
+    const document = await importPptx(source)
+    const altered = new Uint8Array(source)
+    altered[altered.length - 1] = 0x43
+
+    const output = await exportPptx(document, altered)
+
+    expect(output).not.toEqual(altered)
+  })
+
   it('writes reordered source slides in document order', async () => {
     const source = structuralSourcePackage()
     const document = await importPptx(source)

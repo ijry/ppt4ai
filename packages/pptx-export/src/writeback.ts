@@ -1,4 +1,4 @@
-import { parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type ImageElement, type Ppt4aiDocument } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type ImageElement, type Ppt4aiDocument } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
 import {
@@ -641,6 +641,12 @@ export interface ExportPptxOptions {
 }
 
 export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, options: ExportPptxOptions = {}): Promise<Uint8Array> {
+  const sourceMetadata = document.source
+  if (sourceMetadata?.packageFingerprint && sourceMetadata.modelFingerprint
+    && sourceMetadata.packageFingerprint === fingerprintBytes(source)
+    && sourceMetadata.modelFingerprint === fingerprintDocument(document)) {
+    return new Uint8Array(source)
+  }
   const entries = await readZipEntries(source)
   const entriesByName = new Map(entries.map((entry) => [entry.name, entry]))
   const sourcePackageData = sourcePackage(entriesByName)
