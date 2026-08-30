@@ -16,6 +16,8 @@ export interface PlaygroundAssetHost {
   adapter: AssetAdapter
   readonly snapOptions: SnapOptions
   getSnapshot(): PlaygroundAssetHostSnapshot
+  undo(): PlaygroundAssetHostSnapshot
+  redo(): PlaygroundAssetHostSnapshot
   selectElements(elementIds: string[]): PlaygroundAssetHostSnapshot
   selectElement(elementId: string | undefined): PlaygroundAssetHostSnapshot
   moveSelected(elementId: string, dx: number, dy: number): PlaygroundAssetHostSnapshot
@@ -145,6 +147,18 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
     adapter,
     snapOptions: structuredClone(playgroundSnapOptions),
     getSnapshot: snapshot,
+    undo() {
+      if (engine.getState().history.undoDepth === 0) return fail('undo-unavailable')
+      engine.dispatch({ type: 'undo' })
+      status = { kind: 'success', message: 'edit-undone' }
+      return snapshot()
+    },
+    redo() {
+      if (engine.getState().history.redoDepth === 0) return fail('redo-unavailable')
+      engine.dispatch({ type: 'redo' })
+      status = { kind: 'success', message: 'edit-redone' }
+      return snapshot()
+    },
     selectAsset(assetId) {
       if (!hasAsset(assetId)) return fail('asset-missing')
       selectedAssetId = assetId

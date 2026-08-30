@@ -127,4 +127,88 @@ describe('createPlaygroundPresentationHost', () => {
     expect(movedDown.slideOrder).toEqual(['sld_playground', 'sld_playground_blue'])
     expect(movedDown.activeSlideId).toBe('sld_playground_blue')
   })
+
+  it('undoes and redoes adding a page with the same page identity', () => {
+    const host = createPlaygroundPresentationHost()
+
+    const added = host.addSlide()
+    const addedSlideId = added.activeSlideId
+
+    expect(added.presentationHistory).toEqual({ undoDepth: 1, redoDepth: 0 })
+
+    const undone = host.undo()
+    expect(undone.slideOrder).toEqual(['sld_playground', 'sld_playground_blue'])
+    expect(undone.activeSlideId).toBe('sld_playground')
+    expect(undone.presentationHistory).toEqual({ undoDepth: 0, redoDepth: 1 })
+
+    const redone = host.redo()
+    expect(redone.slideOrder).toEqual(['sld_playground', addedSlideId, 'sld_playground_blue'])
+    expect(redone.activeSlideId).toBe(addedSlideId)
+    expect(redone.slides[addedSlideId]?.engineState.document.id).toBe(`dck_${addedSlideId}`)
+    expect(redone.presentationHistory).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('restores a deleted page with its selection and engine history', () => {
+    const host = createPlaygroundPresentationHost()
+    host.selectSlide('sld_playground_blue')
+    host.selectElement('table_demo')
+    host.moveSelected('table_demo', 914400, 0)
+
+    host.deleteSlide()
+    const restored = host.undo()
+
+    expect(restored.slideOrder).toEqual(['sld_playground', 'sld_playground_blue'])
+    expect(restored.activeSlideId).toBe('sld_playground_blue')
+    expect(restored.slides.sld_playground_blue?.engineState.selection).toEqual(['table_demo'])
+    expect(restored.slides.sld_playground_blue?.engineState.document.elements.table_demo?.bounds.x).toBe(1828800)
+    expect(restored.slides.sld_playground_blue?.engineState.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(restored.presentationHistory).toEqual({ undoDepth: 0, redoDepth: 1 })
+  })
+
+  it('keeps page engine state when undoing and redoing a structural change', () => {
+    const host = createPlaygroundPresentationHost()
+    host.selectElement('text_demo')
+    host.moveSelected('text_demo', 914400, 0)
+    const addedSlideId = host.addSlide().activeSlideId
+
+    host.undo()
+    const removed = host.getSnapshot()
+    expect(removed.slides.sld_playground?.engineState.selection).toEqual(['text_demo'])
+    expect(removed.slides.sld_playground?.engineState.document.elements.text_demo?.bounds.x).toBe(1828800)
+    expect(removed.slides.sld_playground?.engineState.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+
+    const restored = host.redo()
+    expect(restored.activeSlideId).toBe(addedSlideId)
+    expect(restored.slides.sld_playground?.engineState.selection).toEqual(['text_demo'])
+    expect(restored.slides.sld_playground?.engineState.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('clears presentation redo history after a new structural operation', () => {
+    const host = createPlaygroundPresentationHost()
+
+    host.addSlide()
+    host.undo()
+    const replacement = host.addSlide()
+
+    expect(replacement.presentationHistory).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(host.redo().status).toEqual({ kind: 'error', message: 'redo-unavailable' })
+  })
+
+  it('undoes the active page edit before undoing a presentation operation', () => {
+    const host = createPlaygroundPresentationHost()
+    host.selectElement('text_demo')
+    host.moveSelected('text_demo', 914400, 0)
+    host.addSlide()
+    host.selectSlide('sld_playground')
+
+    const editUndone = host.undo()
+    expect(editUndone.slideOrder).toHaveLength(3)
+    expect(editUndone.slides.sld_playground?.engineState.document.elements.text_demo?.bounds.x).toBe(914400)
+    expect(editUndone.slides.sld_playground?.engineState.history).toEqual({ undoDepth: 0, redoDepth: 1 })
+    expect(editUndone.presentationHistory).toEqual({ undoDepth: 1, redoDepth: 0 })
+
+    const structureUndone = host.undo()
+    expect(structureUndone.slideOrder).toEqual(['sld_playground', 'sld_playground_blue'])
+    expect(structureUndone.presentationHistory).toEqual({ undoDepth: 0, redoDepth: 1 })
+  })
 })

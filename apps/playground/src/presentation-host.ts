@@ -17,6 +17,10 @@ export interface PlaygroundPresentationSnapshot {
   slides: Record<string, PlaygroundSlideSnapshot>
   selectedAssetId?: string
   status: PlaygroundAssetHostSnapshot['status']
+  presentationHistory: {
+    undoDepth: number
+    redoDepth: number
+  }
 }
 
 export interface PlaygroundPresentationHost {
@@ -24,6 +28,8 @@ export interface PlaygroundPresentationHost {
   readonly snapOptions: SnapOptions
   getSnapshot(): PlaygroundPresentationSnapshot
   selectSlide(slideId: string): PlaygroundPresentationSnapshot
+  undo(): PlaygroundPresentationSnapshot
+  redo(): PlaygroundPresentationSnapshot
   addSlide(): PlaygroundPresentationSnapshot
   duplicateSlide(): PlaygroundPresentationSnapshot
   deleteSlide(): PlaygroundPresentationSnapshot
@@ -49,6 +55,13 @@ interface PageEntry {
   id: string
   title: string
   document: Ppt4aiDocument
+}
+
+interface PresentationHistoryEntry {
+  beforeOrder: string[]
+  afterOrder: string[]
+  beforeActiveSlideId: string
+  afterActiveSlideId: string
 }
 
 function pageDocument(source: Ppt4aiDocument, slideId: string, elementIds: string[]): Ppt4aiDocument {
@@ -93,8 +106,24 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
   let activeSlideId = slideOrder[0]!
   let slideSequence = 1
   let status: PlaygroundAssetHostSnapshot['status'] = { kind: 'idle', message: '' }
+  const undoStack: PresentationHistoryEntry[] = []
+  const redoStack: PresentationHistoryEntry[] = []
 
   const activeHost = (): PlaygroundAssetHost => pageHosts.get(activeSlideId)!
+  const recordStructuralChange = (beforeOrder: string[], beforeActiveSlideId: string): void => {
+    undoStack.push({
+      beforeOrder,
+      afterOrder: [...slideOrder],
+      beforeActiveSlideId,
+      afterActiveSlideId: activeSlideId,
+    })
+    redoStack.length = 0
+  }
+  const applyStructuralState = (entry: PresentationHistoryEntry, direction: 'undo' | 'redo'): void => {
+    const order = direction === 'undo' ? entry.beforeOrder : entry.afterOrder
+    slideOrder.splice(0, slideOrder.length, ...order)
+    activeSlideId = direction === 'undo' ? entry.beforeActiveSlideId : entry.afterActiveSlideId
+  }
   const snapshot = (): PlaygroundPresentationSnapshot => {
     const slides: Record<string, PlaygroundSlideSnapshot> = {}
     for (const slideId of slideOrder) {
@@ -113,6 +142,7 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
       slides,
       ...(current.selectedAssetId ? { selectedAssetId: current.selectedAssetId } : {}),
       status,
+      presentationHistory: { undoDepth: undoStack.length, redoDepth: redoStack.length },
     })
   }
   const forward = (operation: (host: PlaygroundAssetHost) => PlaygroundAssetHostSnapshot): PlaygroundPresentationSnapshot => {
@@ -130,11 +160,14 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     return slideId
   }
   const insertPage = (slideId: string, title: string, document: Ppt4aiDocument, index: number): PlaygroundPresentationSnapshot => {
+    const beforeOrder = [...slideOrder]
+    const beforeActiveSlideId = activeSlideId
     pageHosts.set(slideId, createPlaygroundAssetHost({ adapter: seedHost.adapter, document }))
     titles.set(slideId, title)
     slideOrder.splice(index, 0, slideId)
     activeSlideId = slideId
     status = { kind: 'success', message: 'slide-added' }
+    recordStructuralChange(beforeOrder, beforeActiveSlideId)
     return snapshot()
   }
 
@@ -151,6 +184,40 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
       status = { kind: 'success', message: 'slide-selected' }
       return snapshot()
     },
+    undo() {
+      const current = activeHost().getSnapshot().engineState
+      if (current.history.undoDepth > 0) {
+        const result = activeHost().undo()
+        status = result.status
+        return snapshot()
+      }
+      const entry = undoStack.pop()
+      if (!entry) {
+        status = { kind: 'error', message: 'undo-unavailable' }
+        return snapshot()
+      }
+      applyStructuralState(entry, 'undo')
+      redoStack.push(entry)
+      status = { kind: 'success', message: 'presentation-undone' }
+      return snapshot()
+    },
+    redo() {
+      const current = activeHost().getSnapshot().engineState
+      if (current.history.redoDepth > 0) {
+        const result = activeHost().redo()
+        status = result.status
+        return snapshot()
+      }
+      const entry = redoStack.pop()
+      if (!entry) {
+        status = { kind: 'error', message: 'redo-unavailable' }
+        return snapshot()
+      }
+      applyStructuralState(entry, 'redo')
+      undoStack.push(entry)
+      status = { kind: 'success', message: 'presentation-redone' }
+      return snapshot()
+    },
     addSlide() {
       const index = slideOrder.indexOf(activeSlideId) + 1
       const slideId = nextSlideId()
@@ -164,11 +231,14 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
       const sourceSlide = sourceState.document.slides[sourceState.document.slideOrder[0]!]!
       const document = pageDocument(sourceState.document, slideId, sourceSlide.elementIds)
       const index = slideOrder.indexOf(sourceId) + 1
+      const beforeOrder = [...slideOrder]
+      const beforeActiveSlideId = activeSlideId
       pageHosts.set(slideId, createPlaygroundAssetHost({ adapter: seedHost.adapter, document }))
       titles.set(slideId, `${titles.get(sourceId)} copy`)
       slideOrder.splice(index, 0, slideId)
       activeSlideId = slideId
       status = { kind: 'success', message: 'slide-duplicated' }
+      recordStructuralChange(beforeOrder, beforeActiveSlideId)
       return snapshot()
     },
     deleteSlide() {
@@ -177,12 +247,12 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
         return snapshot()
       }
       const index = slideOrder.indexOf(activeSlideId)
-      const deletedSlideId = activeSlideId
+      const beforeOrder = [...slideOrder]
+      const beforeActiveSlideId = activeSlideId
       slideOrder.splice(index, 1)
-      pageHosts.delete(deletedSlideId)
-      titles.delete(deletedSlideId)
       activeSlideId = slideOrder[Math.min(index, slideOrder.length - 1)]!
       status = { kind: 'success', message: 'slide-deleted' }
+      recordStructuralChange(beforeOrder, beforeActiveSlideId)
       return snapshot()
     },
     moveSlide(slideId, direction) {
@@ -196,11 +266,14 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
         status = { kind: 'error', message: 'slide-reorder-blocked' }
         return snapshot()
       }
+      const beforeOrder = [...slideOrder]
+      const beforeActiveSlideId = activeSlideId
       const neighborId = slideOrder[nextIndex]!
       slideOrder[index] = neighborId
       slideOrder[nextIndex] = slideId
       activeSlideId = slideId
       status = { kind: 'success', message: 'slide-reordered' }
+      recordStructuralChange(beforeOrder, beforeActiveSlideId)
       return snapshot()
     },
     selectElements(elementIds) {
