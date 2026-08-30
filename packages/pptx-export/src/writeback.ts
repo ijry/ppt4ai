@@ -9,6 +9,7 @@ import {
   serializePictureXml,
   stableAssetId,
 } from './image-writeback.js'
+import { clonePartDependencies, type DependencyCloneResult } from './dependency-graph.js'
 
 interface XmlElement {
   name: string
@@ -79,6 +80,11 @@ interface SlidePlan {
   relationshipId: string
   source?: SourceSlide
   layoutRelationship?: SlideRelationship
+}
+
+interface ContentTypeAddition {
+  path: string
+  contentType?: string
 }
 
 const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
@@ -506,16 +512,27 @@ function rewritePresentationRelationships(xml: string, originalSlides: SourceSli
   return additions.length > 0 ? appendRelationships(removed, additions) : removed
 }
 
-function rewriteContentTypes(xml: string, removedPaths: string[], addedPaths: string[] = []): string {
+function sourceContentType(xml: string, path: string): string | undefined {
+  return descendants(scanXml(xml), 'Override').find((override) => override.attributes.PartName === `/${path}`)?.attributes.ContentType
+}
+
+function rewriteContentTypes(xml: string, removedPaths: string[], addedPaths: string[] = [], addedOverrides: ContentTypeAddition[] = []): string {
   const removed = new Set(removedPaths.map((path) => `/${path}`))
   const replacements = descendants(scanXml(xml), 'Override')
     .filter((override) => override.attributes.PartName !== undefined && removed.has(override.attributes.PartName))
     .map((override) => ({ start: override.start, end: override.end, value: '' }))
   const updated = replacements.length > 0 ? replaceRanges(xml, replacements) : xml
-  if (addedPaths.length === 0) return updated
-  const additions = addedPaths.map((path) => (
-    `<Override PartName="/${escapeXml(path)}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`
-  ))
+  const additions = [
+    ...addedPaths.map((path) => ({ path, contentType: 'application/vnd.openxmlformats-officedocument.presentationml.slide+xml' })),
+    ...addedOverrides,
+  ].filter(({ path }, index, values) => values.findIndex((value) => value.path === path) === index)
+    .map(({ path, contentType }) => (
+      contentType
+        ? `<Override PartName="/${escapeXml(path)}" ContentType="${escapeXml(contentType)}"/>`
+        : ''
+    ))
+    .filter((value) => value.length > 0)
+  if (additions.length === 0) return updated
   const close = updated.lastIndexOf('</Types>')
   if (close < 0) throw new Error('PPTX export content types malformed')
   return `${updated.slice(0, close)}${additions.join('')}${updated.slice(close)}`
@@ -632,18 +649,44 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
   const usedPaths = new Set(plans.filter((plan) => plan.mode === 'reuse').map((plan) => plan.outputPath))
   const removedSlides = sourcePackageData.slides.filter((slide) => !usedPaths.has(slide.partPath))
   const addedSlidePaths = plans.filter((plan) => plan.mode !== 'reuse').map((plan) => plan.outputPath)
+  const dependencyClones = new Map<string, DependencyCloneResult>()
+  const reservedPaths = new Set(entries.map((entry) => entry.name))
+  for (const plan of plans.filter((candidate) => candidate.mode !== 'reuse')) {
+    reservedPaths.add(plan.outputPath)
+    reservedPaths.add(relationshipFilePath(plan.outputPath))
+  }
+  for (const plan of plans) {
+    if (plan.mode !== 'clone' || !plan.source) continue
+    const clone = clonePartDependencies(entriesByName, plan.source.partPath, plan.outputPath, reservedPaths)
+    dependencyClones.set(plan.outputPath, clone)
+    for (const entry of clone.entries) {
+      if (entriesByName.has(entry.name)) throw new Error(`PPTX export dependency path collision: ${entry.name}`)
+      entries.push(entry)
+      entriesByName.set(entry.name, entry)
+      reservedPaths.add(entry.name)
+    }
+  }
   if (removedSlides.length > 0 || addedSlidePaths.length > 0) {
     const contentTypesEntry = entriesByName.get('[Content_Types].xml')
     if (!contentTypesEntry) throw new Error('PPTX export source part missing: [Content_Types].xml')
+    const sourceContentTypesXml = decoder.decode(contentTypesEntry.data)
+    const dependencyOverrides = [...dependencyClones.values()].flatMap((clone) => [...clone.pathMap.entries()]
+      .filter(([sourcePath, outputPath]) => sourcePath !== outputPath && !sourcePath.endsWith('.rels'))
+      .flatMap(([sourcePath, outputPath]) => {
+        const contentType = sourceContentType(sourceContentTypesXml, sourcePath)
+        return contentType ? [{ path: outputPath, contentType }] : []
+      }))
     contentTypesEntry.data = encoder.encode(rewriteContentTypes(
-      decoder.decode(contentTypesEntry.data),
+      sourceContentTypesXml,
       removedSlides.map((slide) => slide.partPath),
       addedSlidePaths,
+      dependencyOverrides,
     ))
   }
   const layoutRelationship = firstLayoutRelationship(sourcePackageData, entriesByName)
   for (const plan of plans) {
     if (plan.mode === 'reuse') continue
+    if (plan.mode === 'clone' && dependencyClones.has(plan.outputPath)) continue
     const sourceEntry = plan.source ? entriesByName.get(plan.source.partPath) : undefined
     const slideData = plan.mode === 'clone'
       ? sourceEntry?.data.slice()

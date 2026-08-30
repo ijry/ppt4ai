@@ -94,6 +94,24 @@ function structuralSourcePackage(): Uint8Array {
   ])
 }
 
+function dependentSourcePackage(): Uint8Array {
+  const relationshipNamespace = 'http://schemas.openxmlformats.org/package/2006/relationships'
+  const officeRelationshipNamespace = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+  const contentTypeNamespace = 'http://schemas.openxmlformats.org/package/2006/content-types'
+  return writeStoredZip([
+    { name: 'ppt/presentation.xml', data: new TextEncoder().encode('<p:presentation xmlns:p="p" xmlns:r="r"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>') },
+    { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(`<Relationships xmlns="${relationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipNamespace}/slide" Target="slides/slide1.xml"/></Relationships>`) },
+    { name: '[Content_Types].xml', data: new TextEncoder().encode(`<Types xmlns="${contentTypeNamespace}"><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/notesSlides/notesSlide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/><Override PartName="/ppt/custom/data1.xml" ContentType="application/xml"/></Types>`) },
+    { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode('<p:sld xmlns:p="p"><p:cSld><p:spTree/></p:cSld></p:sld>') },
+    { name: 'ppt/slides/_rels/slide1.xml.rels', data: new TextEncoder().encode(`<Relationships xmlns="${relationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipNamespace}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="${officeRelationshipNamespace}/notesSlide" Target="../notesSlides/notesSlide1.xml"/><Relationship Id="rId3" Type="${officeRelationshipNamespace}/image" Target="../media/image1.png"/></Relationships>`) },
+    { name: 'ppt/slideLayouts/slideLayout1.xml', data: new TextEncoder().encode('<p:sldLayout xmlns:p="p"/>') },
+    { name: 'ppt/notesSlides/notesSlide1.xml', data: new TextEncoder().encode('<p:notes xmlns:p="p">original notes</p:notes>') },
+    { name: 'ppt/notesSlides/_rels/notesSlide1.xml.rels', data: new TextEncoder().encode(`<Relationships xmlns="${relationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipNamespace}/customXml" Target="../custom/data1.xml"/></Relationships>`) },
+    { name: 'ppt/custom/data1.xml', data: new TextEncoder().encode('<custom:data xmlns:custom="custom">original dependency</custom:data>') },
+    { name: 'ppt/media/image1.png', data: pngBytes },
+  ])
+}
+
 describe('exportPptx', () => {
   it('writes reordered source slides in document order', async () => {
     const source = structuralSourcePackage()
@@ -190,6 +208,30 @@ describe('exportPptx', () => {
     expect(imported.slideOrder).toHaveLength(3)
     expect(imported.elements[imported.slides.sld_2?.elementIds[0] ?? '']).toMatchObject({ text: 'First slide' })
     expect(document).toEqual(expectedDocument)
+  })
+
+  it('clones slide-owned dependencies while keeping shared layout parts', async () => {
+    const source = dependentSourcePackage()
+    const document = await importPptx(source)
+    const copiedSlide = structuredClone(document.slides.sld_1!)
+    copiedSlide.id = 'sld_copy'
+    document.slides.sld_copy = copiedSlide
+    document.slideOrder = ['sld_1', 'sld_copy']
+    const sourceEntries = await packageEntries(source)
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const clonedRelationships = new TextDecoder().decode(entries.get('ppt/slides/_rels/slide2.xml.rels'))
+
+    expect(clonedRelationships).toContain('Target="../slideLayouts/slideLayout1.xml"')
+    expect(clonedRelationships).toContain('Target="../notesSlides/notesSlide2.xml"')
+    expect(clonedRelationships).toContain('Target="../media/image2.png"')
+    expect(entries.get('ppt/notesSlides/notesSlide2.xml')).toEqual(sourceEntries.get('ppt/notesSlides/notesSlide1.xml'))
+    expect(entries.get('ppt/notesSlides/_rels/notesSlide2.xml.rels')).toBeDefined()
+    expect(entries.get('ppt/custom/data2.xml')).toEqual(sourceEntries.get('ppt/custom/data1.xml'))
+    expect(entries.get('ppt/media/image2.png')).toEqual(sourceEntries.get('ppt/media/image1.png'))
+    expect(new TextDecoder().decode(entries.get('[Content_Types].xml'))).toContain('PartName="/ppt/notesSlides/notesSlide2.xml"')
+    expect(new TextDecoder().decode(entries.get('[Content_Types].xml'))).toContain('PartName="/ppt/custom/data2.xml"')
   })
 
   it('replaces imported table XML while preserving the package', async () => {
