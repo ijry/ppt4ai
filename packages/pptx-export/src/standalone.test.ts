@@ -216,6 +216,45 @@ describe('createPptx', () => {
     expect(imported.slides.sld_1?.elementIds).toEqual([])
   })
 
+  it('serializes the selected document theme in standalone output', async () => {
+    const themedDocument = structuredClone(emptyDocument)
+    themedDocument.themes = {
+      theme_custom: {
+        id: 'theme_custom',
+        colors: {
+          dk1: { type: 'system', v: '010203' },
+          accent1: { type: 'srgb', v: '123456' },
+          accent2: { type: 'scrgb', v: '100000,0,50000', transforms: [{ type: 'alpha', value: 75000 }] },
+        },
+      },
+    }
+    themedDocument.masters = {
+      master_custom: { id: 'master_custom', themeId: 'theme_custom' },
+    }
+    const before = structuredClone(themedDocument)
+
+    const first = await createPptx(themedDocument)
+    const second = await createPptx(structuredClone(themedDocument))
+    const entries = await packageEntries(first)
+    const themeBytes = entries.get('ppt/theme/theme1.xml')
+    if (!themeBytes) throw new Error('generated theme entry missing')
+    const themeXml = new TextDecoder().decode(themeBytes)
+    const imported = await importPptx(first)
+    const importedThemeId = imported.masters?.mst_1?.themeId
+
+    expect(first).toEqual(second)
+    expect(themeXml).toContain('<a:dk1><a:sysClr val="windowText" lastClr="010203"/></a:dk1>')
+    expect(themeXml).toContain('<a:accent1><a:srgbClr val="123456"/></a:accent1>')
+    expect(themeXml).toContain('<a:accent2><a:scrgbClr r="100000" g="0" b="50000"><a:alpha val="75000"/></a:scrgbClr></a:accent2>')
+    expect(themeXml).toContain('<a:accent3><a:srgbClr val="A5A5A5"/></a:accent3>')
+    expect(imported.themes?.[importedThemeId ?? '']?.colors).toMatchObject({
+      dk1: { type: 'system', v: '010203' },
+      accent1: { type: 'srgb', v: '123456' },
+      accent2: { type: 'scrgb', v: '100000,0,50000', transforms: [{ type: 'alpha', value: 75000 }] },
+    })
+    expect(themedDocument).toEqual(before)
+  })
+
   it('serializes top-level shapes and text bodies in document order', async () => {
     const before = structuredClone(shapeTextDocument)
     const first = await createPptx(shapeTextDocument)

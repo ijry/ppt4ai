@@ -1,4 +1,4 @@
-import { parseBitmapMetadata, validateDocument, type AssetAdapter, type Element, type Ppt4aiDocument } from '@ppt4ai/model'
+import { parseBitmapMetadata, validateDocument, type AssetAdapter, type Element, type Ppt4aiDocument, type Theme } from '@ppt4ai/model'
 import { allocateMediaPath, allocateRelationshipId, imageExtension, serializeImageRelationship, serializePictureXml } from './image-writeback.js'
 import { writeStoredZip, type ZipEntry } from './zip.js'
 import {
@@ -133,7 +133,19 @@ function serializeSlideElements(document: Ppt4aiDocument, slideId: string, asset
   }
 }
 
-function skeletonEntries(document: Ppt4aiDocument, slides: SlideSerialization[], materialized: Map<string, MaterializedAsset>, imageExtensions: Set<string>): ZipEntry[] {
+function selectedTheme(document: Ppt4aiDocument): Theme | undefined {
+  const themes = document.themes
+  if (!themes) return undefined
+  const firstMaster = Object.values(document.masters ?? {})[0]
+  if (firstMaster?.themeId) {
+    const referenced = themes[firstMaster.themeId]
+    if (referenced) return referenced
+  }
+  const firstThemeId = Object.keys(themes).sort()[0]
+  return firstThemeId ? themes[firstThemeId] : undefined
+}
+
+function skeletonEntries(document: Ppt4aiDocument, slides: SlideSerialization[], materialized: Map<string, MaterializedAsset>, imageExtensions: Set<string>, theme?: Theme): ZipEntry[] {
   const slideCount = document.slideOrder.length
   const support = serializePresentationSupportXml()
   const encoder = new TextEncoder()
@@ -146,7 +158,7 @@ function skeletonEntries(document: Ppt4aiDocument, slides: SlideSerialization[],
     { name: 'ppt/_rels/presentation.xml.rels', data: encoder.encode(serializePresentationRelationshipsXml(slideCount)) },
     { name: 'ppt/presProps.xml', data: encoder.encode(support.presProps) },
     { name: 'ppt/viewProps.xml', data: encoder.encode(support.viewProps) },
-    { name: 'ppt/theme/theme1.xml', data: encoder.encode(serializeThemeXml()) },
+    { name: 'ppt/theme/theme1.xml', data: encoder.encode(serializeThemeXml(theme)) },
     { name: 'ppt/slideMasters/slideMaster1.xml', data: encoder.encode(serializeMasterXml()) },
     { name: 'ppt/slideMasters/_rels/slideMaster1.xml.rels', data: encoder.encode(serializeMasterRelationshipsXml()) },
     { name: 'ppt/slideLayouts/slideLayout1.xml', data: encoder.encode(serializeLayoutXml()) },
@@ -170,5 +182,5 @@ export async function createPptx(document: Ppt4aiDocument, options: CreatePptxOp
   validateElementKinds(document)
   const materialized = await materializeAssets(document, options)
   const slides = document.slideOrder.map((slideId) => serializeSlideElements(document, slideId, materialized.assets))
-  return writeStoredZip(skeletonEntries(document, slides, materialized.assets, materialized.extensions))
+  return writeStoredZip(skeletonEntries(document, slides, materialized.assets, materialized.extensions, selectedTheme(document)))
 }

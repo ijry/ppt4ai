@@ -10,6 +10,8 @@ import type {
   TextMarks,
   TextParagraph,
   TextBullet,
+  Theme,
+  ThemeColorSlot,
 } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 
@@ -128,8 +130,28 @@ export function serializePresentationSupportXml(): { presProps: string; viewProp
   }
 }
 
-export function serializeThemeXml(): string {
-  return `${xmlHeader}<a:theme xmlns:a="${drawingNamespace}" name="Office"><a:themeElements><a:clrScheme name="Office"><a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1><a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1F1F1F"/></a:dk2><a:lt2><a:srgbClr val="F7F7F7"/></a:lt2><a:accent1><a:srgbClr val="4472C4"/></a:accent1><a:accent2><a:srgbClr val="ED7D31"/></a:accent2><a:accent3><a:srgbClr val="A5A5A5"/></a:accent3><a:accent4><a:srgbClr val="FFC000"/></a:accent4><a:accent5><a:srgbClr val="5B9BD5"/></a:accent5><a:accent6><a:srgbClr val="70AD47"/></a:accent6><a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme><a:fontScheme name="Office"><a:majorFont><a:latin typeface="Aptos Display"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont><a:minorFont><a:latin typeface="Aptos"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme><a:fmtScheme name="Office"><a:fillStyleLst/><a:lnStyleLst/><a:effectStyleLst/><a:bgFillStyleLst/></a:fmtScheme></a:themeElements></a:theme>`
+const themeColorSlots: readonly ThemeColorSlot[] = ['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink']
+
+const defaultThemeColors: Record<ThemeColorSlot, string> = {
+  dk1: '<a:sysClr val="windowText" lastClr="000000"/>',
+  lt1: '<a:sysClr val="window" lastClr="FFFFFF"/>',
+  dk2: '<a:srgbClr val="1F1F1F"/>',
+  lt2: '<a:srgbClr val="F7F7F7"/>',
+  accent1: '<a:srgbClr val="4472C4"/>',
+  accent2: '<a:srgbClr val="ED7D31"/>',
+  accent3: '<a:srgbClr val="A5A5A5"/>',
+  accent4: '<a:srgbClr val="FFC000"/>',
+  accent5: '<a:srgbClr val="5B9BD5"/>',
+  accent6: '<a:srgbClr val="70AD47"/>',
+  hlink: '<a:srgbClr val="0563C1"/>',
+  folHlink: '<a:srgbClr val="954F72"/>',
+}
+
+export function serializeThemeXml(theme?: Theme): string {
+  const colors = themeColorSlots
+    .map((slot) => `<a:${slot}>${theme?.colors[slot] === undefined ? defaultThemeColors[slot] : serializeColorXml(theme.colors[slot]!)}</a:${slot}>`)
+    .join('')
+  return `${xmlHeader}<a:theme xmlns:a="${drawingNamespace}" name="Office"><a:themeElements><a:clrScheme name="Office">${colors}</a:clrScheme><a:fontScheme name="Office"><a:majorFont><a:latin typeface="Aptos Display"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont><a:minorFont><a:latin typeface="Aptos"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme><a:fmtScheme name="Office"><a:fillStyleLst/><a:lnStyleLst/><a:effectStyleLst/><a:bgFillStyleLst/></a:fmtScheme></a:themeElements></a:theme>`
 }
 
 export function serializeMasterXml(): string {
