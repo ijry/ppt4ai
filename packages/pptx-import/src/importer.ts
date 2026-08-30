@@ -144,7 +144,7 @@ function parseColor(node: XmlNode | undefined): Color | undefined {
   return undefined
 }
 
-function parseTheme(xml: string, id: string): Theme | undefined {
+function parseTheme(xml: string, id: string, partPath: string): Theme | undefined {
   let root: XmlNode
   try {
     root = parseXml(xml)
@@ -160,7 +160,7 @@ function parseTheme(xml: string, id: string): Theme | undefined {
     const color = parseColor(slotNode)
     if (color) colors[slot] = color
   }
-  return Object.keys(colors).length > 0 ? { id, colors } : undefined
+  return Object.keys(colors).length > 0 ? { id, colors, source: { partPath } } : undefined
 }
 
 function parseColorMap(node: XmlNode | undefined): Partial<ColorMap> | undefined {
@@ -811,7 +811,7 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
                 } else {
                   const themeBytes = entries[themePath]
                   const candidateId = `theme_${themeCounter}`
-                  const theme = themeBytes ? parseTheme(new TextDecoder().decode(themeBytes), candidateId) : undefined
+                  const theme = themeBytes ? parseTheme(new TextDecoder().decode(themeBytes), candidateId, themePath) : undefined
                   if (theme) {
                     themeCounter += 1
                     themeId = candidateId

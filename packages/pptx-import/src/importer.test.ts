@@ -603,6 +603,7 @@ describe('importPptx', () => {
           hlink: { type: 'preset', v: 'red' },
           folHlink: { type: 'srgb', v: 'ABCDEF' },
         },
+        source: { partPath: 'ppt/theme/custom.xml' },
       },
     })
     expect(imported.masters?.mst_1).toMatchObject({ id: 'mst_1', themeId: 'theme_1', colorMap: { accent1: 'accent2' } })
@@ -611,6 +612,37 @@ describe('importPptx', () => {
     expect(imported.slides.sld_1?.colorMapOverride).not.toHaveProperty('unknown')
     expect(imported.source?.entries['ppt/theme/custom.xml']).toBe(themeFiles['ppt/theme/custom.xml'])
     expect(structuredClone(imported)).toEqual(imported)
+  })
+
+  it('records the normalized source path for a custom theme', async () => {
+    const imported = await importPptx(createStoredZip(themeFiles))
+    const themeId = imported.masters?.mst_1?.themeId
+    expect(themeId).toBeDefined()
+    expect(imported.themes?.[themeId ?? '']?.source).toEqual({ partPath: 'ppt/theme/custom.xml' })
+  })
+
+  it('reuses one source-bound theme for shared theme paths', async () => {
+    const imported = await importPptx(createStoredZip({
+      ...themeFiles,
+      'ppt/presentation.xml': themeFiles['ppt/presentation.xml']
+        .replace('</p:sldIdLst>', '<p:sldId id="257" r:id="rId2"/></p:sldIdLst>'),
+      'ppt/_rels/presentation.xml.rels': themeFiles['ppt/_rels/presentation.xml.rels']
+        .replace('</Relationships>', '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/></Relationships>'),
+      'ppt/slides/slide2.xml': themeFiles['ppt/slides/slide1.xml'],
+      'ppt/slides/_rels/slide2.xml.rels': themeFiles['ppt/slides/_rels/slide1.xml.rels'],
+    }))
+    expect(Object.keys(imported.themes ?? {})).toHaveLength(1)
+    expect(Object.values(imported.themes ?? {})[0]?.source).toEqual({ partPath: 'ppt/theme/custom.xml' })
+  })
+
+  it('leaves a malformed custom theme unbound without dropping the slide', async () => {
+    const imported = await importPptx(createStoredZip({
+      ...themeFiles,
+      'ppt/theme/custom.xml': '<a:theme><a:themeElements>',
+    }))
+    expect(imported.slideOrder).toEqual(['sld_1'])
+    expect(imported.masters?.mst_1?.themeId).toBeUndefined()
+    expect(imported.themes).toBeUndefined()
   })
 
   it('omits malformed optional theme fragments while preserving the imported graph', async () => {
