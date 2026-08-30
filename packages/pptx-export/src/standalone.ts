@@ -4,7 +4,6 @@ import {
   serializeAppPropertiesXml,
   serializeContentTypesXml,
   serializeCorePropertiesXml,
-  serializeEmptySlideXml,
   serializeLayoutRelationshipsXml,
   serializeLayoutSlideRelationshipsXml,
   serializeLayoutXml,
@@ -14,6 +13,8 @@ import {
   serializePresentationSupportXml,
   serializePresentationXml,
   serializeRootRelationshipsXml,
+  serializeShapeXml,
+  serializeSlideXml,
   serializeThemeXml,
 } from './standalone-xml.js'
 
@@ -26,7 +27,23 @@ function documentValidationError(document: Ppt4aiDocument): Error | undefined {
   return validation.valid ? undefined : new Error(`PPTX generation document invalid: ${validation.errors.join('; ')}`)
 }
 
-function skeletonEntries(document: Ppt4aiDocument): ZipEntry[] {
+function serializeSlideElements(document: Ppt4aiDocument, slideId: string): string {
+  const slide = document.slides[slideId]
+  if (!slide) throw new Error(`PPTX generation slide missing: ${slideId}`)
+  let nextShapeId = 2
+  return slide.elementIds.map((elementId) => {
+    const element = document.elements[elementId]
+    if (!element) throw new Error(`PPTX generation element mapping missing for slide ${slideId}`)
+    if (element.kind !== 'shape' && element.kind !== 'text') {
+      throw new Error(`PPTX generation unsupported element kind: ${element.kind}`)
+    }
+    const xml = serializeShapeXml(element, nextShapeId)
+    nextShapeId += 1
+    return xml
+  }).join('')
+}
+
+function skeletonEntries(document: Ppt4aiDocument, slideXmls: string[]): ZipEntry[] {
   const slideCount = document.slideOrder.length
   const support = serializePresentationSupportXml()
   const entries: ZipEntry[] = [
@@ -46,7 +63,7 @@ function skeletonEntries(document: Ppt4aiDocument): ZipEntry[] {
   ]
   for (let index = 0; index < slideCount; index += 1) {
     entries.push(
-      { name: `ppt/slides/slide${index + 1}.xml`, data: new TextEncoder().encode(serializeEmptySlideXml()) },
+      { name: `ppt/slides/slide${index + 1}.xml`, data: new TextEncoder().encode(slideXmls[index] ?? '') },
       { name: `ppt/slides/_rels/slide${index + 1}.xml.rels`, data: new TextEncoder().encode(serializeLayoutSlideRelationshipsXml()) },
     )
   }
@@ -56,5 +73,6 @@ function skeletonEntries(document: Ppt4aiDocument): ZipEntry[] {
 export async function createPptx(document: Ppt4aiDocument, _options: CreatePptxOptions = {}): Promise<Uint8Array> {
   const error = documentValidationError(document)
   if (error) throw error
-  return writeStoredZip(skeletonEntries(document))
+  const slideXmls = document.slideOrder.map((slideId) => serializeSlideXml([serializeSlideElements(document, slideId)]))
+  return writeStoredZip(skeletonEntries(document, slideXmls))
 }
