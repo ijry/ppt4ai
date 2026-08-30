@@ -36,6 +36,10 @@ interface SlideRelationship {
   type: string
 }
 
+interface LayoutRelationship extends SlideRelationship {
+  targetPath: string
+}
+
 interface SourceImage {
   element: XmlElement
   assetId: string
@@ -79,7 +83,7 @@ interface SlidePlan {
   presentationId: string
   relationshipId: string
   source?: SourceSlide
-  layoutRelationship?: SlideRelationship
+  layoutRelationship?: LayoutRelationship
 }
 
 interface ContentTypeAddition {
@@ -233,6 +237,16 @@ function normalizePath(path: string): string {
 function resolveTarget(basePath: string, target: string): string {
   const directory = basePath.slice(0, basePath.lastIndexOf('/') + 1)
   return normalizePath(target.startsWith('/') ? target.slice(1) : `${directory}${target}`)
+}
+
+function relativeTarget(basePath: string, targetPath: string): string {
+  const baseDirectory = basePath.slice(0, basePath.lastIndexOf('/') + 1).split('/').filter(Boolean)
+  const targetSegments = normalizePath(targetPath).split('/').filter(Boolean)
+  let common = 0
+  while (common < baseDirectory.length && common < targetSegments.length
+    && baseDirectory[common] === targetSegments[common]) common += 1
+  const parentSegments = Array.from({ length: baseDirectory.length - common }, () => '..')
+  return [...parentSegments, ...targetSegments.slice(common)].join('/')
 }
 
 function sourceImage(element: XmlElement, slideId: string, slidePath: string, relationships: SlideRelationship[], entries: Map<string, ZipEntry>): SourceImage {
@@ -395,9 +409,40 @@ function presentationRelationshipIds(xml: string): Set<string> {
   }))
 }
 
-function firstLayoutRelationship(source: SourcePackage, entries: Map<string, ZipEntry>): SlideRelationship | undefined {
+function sourceLayoutRelationship(entries: Map<string, ZipEntry>, slidePath: string): LayoutRelationship | undefined {
+  const relationship = readRelationships(entries, slidePath).find((candidate) => candidate.type === 'slideLayout')
+  if (!relationship) return undefined
+  return {
+    ...relationship,
+    targetPath: resolveTarget(slidePath, relationship.target),
+  }
+}
+
+function layoutRelationshipsById(document: Ppt4aiDocument, source: SourcePackage, entries: Map<string, ZipEntry>): Map<string, LayoutRelationship> {
+  const result = new Map<string, LayoutRelationship>()
+  const idsByPath = new Map<string, string>()
+  let nextId = 1
+  for (const sourceSlide of source.slides) {
+    const relationship = sourceLayoutRelationship(entries, sourceSlide.partPath)
+    if (!relationship || idsByPath.has(relationship.targetPath)) continue
+    const layoutId = `lyt_${nextId}`
+    nextId += 1
+    idsByPath.set(relationship.targetPath, layoutId)
+    result.set(layoutId, relationship)
+  }
+
+  for (const sourceSlide of source.slides) {
+    const layoutId = document.slides[sourceSlide.originId]?.layoutId
+    const relationship = sourceLayoutRelationship(entries, sourceSlide.partPath)
+    const canonicalId = relationship ? idsByPath.get(relationship.targetPath) : undefined
+    if (layoutId && relationship && canonicalId && !result.has(layoutId)) result.set(layoutId, relationship)
+  }
+  return result
+}
+
+function firstLayoutRelationship(source: SourcePackage, entries: Map<string, ZipEntry>): LayoutRelationship | undefined {
   for (const slide of source.slides) {
-    const relationship = readRelationships(entries, slide.partPath).find((candidate) => candidate.type === 'slideLayout')
+    const relationship = sourceLayoutRelationship(entries, slide.partPath)
     if (relationship) return relationship
   }
   return undefined
@@ -409,11 +454,15 @@ function slidePlans(document: Ppt4aiDocument, source: SourcePackage, entries: Ma
   const presentationIds = new Set(source.slides.map((slide) => slide.presentationId))
   const relationshipIds = presentationRelationshipIds(source.presentationRelationshipsXml)
   const layoutRelationship = firstLayoutRelationship(source, entries)
+  const layoutRelationships = layoutRelationshipsById(document, source, entries)
   const plans: SlidePlan[] = []
 
   for (const slideId of document.slideOrder) {
     const slide = document.slides[slideId]
     const sourceSlide = resolveSourceSlide(slideId, slide, source.slides)
+    const sourceSlideLayout = sourceSlide ? sourceLayoutRelationship(entries, sourceSlide.partPath) : undefined
+    const selectedLayout = slide?.layoutId ? layoutRelationships.get(slide.layoutId) : undefined
+    const currentLayout = selectedLayout ?? sourceSlideLayout ?? layoutRelationship
     const isOriginal = sourceSlide !== undefined && (slide?.source?.originId === slideId || sourceSlide.originId === slideId)
     if (sourceSlide && isOriginal) {
       if (usedSourcePaths.has(sourceSlide.partPath)) throw new Error(`PPTX export source slide reused by multiple pages: ${sourceSlide.partPath}`)
@@ -425,6 +474,7 @@ function slidePlans(document: Ppt4aiDocument, source: SourcePackage, entries: Ma
         presentationId: sourceSlide.presentationId,
         relationshipId: sourceSlide.relationshipId,
         source: sourceSlide,
+        ...(currentLayout ? { layoutRelationship: currentLayout } : {}),
       })
       continue
     }
@@ -438,10 +488,10 @@ function slidePlans(document: Ppt4aiDocument, source: SourcePackage, entries: Ma
     const relationshipId = allocateRelationshipId(relationshipIds)
     relationshipIds.add(relationshipId)
     if (sourceSlide) {
-      plans.push({ mode: 'clone', slideId, outputPath, presentationId, relationshipId, source: sourceSlide })
+      plans.push({ mode: 'clone', slideId, outputPath, presentationId, relationshipId, source: sourceSlide, ...(currentLayout ? { layoutRelationship: currentLayout } : {}) })
     } else {
-      if (!layoutRelationship) throw new Error(`PPTX export blank slide layout missing for slide ${slideId}`)
-      plans.push({ mode: 'blank', slideId, outputPath, presentationId, relationshipId, layoutRelationship })
+      if (!currentLayout) throw new Error(`PPTX export blank slide layout missing for slide ${slideId}`)
+      plans.push({ mode: 'blank', slideId, outputPath, presentationId, relationshipId, layoutRelationship: currentLayout })
     }
   }
   return plans
@@ -596,6 +646,29 @@ function appendRelationships(xml: string | undefined, relationships: string[]): 
   return `${xml.slice(0, close)}${relationships.join('')}${xml.slice(close)}`
 }
 
+function rewriteSlideLayoutRelationship(
+  xml: string | undefined,
+  outputPath: string,
+  sourcePath: string,
+  layout: LayoutRelationship,
+): string {
+  const target = relativeTarget(outputPath, layout.targetPath || resolveTarget(sourcePath, layout.target))
+  const currentXml = xml ?? '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
+  const relationship = descendants(scanXml(currentXml), 'Relationship').find((candidate) => relationshipType(candidate.attributes.Type ?? '') === 'slideLayout')
+  if (relationship) {
+    const currentTarget = relationship.attributes.Target
+    if (currentTarget && resolveTarget(outputPath, currentTarget) === resolveTarget(outputPath, target)) return currentXml
+    const raw = currentXml.slice(relationship.start, relationship.end)
+    const targetPattern = /(\bTarget\s*=\s*)(["'])[^"']*\2/iu
+    if (!targetPattern.test(raw)) throw new Error('PPTX export slide layout relationship malformed')
+    const updated = raw.replace(targetPattern, (_match, prefix: string, quote: string) => `${prefix}${quote}${escapeXml(target)}${quote}`)
+    return replaceRanges(currentXml, [{ start: relationship.start, end: relationship.end, value: updated }])
+  }
+  const ids = new Set(descendants(scanXml(currentXml), 'Relationship').flatMap((candidate) => candidate.attributes.Id ? [candidate.attributes.Id] : []))
+  const relationshipId = ids.has(layout.id) ? allocateRelationshipId(ids) : layout.id
+  return appendRelationships(currentXml, [`<Relationship Id="${escapeXml(relationshipId)}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="${escapeXml(target)}"/>`])
+}
+
 function blankSlideXml(): string {
   return '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld></p:sld>'
 }
@@ -684,7 +757,7 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       : encoder.encode(blankSlideXml())
     if (!slideData) throw new Error(`PPTX export source part missing: ${plan.source?.partPath ?? plan.outputPath}`)
     const relationshipXml = plan.mode === 'clone'
-      ? sourceRelationshipXml(entriesByName, plan.source?.partPath ?? '', layoutRelationship)
+      ? sourceRelationshipXml(entriesByName, plan.source?.partPath ?? '', plan.layoutRelationship ?? layoutRelationship)
       : plan.layoutRelationship
         ? blankSlideRelationships(plan.layoutRelationship)
         : layoutRelationship
@@ -711,10 +784,27 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
     const slidePath = plan.outputPath
     const entry = entriesByName.get(slidePath)
     if (!entry) throw new Error(`PPTX export source part missing: ${slidePath}`)
-    const slideXml = decoder.decode(entry.data)
-    const slideRelationships = readRelationships(entriesByName, slidePath)
     const slideRelationshipPath = relationshipFilePath(slidePath)
-    const relationshipEntry = entriesByName.get(slideRelationshipPath)
+    let relationshipEntry = entriesByName.get(slideRelationshipPath)
+    let slideXml = decoder.decode(entry.data)
+    if (plan.mode !== 'blank' && plan.layoutRelationship) {
+      const relationshipXml = relationshipEntry ? decoder.decode(relationshipEntry.data) : undefined
+      const updatedRelationshipXml = rewriteSlideLayoutRelationship(
+        relationshipXml,
+        slidePath,
+        plan.source?.partPath ?? slidePath,
+        plan.layoutRelationship,
+      )
+      const relationshipData = encoder.encode(updatedRelationshipXml)
+      if (relationshipEntry) relationshipEntry.data = relationshipData
+      else {
+        const created = { name: slideRelationshipPath, data: relationshipData }
+        entries.push(created)
+        entriesByName.set(created.name, created)
+        relationshipEntry = created
+      }
+    }
+    const slideRelationships = readRelationships(entriesByName, slidePath)
     const scanned = plan.source
       ? scannedSlides.get(plan.source.partPath)
       : { elements: [], invalidPictures: [], nextElementNumber: 0 }

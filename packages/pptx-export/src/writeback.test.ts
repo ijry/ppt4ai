@@ -94,6 +94,25 @@ function structuralSourcePackage(): Uint8Array {
   ])
 }
 
+function customLayoutSourcePackage(): Uint8Array {
+  const relationshipNamespace = 'http://schemas.openxmlformats.org/package/2006/relationships'
+  const officeRelationshipNamespace = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+  const contentTypeNamespace = 'http://schemas.openxmlformats.org/package/2006/content-types'
+  const slideXml = '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree/></p:cSld></p:sld>'
+  const layoutXml = '<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>'
+  return writeStoredZip([
+    { name: 'ppt/presentation.xml', data: new TextEncoder().encode('<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/><p:sldId id="257" r:id="rId2"/></p:sldIdLst></p:presentation>') },
+    { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(`<Relationships xmlns="${relationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipNamespace}/slide" Target="slides/slide1.xml"/><Relationship Id="rId2" Type="${officeRelationshipNamespace}/slide" Target="slides/slide2.xml"/></Relationships>`) },
+    { name: '[Content_Types].xml', data: new TextEncoder().encode(`<Types xmlns="${contentTypeNamespace}"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slides/slide2.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/slideLayouts/customLayout.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/></Types>`) },
+    { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(slideXml) },
+    { name: 'ppt/slides/slide2.xml', data: new TextEncoder().encode(slideXml) },
+    { name: 'ppt/slides/_rels/slide1.xml.rels', data: new TextEncoder().encode(`<Relationships xmlns="${relationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipNamespace}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>`) },
+    { name: 'ppt/slides/_rels/slide2.xml.rels', data: new TextEncoder().encode(`<Relationships xmlns="${relationshipNamespace}"><Relationship Id="rId1" Type="${officeRelationshipNamespace}/slideLayout" Target="../slideLayouts/customLayout.xml"/></Relationships>`) },
+    { name: 'ppt/slideLayouts/slideLayout1.xml', data: new TextEncoder().encode(layoutXml) },
+    { name: 'ppt/slideLayouts/customLayout.xml', data: new TextEncoder().encode(layoutXml) },
+  ])
+}
+
 function dependentSourcePackage(): Uint8Array {
   const relationshipNamespace = 'http://schemas.openxmlformats.org/package/2006/relationships'
   const officeRelationshipNamespace = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
@@ -232,6 +251,38 @@ describe('exportPptx', () => {
     expect(imported.slides.sld_2?.elementIds).toEqual([])
     expect(entries.get('custom/unknown.bin')).toEqual(new Uint8Array([7, 3, 1, 4]))
     expect(document).toEqual(expectedDocument)
+  })
+
+  it('uses the selected custom layout relationship for a blank slide', async () => {
+    const source = customLayoutSourcePackage()
+    const document = await importPptx(source)
+    const blankSlideId = 'sld_blank_custom_layout'
+    const customLayoutId = document.slides.sld_2?.layoutId
+    if (!customLayoutId) throw new Error('custom layout was not imported')
+    document.slides[blankSlideId] = { id: blankSlideId, elementIds: [], layoutId: customLayoutId }
+    document.slideOrder = ['sld_1', blankSlideId, 'sld_2']
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const relationships = new TextDecoder().decode(entries.get('ppt/slides/_rels/slide3.xml.rels'))
+
+    expect(relationships).toContain('Target="../slideLayouts/customLayout.xml"')
+    expect(relationships).not.toContain('Target="../slideLayouts/slideLayout1.xml"')
+  })
+
+  it('updates an existing slide relationship when its layout changes', async () => {
+    const source = customLayoutSourcePackage()
+    const document = await importPptx(source)
+    const customLayoutId = document.slides.sld_2?.layoutId
+    if (!customLayoutId) throw new Error('custom layout was not imported')
+    document.slides.sld_1!.layoutId = customLayoutId
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const relationships = new TextDecoder().decode(entries.get('ppt/slides/_rels/slide1.xml.rels'))
+
+    expect(relationships).toContain('Target="../slideLayouts/customLayout.xml"')
+    expect(relationships).not.toContain('Target="../slideLayouts/slideLayout1.xml"')
   })
 
   it('clones a source slide into a fresh part while retaining its source XML', async () => {
