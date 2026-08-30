@@ -9,7 +9,7 @@ import {
   serializePictureXml,
   stableAssetId,
 } from './image-writeback.js'
-import { clonePartDependencies, type DependencyCloneResult } from './dependency-graph.js'
+import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } from './dependency-graph.js'
 
 interface XmlElement {
   name: string
@@ -650,6 +650,8 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
   const removedSlides = sourcePackageData.slides.filter((slide) => !usedPaths.has(slide.partPath))
   const addedSlidePaths = plans.filter((plan) => plan.mode !== 'reuse').map((plan) => plan.outputPath)
   const dependencyClones = new Map<string, DependencyCloneResult>()
+  const contentTypesEntry = entriesByName.get('[Content_Types].xml')
+  const sourceContentTypesXml = contentTypesEntry ? decoder.decode(contentTypesEntry.data) : undefined
   const reservedPaths = new Set(entries.map((entry) => entry.name))
   for (const plan of plans.filter((candidate) => candidate.mode !== 'reuse')) {
     reservedPaths.add(plan.outputPath)
@@ -665,23 +667,6 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       entriesByName.set(entry.name, entry)
       reservedPaths.add(entry.name)
     }
-  }
-  if (removedSlides.length > 0 || addedSlidePaths.length > 0) {
-    const contentTypesEntry = entriesByName.get('[Content_Types].xml')
-    if (!contentTypesEntry) throw new Error('PPTX export source part missing: [Content_Types].xml')
-    const sourceContentTypesXml = decoder.decode(contentTypesEntry.data)
-    const dependencyOverrides = [...dependencyClones.values()].flatMap((clone) => [...clone.pathMap.entries()]
-      .filter(([sourcePath, outputPath]) => sourcePath !== outputPath && !sourcePath.endsWith('.rels'))
-      .flatMap(([sourcePath, outputPath]) => {
-        const contentType = sourceContentType(sourceContentTypesXml, sourcePath)
-        return contentType ? [{ path: outputPath, contentType }] : []
-      }))
-    contentTypesEntry.data = encoder.encode(rewriteContentTypes(
-      sourceContentTypesXml,
-      removedSlides.map((slide) => slide.partPath),
-      addedSlidePaths,
-      dependencyOverrides,
-    ))
   }
   const layoutRelationship = firstLayoutRelationship(sourcePackageData, entriesByName)
   for (const plan of plans) {
@@ -788,6 +773,32 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
     }
   }
 
+  const protectedRoots = plans.map((plan) => plan.outputPath)
+  const presentationDependencies = readRelationships(entriesByName, 'ppt/presentation.xml')
+    .filter((relationship) => relationship.type !== 'slide' && !/^[a-z][a-z\d+.-]*:/iu.test(relationship.target))
+    .map((relationship) => resolveTarget('ppt/presentation.xml', relationship.target))
+    .filter((path) => entriesByName.has(path))
+  const orphanedPaths = findOrphanedParts(
+    entriesByName,
+    removedSlides.map((slide) => slide.partPath),
+    [...protectedRoots, ...presentationDependencies],
+  )
+  if (removedSlides.length > 0 || addedSlidePaths.length > 0 || dependencyClones.size > 0 || orphanedPaths.size > 0) {
+    if (!contentTypesEntry || !sourceContentTypesXml) throw new Error('PPTX export source part missing: [Content_Types].xml')
+    const dependencyOverrides = [...dependencyClones.values()].flatMap((clone) => [...clone.pathMap.entries()]
+      .filter(([sourcePath, outputPath]) => sourcePath !== outputPath && !sourcePath.endsWith('.rels'))
+      .flatMap(([sourcePath, outputPath]) => {
+        const contentType = sourceContentType(sourceContentTypesXml, sourcePath)
+        return contentType ? [{ path: outputPath, contentType }] : []
+      }))
+    contentTypesEntry.data = encoder.encode(rewriteContentTypes(
+      sourceContentTypesXml,
+      [...orphanedPaths],
+      addedSlidePaths,
+      dependencyOverrides,
+    ))
+  }
+
   sourcePackageData.presentationEntry.data = encoder.encode(rewritePresentationOrder(
     sourcePackageData.presentationXml,
     plans,
@@ -798,7 +809,6 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
     sourcePackageData.slides,
     plans,
   ))
-  const removedPaths = new Set(removedSlides.flatMap((slide) => [slide.partPath, relationshipFilePath(slide.partPath)]))
-  const retainedEntries = entries.filter((entry) => !removedPaths.has(entry.name))
+  const retainedEntries = entries.filter((entry) => !orphanedPaths.has(entry.name))
   return writeStoredZip([...retainedEntries, ...state.pendingMedia])
 }

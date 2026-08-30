@@ -22,6 +22,11 @@ interface RelationshipNode {
   element: XmlElement
 }
 
+interface PartClosure {
+  paths: Set<string>
+  sharedPaths: Set<string>
+}
+
 export interface DependencyCloneResult {
   rootPath: string
   pathMap: Map<string, string>
@@ -260,24 +265,69 @@ function validateTarget(entries: ReadonlyMap<string, ZipEntry>, ownerPath: strin
   return resolved
 }
 
-export function collectPartClosure(entries: ReadonlyMap<string, ZipEntry>, rootPath: string): Set<string> {
-  const closure = new Set<string>()
+function sharedSidecarPath(path: string): string | undefined {
+  const marker = '/_rels/'
+  const separator = path.indexOf(marker)
+  if (separator < 0 || !path.endsWith('.rels')) return undefined
+  return `${path.slice(0, separator)}/${path.slice(separator + marker.length, -'.rels'.length)}`
+}
+
+function isSharedPath(path: string): boolean {
+  return isSharedDependency('', path) || (sharedSidecarPath(path) !== undefined && isSharedDependency('', sharedSidecarPath(path)!))
+}
+
+function collectClosure(entries: ReadonlyMap<string, ZipEntry>, rootPath: string, strictTargets = true): PartClosure {
+  const paths = new Set<string>()
+  const sharedPaths = new Set<string>()
   const visit = (partPath: string): void => {
-    if (closure.has(partPath)) return
+    if (paths.has(partPath)) return
     if (!entries.has(partPath)) fail(`part missing: ${partPath}`)
-    closure.add(partPath)
+    paths.add(partPath)
+    if (isSharedPath(partPath)) sharedPaths.add(partPath)
     const relationshipPath = relationshipFilePath(partPath)
     const relationshipEntry = entries.get(relationshipPath)
-    if (!relationshipEntry) return
-    closure.add(relationshipPath)
+    if (relationshipEntry) {
+      paths.add(relationshipPath)
+      if (isSharedPath(relationshipPath)) sharedPaths.add(relationshipPath)
+    } else return
     const relationships = relationshipNodes(decoder.decode(relationshipEntry.data), relationshipPath)
     for (const relationship of relationships) {
       if (isExternalRelationship(relationship)) continue
-      visit(validateTarget(entries, partPath, relationship).path)
+      const targetPath = resolveTarget(partPath, relationship.target).path
+      if (!entries.has(targetPath)) {
+        if (strictTargets) validateTarget(entries, partPath, relationship)
+        continue
+      }
+      if (isSharedDependency(relationship.type, targetPath)) sharedPaths.add(targetPath)
+      visit(targetPath)
     }
   }
   visit(rootPath)
-  return closure
+  return { paths, sharedPaths }
+}
+
+export function collectPartClosure(entries: ReadonlyMap<string, ZipEntry>, rootPath: string): Set<string> {
+  return collectClosure(entries, rootPath).paths
+}
+
+export function findOrphanedParts(
+  entries: ReadonlyMap<string, ZipEntry>,
+  removedRoots: readonly string[],
+  protectedRoots: readonly string[],
+): Set<string> {
+  const removed = new Set<string>()
+  const shared = new Set<string>()
+  for (const rootPath of removedRoots) {
+    const closure = collectClosure(entries, rootPath, false)
+    for (const path of closure.paths) removed.add(path)
+    for (const path of closure.sharedPaths) shared.add(path)
+  }
+  const protectedPaths = new Set<string>()
+  for (const rootPath of protectedRoots) {
+    const closure = collectClosure(entries, rootPath, false)
+    for (const path of closure.paths) protectedPaths.add(path)
+  }
+  return new Set([...removed].filter((path) => !shared.has(path) && !protectedPaths.has(path)))
 }
 
 function partName(path: string): { directory: string; filename: string; stem: string; extension: string; number?: number } {
