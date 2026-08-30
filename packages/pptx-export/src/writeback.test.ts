@@ -86,6 +86,16 @@ function sourcePackage(): Uint8Array {
   ])
 }
 
+function textSourcePackage(): Uint8Array {
+  const textSlide = `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp data-preserve="text-shape"><p:nvSpPr><p:cNvPr id="1" name="Text"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="10" y="20"/><a:ext cx="300" cy="400"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr b="1"/><a:t>Before</a:t></a:r></a:p></p:txBody><p:customTextData keep="yes"/></p:sp>${neighborXml}</p:spTree></p:cSld></p:sld>`
+  return writeStoredZip([
+    { name: 'ppt/presentation.xml', data: new TextEncoder().encode(presentation) },
+    { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(relationships) },
+    { name: '[Content_Types].xml', data: new TextEncoder().encode('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>') },
+    { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(textSlide) },
+  ])
+}
+
 function structuralSourcePackage(): Uint8Array {
   const firstSlide = '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="First"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr><p:txBody><a:p><a:r><a:t>First slide</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>'
   const secondSlide = firstSlide.replaceAll('First', 'Second').replaceAll('id="1"', 'id="2"')
@@ -431,6 +441,25 @@ describe('exportPptx', () => {
     expect(outputSlide).toContain(neighborXml)
     expect(entries[3]!.data).toEqual(new Uint8Array([0, 17, 255, 3]))
     expect(document).toEqual(expectedDocument)
+  })
+
+  it('writes edited source text bodies while preserving surrounding XML', async () => {
+    const source = textSourcePackage()
+    const document = await importPptx(source)
+    const text = document.elements.el_1
+    if (!text || text.kind !== 'text' || !text.body) throw new Error('fixture text was not imported')
+    text.body.paragraphs[0]!.runs[0]!.text = 'After & exported'
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    const imported = await importPptx(output)
+    const importedText = imported.elements[imported.slides.sld_1?.elementIds[0] ?? '']
+
+    expect(outputSlide).toContain('<a:t>After &amp; exported</a:t>')
+    expect(outputSlide).toContain('<p:customTextData keep="yes"/>')
+    expect(outputSlide).toContain(neighborXml)
+    expect(importedText).toMatchObject({ kind: 'text', text: 'After & exported' })
   })
 
   it('rejects a slide element count mismatch', async () => {

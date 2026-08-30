@@ -1,5 +1,6 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type ImageElement, type Ppt4aiDocument } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type ImageElement, type Ppt4aiDocument, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
+import { serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
 import {
   allocateMediaPath,
@@ -18,6 +19,7 @@ interface XmlElement {
   start: number
   end: number
   children: XmlElement[]
+  text: string
 }
 
 interface OpenElement extends XmlElement {
@@ -51,6 +53,7 @@ interface ScannedElement {
   element: XmlElement
   expectedId: string
   image?: SourceImage
+  sourceText?: string
 }
 
 interface ScannedSlide {
@@ -140,6 +143,8 @@ function scanXml(xml: string): XmlElement[] {
   while (cursor < xml.length) {
     const start = xml.indexOf('<', cursor)
     if (start < 0) break
+    const textParent = stack.at(-1)
+    if (textParent && start > cursor) textParent.text += xml.slice(cursor, start)
     if (xml.startsWith('<!--', start)) {
       const end = xml.indexOf('-->', start + 4)
       if (end < 0) throw new Error('PPTX export encountered malformed XML')
@@ -185,6 +190,7 @@ function scanXml(xml: string): XmlElement[] {
       start,
       end,
       children: [],
+      text: '',
     }
     const parent = stack.at(-1)
     if (parent) parent.children.push(element)
@@ -227,6 +233,37 @@ function readRelationships(entries: Map<string, ZipEntry>, partPath: string): Sl
 
 function firstDescendant(element: XmlElement, localName: string): XmlElement | undefined {
   return descendants(element.children, localName)[0]
+}
+
+function xmlTextContent(element: XmlElement): string {
+  return decodeXml(element.text) + element.children.map((child) => xmlTextContent(child)).join('')
+}
+
+function sourceTextContent(element: XmlElement): string | undefined {
+  const body = firstDescendant(element, 'txBody')
+  if (!body) return undefined
+  const text = descendants([body], 't').map((node) => xmlTextContent(node)).join('')
+  const lineBreaks = descendants([body], 'br').length
+  return text + '\n'.repeat(lineBreaks)
+}
+
+function textBodyForElement(element: TextElement): TextBody {
+  return element.body ?? {
+    paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }],
+  }
+}
+
+function textBodyContent(body: TextBody): string {
+  let text = ''
+  let lineBreaks = 0
+  for (const paragraph of body.paragraphs) {
+    for (const run of paragraph.runs) {
+      const fragments = run.text.split('\n')
+      text += fragments.join('')
+      lineBreaks += fragments.length - 1
+    }
+  }
+  return text + '\n'.repeat(lineBreaks)
 }
 
 function normalizePath(path: string): string {
@@ -300,7 +337,8 @@ function slideElements(xml: string, slideId: string, slidePath: string, relation
       const expectedId = candidate ? `el_${elementNumber}` : undefined
       if (candidate) elementNumber += 1
       if (expectedId && element.localName === 'sp' && hasBounds(element)) {
-        result.push({ element, expectedId })
+        const sourceText = sourceTextContent(element)
+        result.push({ element, expectedId, ...(sourceText !== undefined ? { sourceText } : {}) })
       } else if (expectedId && element.localName === 'graphicFrame' && isImportableTable(element)) {
         result.push({ element, expectedId })
       }
@@ -670,6 +708,16 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
     if (strictIdentity && elementId !== source.expectedId) throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
     if (sourceElement.localName !== 'graphicFrame') {
       if (element.kind === 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
+      const sourceTextBody = firstDescendant(sourceElement, 'txBody')
+      if (sourceTextBody) {
+        if (element.kind !== 'text') throw new Error(`PPTX export text source mismatch for element ${element.id}`)
+        const body = textBodyForElement(element)
+        if (source.sourceText !== undefined && textBodyContent(body) !== source.sourceText) {
+          replacements.push({ start: sourceTextBody.start, end: sourceTextBody.end, value: serializeTextBodyXml(body) })
+        }
+      } else if (element.kind === 'text') {
+        throw new Error(`PPTX export text source mismatch for element ${element.id}`)
+      }
       continue
     }
     if (element.kind !== 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
