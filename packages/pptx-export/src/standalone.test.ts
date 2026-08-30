@@ -255,6 +255,25 @@ describe('createPptx', () => {
     expect(themedDocument).toEqual(before)
   })
 
+  it('selects the first referenced theme by deterministic master key order', async () => {
+    const themedDocument = structuredClone(emptyDocument)
+    themedDocument.masters = {
+      master_z: { id: 'master_z', themeId: 'theme_z' },
+      master_a: { id: 'master_a', themeId: 'theme_a' },
+    }
+    themedDocument.themes = {
+      theme_z: { id: 'theme_z', colors: { accent1: { type: 'srgb', v: '222222' } } },
+      theme_a: { id: 'theme_a', colors: { accent1: { type: 'srgb', v: '111111' } } },
+    }
+
+    const output = await createPptx(themedDocument)
+    const entries = await packageEntries(output)
+    const themeBytes = entries.get('ppt/theme/theme1.xml')
+    if (!themeBytes) throw new Error('generated theme entry missing')
+
+    expect(new TextDecoder().decode(themeBytes)).toContain('<a:accent1><a:srgbClr val="111111"/></a:accent1>')
+  })
+
   it('serializes top-level shapes and text bodies in document order', async () => {
     const before = structuredClone(shapeTextDocument)
     const first = await createPptx(shapeTextDocument)

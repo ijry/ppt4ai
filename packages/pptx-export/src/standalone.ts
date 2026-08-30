@@ -133,16 +133,16 @@ function serializeSlideElements(document: Ppt4aiDocument, slideId: string, asset
   }
 }
 
-function selectedTheme(document: Ppt4aiDocument): Theme | undefined {
-  const themes = document.themes
-  if (!themes) return undefined
-  const firstMaster = Object.values(document.masters ?? {})[0]
-  if (firstMaster?.themeId) {
-    const referenced = themes[firstMaster.themeId]
-    if (referenced) return referenced
-  }
-  const firstThemeId = Object.keys(themes).sort()[0]
-  return firstThemeId ? themes[firstThemeId] : undefined
+function effectiveTheme(document: Ppt4aiDocument): Theme | undefined {
+  const masterIds = Object.keys(document.masters ?? {}).sort()
+  const referenced = masterIds
+    .map((id) => document.masters?.[id]?.themeId)
+    .map((id) => id ? document.themes?.[id] : undefined)
+    .find((theme): theme is Theme => theme !== undefined)
+  if (referenced) return referenced
+  return Object.keys(document.themes ?? {}).sort()
+    .map((id) => document.themes?.[id])
+    .find((theme): theme is Theme => theme !== undefined)
 }
 
 function skeletonEntries(document: Ppt4aiDocument, slides: SlideSerialization[], materialized: Map<string, MaterializedAsset>, imageExtensions: Set<string>, theme?: Theme): ZipEntry[] {
@@ -182,5 +182,5 @@ export async function createPptx(document: Ppt4aiDocument, options: CreatePptxOp
   validateElementKinds(document)
   const materialized = await materializeAssets(document, options)
   const slides = document.slideOrder.map((slideId) => serializeSlideElements(document, slideId, materialized.assets))
-  return writeStoredZip(skeletonEntries(document, slides, materialized.assets, materialized.extensions, selectedTheme(document)))
+  return writeStoredZip(skeletonEntries(document, slides, materialized.assets, materialized.extensions, effectiveTheme(document)))
 }
