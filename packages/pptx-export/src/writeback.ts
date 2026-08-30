@@ -1,6 +1,6 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type ImageElement, type Ppt4aiDocument, type Rect, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
-import { serializeTextBodyXml } from './standalone-xml.js'
+import { serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
 import {
   allocateMediaPath,
@@ -298,6 +298,80 @@ function boundsReplacements(xml: string, sourceElement: XmlElement, bounds: Rect
     { start: offset.start, end: offset.end, value: replaceXmlAttribute(replaceXmlAttribute(offsetXml, 'x', bounds.x), 'y', bounds.y) },
     { start: extent.start, end: extent.end, value: replaceXmlAttribute(replaceXmlAttribute(extentXml, 'cx', bounds.w), 'cy', bounds.h) },
   ]
+}
+
+const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
+const fillNodeNames = new Set(['noFill', 'solidFill', 'gradFill', 'blipFill', 'pattFill', 'grpFill'])
+
+function sourceColor(element: XmlElement | undefined): Color | undefined {
+  if (!element) return undefined
+  for (const child of element.children) {
+    let color: Color | undefined
+    if (child.localName === 'srgbClr' && /^[0-9A-F]{6}$/iu.test(child.attributes.val ?? '')) {
+      color = { type: 'srgb', v: (child.attributes.val ?? '').toUpperCase() }
+    } else if (child.localName === 'schemeClr' && child.attributes.val) {
+      color = { type: 'scheme', v: child.attributes.val.trim() }
+    } else if (child.localName === 'prstClr' && child.attributes.val) {
+      color = { type: 'preset', v: child.attributes.val.trim() }
+    } else if (child.localName === 'sysClr' && /^[0-9A-F]{6}$/iu.test(child.attributes.lastClr ?? '')) {
+      color = { type: 'system', v: (child.attributes.lastClr ?? '').toUpperCase() }
+    } else if (child.localName === 'scrgbClr') {
+      const channels = [child.attributes.r, child.attributes.g, child.attributes.b].map((value) => Number(value))
+      if (channels.every((value) => Number.isInteger(value) && value >= 0 && value <= 100000)) {
+        color = { type: 'scrgb', v: channels.join(',') }
+      }
+    }
+    if (!color) continue
+    const transforms = child.children.flatMap((transform) => {
+      if (!colorTransformTypes.has(transform.localName as ColorTransformType)) return []
+      const value = Number(transform.attributes.val)
+      return Number.isInteger(value) && value >= 0 && value <= 100000
+        ? [{ type: transform.localName as ColorTransformType, value }]
+        : []
+    })
+    return transforms.length > 0 ? { ...color, transforms } : color
+  }
+  return undefined
+}
+
+function colorsEqual(left: Color | undefined, right: Color | undefined): boolean {
+  if (!left || !right) return left === right
+  if (left.type !== right.type || left.v !== right.v) return false
+  const leftTransforms = left.transforms ?? []
+  const rightTransforms = right.transforms ?? []
+  return leftTransforms.length === rightTransforms.length
+    && leftTransforms.every((transform, index) => {
+      const other = rightTransforms[index]
+      return other?.type === transform.type && other.value === transform.value
+    })
+}
+
+function fillsEqual(left: Fill | undefined, right: Fill | undefined): boolean {
+  return colorsEqual(left?.color, right?.color)
+}
+
+function sourceShapeProperties(element: XmlElement): XmlElement | undefined {
+  return firstDescendant(element, 'spPr')
+}
+
+function fillReplacements(xml: string, sourceElement: XmlElement, fill: Fill | undefined): Replacement[] {
+  const properties = sourceShapeProperties(sourceElement)
+  if (!properties) return []
+  const fillNode = properties.children.find((child) => fillNodeNames.has(child.localName))
+  const sourceFill = fillNode?.localName === 'solidFill' ? sourceColor(fillNode) : undefined
+  if (fillsEqual(sourceFill ? { color: sourceFill } : undefined, fill)) return []
+  if (fill) {
+    const value = serializeFillXml(fill)
+    if (fillNode) return [{ start: fillNode.start, end: fillNode.end, value }]
+    const line = properties.children.find((child) => child.localName === 'ln')
+    const insertion = line?.start ?? xml.lastIndexOf('</', properties.end)
+    if (insertion < properties.start) throw new Error('PPTX export source shape properties malformed')
+    return [{ start: insertion, end: insertion, value }]
+  }
+  if (fillNode?.localName === 'solidFill' && sourceFill) {
+    return [{ start: fillNode.start, end: fillNode.end, value: '' }]
+  }
+  return []
 }
 
 function normalizePath(path: string): string {
@@ -754,10 +828,12 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
           replacements.push({ start: sourceTextBody.start, end: sourceTextBody.end, value: serializeTextBodyXml(body) })
         }
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
+        replacements.push(...fillReplacements(xml, sourceElement, element.fill))
       } else if (element.kind === 'text') {
         throw new Error(`PPTX export text source mismatch for element ${element.id}`)
       } else if (element.kind === 'shape') {
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
+        replacements.push(...fillReplacements(xml, sourceElement, element.fill))
       } else {
         throw new Error(`PPTX export shape source mismatch for element ${element.id}`)
       }
