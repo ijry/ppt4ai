@@ -16,6 +16,7 @@ import {
   type SlideMaster,
   type TextElement,
   type Theme,
+  type ThemeSource,
 } from './index'
 
 const minimalDocument: Ppt4aiDocument = {
@@ -76,6 +77,42 @@ describe('ppt4ai file model', () => {
     expect(validateDocument({ ...sourced, source: { entries: {}, packageFingerprint: '', modelFingerprint: '' } })).toEqual({
       valid: false,
       errors: ['source.packageFingerprint must be a non-empty string', 'source.modelFingerprint must be a non-empty string'],
+    })
+  })
+
+  it('keeps theme source provenance clone-safe and part of the model fingerprint', () => {
+    const source: ThemeSource = { partPath: 'ppt/theme/custom.xml' }
+    const withSource: Ppt4aiDocument = {
+      ...minimalDocument,
+      themes: {
+        theme_1: {
+          id: 'theme_1',
+          colors: { accent1: { type: 'srgb', v: '336699' } },
+          source,
+        },
+      },
+    }
+
+    expect(validateDocument(withSource)).toEqual({ valid: true })
+    expect(structuredClone(withSource)).toEqual(withSource)
+    expect(fingerprintDocument(withSource)).not.toBe(fingerprintDocument(minimalDocument))
+  })
+
+  it('rejects invalid theme source provenance', () => {
+    const document = {
+      ...minimalDocument,
+      themes: {
+        theme_1: {
+          id: 'theme_1',
+          colors: {},
+          source: { partPath: '' },
+        },
+      },
+    }
+
+    expect(validateDocument(document as Ppt4aiDocument)).toEqual({
+      valid: false,
+      errors: ['themes.theme_1.source.partPath must be a non-empty string'],
     })
   })
 

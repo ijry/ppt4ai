@@ -24,9 +24,14 @@ export interface ColorTransform {
 
 export type ThemeColorSlot = 'dk1' | 'lt1' | 'dk2' | 'lt2' | 'accent1' | 'accent2' | 'accent3' | 'accent4' | 'accent5' | 'accent6' | 'hlink' | 'folHlink'
 
+export interface ThemeSource {
+  partPath: string
+}
+
 export interface Theme {
   id: string
   colors: Partial<Record<ThemeColorSlot, Color>>
+  source?: ThemeSource
 }
 
 export type ColorMapKey = 'bg1' | 'tx1' | 'bg2' | 'tx2' | 'accent1' | 'accent2' | 'accent3' | 'accent4' | 'accent5' | 'accent6' | 'hlink' | 'folHlink'
@@ -996,6 +1001,13 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       }
       const theme = themeValue as unknown as Record<string, unknown>
       if (theme.id !== themeId) errors.push(`theme key does not match id: ${themeId}`)
+      if ('source' in theme && theme.source !== undefined) {
+        if (!theme.source || typeof theme.source !== 'object' || Array.isArray(theme.source)) errors.push(`${themePath}.source must be an object`)
+        else {
+          const source = theme.source as Record<string, unknown>
+          if (typeof source.partPath !== 'string' || source.partPath.length === 0) errors.push(`${themePath}.source.partPath must be a non-empty string`)
+        }
+      }
       if (!theme.colors || typeof theme.colors !== 'object' || Array.isArray(theme.colors)) errors.push(`${themePath}.colors must be an object`)
       else for (const [slot, color] of Object.entries(theme.colors)) {
         const colorPath = `${themePath}.colors.${slot}`
