@@ -87,7 +87,7 @@ function sourcePackage(): Uint8Array {
 }
 
 function textSourcePackage(): Uint8Array {
-  const textSlide = `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp data-preserve="text-shape"><p:nvSpPr><p:cNvPr id="1" name="Text"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="10" y="20"/><a:ext cx="300" cy="400"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr b="1"/><a:t>Before</a:t></a:r></a:p></p:txBody><p:customTextData keep="yes"/></p:sp>${neighborXml}</p:spTree></p:cSld></p:sld>`
+  const textSlide = `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp data-preserve="text-shape"><p:nvSpPr><p:cNvPr id="1" name="Text"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm rot="60000" data-transform="keep"><a:off x="10" y="20"/><a:ext cx="300" cy="400"/><a:customTransform keep="yes"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr b="1"/><a:t>Before</a:t></a:r></a:p></p:txBody><p:customTextData keep="yes"/></p:sp>${neighborXml}</p:spTree></p:cSld></p:sld>`
   return writeStoredZip([
     { name: 'ppt/presentation.xml', data: new TextEncoder().encode(presentation) },
     { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(relationships) },
@@ -460,6 +460,26 @@ describe('exportPptx', () => {
     expect(outputSlide).toContain('<p:customTextData keep="yes"/>')
     expect(outputSlide).toContain(neighborXml)
     expect(importedText).toMatchObject({ kind: 'text', text: 'After & exported' })
+  })
+
+  it('writes edited shape and text bounds while preserving transform XML', async () => {
+    const source = textSourcePackage()
+    const document = await importPptx(source)
+    const text = document.elements.el_1
+    const shape = document.elements.el_2
+    if (!text || text.kind !== 'text' || !shape || shape.kind !== 'shape') throw new Error('fixture bounds were not imported')
+    text.bounds = { x: 110, y: 220, w: 330, h: 440 }
+    shape.bounds = { x: 50, y: 60, w: 70, h: 80 }
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    const imported = await importPptx(output)
+
+    expect(outputSlide).toContain('<a:xfrm rot="60000" data-transform="keep"><a:off x="110" y="220"/><a:ext cx="330" cy="440"/><a:customTransform keep="yes"/></a:xfrm>')
+    expect(outputSlide).toContain('<a:off x="50" y="60"/><a:ext cx="70" cy="80"/>')
+    expect(imported.elements.el_1).toMatchObject({ bounds: { x: 110, y: 220, w: 330, h: 440 } })
+    expect(imported.elements.el_2).toMatchObject({ bounds: { x: 50, y: 60, w: 70, h: 80 } })
   })
 
   it('rejects a slide element count mismatch', async () => {

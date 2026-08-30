@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type ImageElement, type Ppt4aiDocument, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type ImageElement, type Ppt4aiDocument, type Rect, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
@@ -264,6 +264,40 @@ function textBodyContent(body: TextBody): string {
     }
   }
   return text + '\n'.repeat(lineBreaks)
+}
+
+function sourceBounds(element: XmlElement): Rect | undefined {
+  const transform = firstDescendant(element, 'xfrm')
+  const offset = transform && firstDescendant(transform, 'off')
+  const extent = transform && firstDescendant(transform, 'ext')
+  const values = [offset?.attributes.x, offset?.attributes.y, extent?.attributes.cx, extent?.attributes.cy].map((value) => Number(value))
+  if (values.some((value) => !Number.isFinite(value))) return undefined
+  const [x, y, w, h] = values
+  if (x === undefined || y === undefined || w === undefined || h === undefined) return undefined
+  return { x, y, w, h }
+}
+
+function replaceXmlAttribute(source: string, name: string, value: number): string {
+  const expression = new RegExp(`(\\s${name}\\s*=\\s*)(["'])([\\s\\S]*?)\\2`, 'u')
+  const match = expression.exec(source)
+  if (!match) throw new Error(`PPTX export source transform attribute missing: ${name}`)
+  const replacement = `${match[1]}${match[2]}${escapeXml(String(value))}${match[2]}`
+  return source.slice(0, match.index) + replacement + source.slice(match.index + match[0].length)
+}
+
+function boundsReplacements(xml: string, sourceElement: XmlElement, bounds: Rect): Replacement[] {
+  const previous = sourceBounds(sourceElement)
+  if (!previous || previous.x === bounds.x && previous.y === bounds.y && previous.w === bounds.w && previous.h === bounds.h) return []
+  const transform = firstDescendant(sourceElement, 'xfrm')
+  const offset = transform && firstDescendant(transform, 'off')
+  const extent = transform && firstDescendant(transform, 'ext')
+  if (!offset || !extent) throw new Error('PPTX export source transform bounds missing')
+  const offsetXml = xml.slice(offset.start, offset.end)
+  const extentXml = xml.slice(extent.start, extent.end)
+  return [
+    { start: offset.start, end: offset.end, value: replaceXmlAttribute(replaceXmlAttribute(offsetXml, 'x', bounds.x), 'y', bounds.y) },
+    { start: extent.start, end: extent.end, value: replaceXmlAttribute(replaceXmlAttribute(extentXml, 'cx', bounds.w), 'cy', bounds.h) },
+  ]
 }
 
 function normalizePath(path: string): string {
@@ -706,6 +740,10 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
     if (!source || !element) throw new Error(`PPTX export element mapping missing for slide ${slideId}`)
     const sourceElement = source.element
     if (strictIdentity && elementId !== source.expectedId) throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
+    if (sourceElement.localName === 'pic') {
+      if (element.kind !== 'image') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
+      continue
+    }
     if (sourceElement.localName !== 'graphicFrame') {
       if (element.kind === 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
       const sourceTextBody = firstDescendant(sourceElement, 'txBody')
@@ -715,8 +753,13 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
         if (source.sourceText !== undefined && textBodyContent(body) !== source.sourceText) {
           replacements.push({ start: sourceTextBody.start, end: sourceTextBody.end, value: serializeTextBodyXml(body) })
         }
+        replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
       } else if (element.kind === 'text') {
         throw new Error(`PPTX export text source mismatch for element ${element.id}`)
+      } else if (element.kind === 'shape') {
+        replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
+      } else {
+        throw new Error(`PPTX export shape source mismatch for element ${element.id}`)
       }
       continue
     }
