@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   mergeColorMaps,
+  fingerprintBytes,
+  fingerprintDocument,
   resolveColor,
   resolveInheritedElement,
   resolveTableCellStyle,
@@ -37,6 +39,46 @@ const minimalDocument: Ppt4aiDocument = {
 }
 
 describe('ppt4ai file model', () => {
+  it('creates deterministic fingerprints without mutating byte or document inputs', () => {
+    const bytes = new Uint8Array([1, 2, 3, 4])
+    const bytesCopy = new Uint8Array(bytes)
+    expect(fingerprintBytes(bytes)).toBe(fingerprintBytes(bytesCopy))
+    expect(fingerprintBytes(bytes)).not.toBe(fingerprintBytes(new Uint8Array([1, 2, 3, 5])))
+    expect(bytes).toEqual(bytesCopy)
+
+    const reordered = {
+      slideOrder: minimalDocument.slideOrder,
+      elements: minimalDocument.elements,
+      slides: minimalDocument.slides,
+      page: minimalDocument.page,
+      id: minimalDocument.id,
+      version: minimalDocument.version,
+      format: minimalDocument.format,
+    } satisfies Ppt4aiDocument
+    expect(fingerprintDocument(minimalDocument)).toBe(fingerprintDocument(reordered))
+
+    const sourced = {
+      ...minimalDocument,
+      source: { entries: { 'ppt/slides/slide1.xml': '<p:sld/>' }, packageFingerprint: 'pkg', modelFingerprint: 'model' },
+    }
+    const changed = structuredClone(minimalDocument)
+    changed.elements.el_shape!.bounds.x += 1
+    expect(fingerprintDocument(sourced)).toBe(fingerprintDocument(minimalDocument))
+    expect(fingerprintDocument(changed)).not.toBe(fingerprintDocument(minimalDocument))
+  })
+
+  it('validates optional source fingerprints when present', () => {
+    const sourced = {
+      ...minimalDocument,
+      source: { entries: {}, packageFingerprint: 'pkg', modelFingerprint: 'model' },
+    }
+    expect(validateDocument(sourced)).toEqual({ valid: true })
+    expect(validateDocument({ ...sourced, source: { entries: {}, packageFingerprint: '', modelFingerprint: '' } })).toEqual({
+      valid: false,
+      errors: ['source.packageFingerprint must be a non-empty string', 'source.modelFingerprint must be a non-empty string'],
+    })
+  })
+
   it('resolves structured colors, scheme mapping, and ordered transforms', () => {
     const theme = {
       id: 'theme-1',

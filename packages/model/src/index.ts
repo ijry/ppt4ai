@@ -320,7 +320,42 @@ export interface Ppt4aiDocument {
   themes?: Record<string, Theme>
   source?: {
     entries: Record<string, string>
+    packageFingerprint?: string
+    modelFingerprint?: string
   }
+}
+
+function canonicalJson(value: unknown, root = false, arrayItem = false): string | undefined {
+  if (value === undefined) return arrayItem ? 'null' : undefined
+  if (value === null) return 'null'
+  if (typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value)
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'null'
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item, false, true) ?? 'null').join(',')}]`
+  if (typeof value !== 'object') return undefined
+  const fields = Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => !(root && key === 'source'))
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .flatMap(([key, item]) => {
+      const serialized = canonicalJson(item)
+      return serialized === undefined ? [] : [`${JSON.stringify(key)}:${serialized}`]
+    })
+  return `{${fields.join(',')}}`
+}
+
+function fnv1a64(bytes: Uint8Array): string {
+  let hash = 0xcbf29ce484222325n
+  const prime = 0x100000001b3n
+  for (const byte of bytes) hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * prime)
+  return `fnv1a64:${hash.toString(16).padStart(16, '0')}`
+}
+
+export function fingerprintBytes(bytes: Uint8Array): string {
+  return fnv1a64(bytes)
+}
+
+export function fingerprintDocument(document: Ppt4aiDocument): string {
+  const serialized = canonicalJson(document, true) ?? '{}'
+  return fingerprintBytes(new TextEncoder().encode(serialized))
 }
 
 export interface ResolvedTableCellStyle {
@@ -877,6 +912,19 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
   if (value.version !== 1) errors.push('version must be 1')
   if (!Number.isFinite(value.page.w) || value.page.w <= 0) errors.push('page.w must be positive')
   if (!Number.isFinite(value.page.h) || value.page.h <= 0) errors.push('page.h must be positive')
+  if (value.source !== undefined) {
+    if (!value.source || typeof value.source !== 'object' || Array.isArray(value.source)) errors.push('source must be an object')
+    else {
+      if ('packageFingerprint' in value.source && value.source.packageFingerprint !== undefined
+        && (typeof value.source.packageFingerprint !== 'string' || value.source.packageFingerprint.length === 0)) {
+        errors.push('source.packageFingerprint must be a non-empty string')
+      }
+      if ('modelFingerprint' in value.source && value.source.modelFingerprint !== undefined
+        && (typeof value.source.modelFingerprint !== 'string' || value.source.modelFingerprint.length === 0)) {
+        errors.push('source.modelFingerprint must be a non-empty string')
+      }
+    }
+  }
 
   const slideOrderIds = new Set<string>()
   for (const slideId of value.slideOrder) {
