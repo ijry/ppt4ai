@@ -106,6 +106,16 @@ function styledShapeSourcePackage(): Uint8Array {
   ])
 }
 
+function strokedShapeSourcePackage(): Uint8Array {
+  const strokedSlide = `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp data-preserve="stroked-shape"><p:nvSpPr><p:cNvPr id="1" name="Shape"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="10" y="20"/><a:ext cx="300" cy="400"/></a:xfrm><a:prstGeom prst="roundRect"/><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:ln w="12700" cap="rnd" cmpd="sng" data-line="keep"><a:solidFill data-stroke-fill="keep"><a:srgbClr val="112233"><a:alpha val="50000"/></a:srgbClr></a:solidFill><a:prstDash val="dash"/><a:customLine keep="yes"/></a:ln><a:customStyle keep="yes"/></p:spPr></p:sp><p:sp data-preserve="stroked-text"><p:nvSpPr><p:cNvPr id="2" name="Text"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="500" y="600"/><a:ext cx="700" cy="800"/></a:xfrm><a:ln w="25400" data-text-line="keep"><a:solidFill><a:schemeClr val="accent1"/></a:solidFill><a:customTextLine keep="yes"/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>Stroked</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`
+  return writeStoredZip([
+    { name: 'ppt/presentation.xml', data: new TextEncoder().encode(presentation) },
+    { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(relationships) },
+    { name: '[Content_Types].xml', data: new TextEncoder().encode('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>') },
+    { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(strokedSlide) },
+  ])
+}
+
 function structuralSourcePackage(): Uint8Array {
   const firstSlide = '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="First"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr><p:txBody><a:p><a:r><a:t>First slide</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>'
   const secondSlide = firstSlide.replaceAll('First', 'Second').replaceAll('id="1"', 'id="2"')
@@ -511,6 +521,68 @@ describe('exportPptx', () => {
     expect(outputSlide).toContain('<a:customStyle keep="yes"/>')
     expect(imported.elements.el_1).toMatchObject({ fill: { color: { type: 'srgb', v: '00FF00' } } })
     expect(imported.elements.el_2).toMatchObject({ fill: { color: { type: 'scheme', v: 'accent2' } } })
+  })
+
+  it('writes edited shape and text strokes while preserving line metadata', async () => {
+    const source = strokedShapeSourcePackage()
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    const text = document.elements.el_2
+    if (!shape || shape.kind !== 'shape' || !text || text.kind !== 'text') throw new Error('fixture strokes were not imported')
+    shape.stroke = { color: { type: 'srgb', v: '00FF00' } }
+    text.stroke = { color: { type: 'scheme', v: 'accent2' } }
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    const imported = await importPptx(output)
+
+    expect(outputSlide).toContain('<a:ln w="12700" cap="rnd" cmpd="sng" data-line="keep"><a:solidFill><a:srgbClr val="00FF00"/></a:solidFill><a:prstDash val="dash"/><a:customLine keep="yes"/></a:ln>')
+    expect(outputSlide).toContain('<a:ln w="25400" data-text-line="keep"><a:solidFill><a:schemeClr val="accent2"/></a:solidFill><a:customTextLine keep="yes"/></a:ln>')
+    expect(outputSlide).toContain('<a:customStyle keep="yes"/>')
+    expect(imported.elements.el_1).toMatchObject({ stroke: { color: { type: 'srgb', v: '00FF00' } } })
+    expect(imported.elements.el_2).toMatchObject({ stroke: { color: { type: 'scheme', v: 'accent2' } } })
+  })
+
+  it('adds missing shape and text strokes without replacing existing properties', async () => {
+    const source = styledShapeSourcePackage()
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    const text = document.elements.el_2
+    if (!shape || shape.kind !== 'shape' || !text || text.kind !== 'text') throw new Error('fixture styles were not imported')
+    shape.stroke = { color: { type: 'srgb', v: '00AA00' } }
+    text.stroke = { color: { type: 'scheme', v: 'accent3' } }
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    const imported = await importPptx(output)
+
+    expect(outputSlide).toContain('<a:ln><a:solidFill><a:srgbClr val="00AA00"/></a:solidFill></a:ln>')
+    expect(outputSlide).toContain('<a:ln><a:solidFill><a:schemeClr val="accent3"/></a:solidFill></a:ln>')
+    expect(outputSlide).toContain('<a:customStyle keep="yes"/>')
+    expect(imported.elements.el_1).toMatchObject({ stroke: { color: { type: 'srgb', v: '00AA00' } } })
+    expect(imported.elements.el_2).toMatchObject({ stroke: { color: { type: 'scheme', v: 'accent3' } } })
+  })
+
+  it('removes shape and text strokes while preserving the source line shell', async () => {
+    const source = strokedShapeSourcePackage()
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    const text = document.elements.el_2
+    if (!shape || shape.kind !== 'shape' || !text || text.kind !== 'text') throw new Error('fixture strokes were not imported')
+    delete shape.stroke
+    delete text.stroke
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    const imported = await importPptx(output)
+
+    expect(outputSlide).toContain('<a:ln w="12700" cap="rnd" cmpd="sng" data-line="keep"><a:noFill/><a:prstDash val="dash"/><a:customLine keep="yes"/></a:ln>')
+    expect(outputSlide).toContain('<a:ln w="25400" data-text-line="keep"><a:noFill/><a:customTextLine keep="yes"/></a:ln>')
+    expect(imported.elements.el_1).not.toHaveProperty('stroke')
+    expect(imported.elements.el_2).not.toHaveProperty('stroke')
   })
 
   it('writes edited shape preset geometry while preserving geometry XML', async () => {

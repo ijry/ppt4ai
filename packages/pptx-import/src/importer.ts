@@ -222,6 +222,19 @@ function parseDirectFill(node: XmlNode | undefined): Fill | undefined {
   return color ? { color } : undefined
 }
 
+function shapeProperties(shape: XmlNode): XmlNode | undefined {
+  return findDescendants(shape, 'spPr')[0]
+}
+
+function parseShapeFill(shape: XmlNode): Fill | undefined {
+  return parseDirectFill(shapeProperties(shape))
+}
+
+function parseStroke(shape: XmlNode): Fill | undefined {
+  const line = child(shapeProperties(shape) ?? shape, 'ln')
+  return parseDirectFill(line)
+}
+
 function parseStyleBorder(line: XmlNode | undefined): TableBorder | undefined {
   if (!line) return undefined
   const widthAttribute = attribute(line, 'w')
@@ -625,8 +638,10 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     const body = parseTextBody(shape)
     if (body) element.body = body
     if (placeholder) element.placeholder = placeholder
-    const fill = parseFill(shape)
+    const fill = parseShapeFill(shape)
     if (fill) element.fill = fill
+    const stroke = parseStroke(shape)
+    if (stroke) element.stroke = stroke
     return element
   }
   if (!bounds) return undefined
@@ -637,8 +652,10 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     bounds,
   }
   if (placeholder) element.placeholder = placeholder
-  const fill = parseFill(shape)
+  const fill = parseShapeFill(shape)
   if (fill) element.fill = fill
+  const stroke = parseStroke(shape)
+  if (stroke) element.stroke = stroke
   return element
 }
 
@@ -649,8 +666,10 @@ function parseDefaults(shape: XmlNode): [string, ElementDefaults] | undefined {
   const bounds = parseBounds(shape)
   if (bounds) defaults.bounds = bounds
   defaults.preset = parsePreset(shape)
-  const fill = parseFill(shape)
+  const fill = parseShapeFill(shape)
   if (fill) defaults.fill = fill
+  const stroke = parseStroke(shape)
+  if (stroke) defaults.stroke = stroke
   const text = parseText(shape)
   if (text.present && text.value) defaults.text = text.value
   return [placeholder, defaults]

@@ -374,6 +374,76 @@ function fillReplacements(xml: string, sourceElement: XmlElement, fill: Fill | u
   return []
 }
 
+function namespacePrefix(name: string): string {
+  const separator = name.lastIndexOf(':')
+  return separator >= 0 ? name.slice(0, separator + 1) : ''
+}
+
+function serializeFillForLine(fill: Fill, lineName: string): string {
+  const prefix = namespacePrefix(lineName)
+  const value = serializeFillXml(fill)
+  if (prefix === 'a:') return value
+  return value.replaceAll('<a:', `<${prefix}`).replaceAll('</a:', `</${prefix}`)
+}
+
+function serializeNoFill(lineName: string): string {
+  return `<${qualifiedName(lineName, 'noFill')}/>`
+}
+
+function insertElementContent(xml: string, element: XmlElement, value: string): Replacement {
+  const source = xml.slice(element.start, element.end)
+  if (/\/\s*>$/u.test(source)) {
+    const opening = source.replace(/\/\s*>$/u, '>')
+    return { start: element.start, end: element.end, value: `${opening}${value}</${element.name}>` }
+  }
+  const closingOffset = source.lastIndexOf('</')
+  if (closingOffset < 0) throw new Error('PPTX export source shape properties malformed')
+  const closingStart = element.start + closingOffset
+  return { start: closingStart, end: closingStart, value }
+}
+
+function lineReplacements(xml: string, line: XmlElement, value: string): Replacement[] {
+  const firstChild = line.children[0]
+  if (firstChild) return [{ start: firstChild.start, end: firstChild.start, value }]
+  return [insertElementContent(xml, line, value)]
+}
+
+function shapePropertyInsertion(xml: string, properties: XmlElement, value: string): Replacement[] {
+  const insertionBefore = properties.children.find((child) => (
+    child.localName === 'effectLst'
+      || child.localName === 'effectDag'
+      || child.localName === 'scene3d'
+      || child.localName === 'sp3d'
+      || child.localName === 'extLst'
+  ))
+  if (insertionBefore) return [{ start: insertionBefore.start, end: insertionBefore.start, value }]
+  return [insertElementContent(xml, properties, value)]
+}
+
+function strokeReplacements(xml: string, sourceElement: XmlElement, stroke: Fill | undefined): Replacement[] {
+  const properties = sourceShapeProperties(sourceElement)
+  if (!properties) return []
+  const line = properties.children.find((child) => child.localName === 'ln')
+  const fillNode = line?.children.find((child) => fillNodeNames.has(child.localName))
+  const sourceStroke = fillNode?.localName === 'solidFill' ? sourceColor(fillNode) : undefined
+  if (fillsEqual(sourceStroke ? { color: sourceStroke } : undefined, stroke)) return []
+
+  if (stroke) {
+    if (!line) {
+      const value = '<a:ln>' + serializeFillXml(stroke) + '</a:ln>'
+      return shapePropertyInsertion(xml, properties, value)
+    }
+    const value = serializeFillForLine(stroke, line.name)
+    if (fillNode) return [{ start: fillNode.start, end: fillNode.end, value }]
+    return lineReplacements(xml, line, value)
+  }
+
+  if (line && fillNode?.localName === 'solidFill' && sourceStroke) {
+    return [{ start: fillNode.start, end: fillNode.end, value: serializeNoFill(line.name) }]
+  }
+  return []
+}
+
 function importedPreset(value: string | undefined): PresetGeometry {
   return value === 'roundRect' || value === 'ellipse' || value === 'triangle' ? value : 'rect'
 }
@@ -863,11 +933,13 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
         }
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
+        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke))
       } else if (element.kind === 'text') {
         throw new Error(`PPTX export text source mismatch for element ${element.id}`)
       } else if (element.kind === 'shape') {
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
+        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke))
         replacements.push(...geometryReplacements(xml, sourceElement, element.preset))
       } else {
         throw new Error(`PPTX export shape source mismatch for element ${element.id}`)

@@ -67,6 +67,13 @@ const files = {
   'ppt/slideMasters/slideMaster1.xml': `<p:sldMaster xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:solidFill><a:srgbClr val="000000"/></a:solidFill></p:spPr></p:sp></p:spTree></p:cSld></p:sldMaster>`,
 }
 
+const strokeFiles = {
+  ...files,
+  'ppt/slides/slide1.xml': '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp data-preserve="stroke-shape"><p:nvSpPr><p:cNvPr id="3" name="Shape"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="4000000" cy="2000000"/></a:xfrm><a:prstGeom prst="rect"/><a:ln w="12700" cap="rnd" data-line="keep"><a:solidFill><a:srgbClr val="112233"><a:alpha val="50000"/></a:srgbClr></a:solidFill><a:prstDash val="dash"/><a:customLine keep="yes"/></a:ln></p:spPr></p:sp><p:sp data-preserve="stroke-text"><p:nvSpPr><p:cNvPr id="4" name="Text"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="500000" y="4000000"/><a:ext cx="4000000" cy="1000000"/></a:xfrm><a:ln w="25400"><a:solidFill><a:schemeClr val="accent2"/></a:solidFill></a:ln></p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>Stroked text</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>',
+  'ppt/slideLayouts/slideLayout1.xml': files['ppt/slideLayouts/slideLayout1.xml'].replace('<a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>', '<a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="1000"><a:solidFill><a:srgbClr val="ABCDEF"/></a:solidFill></a:ln>'),
+  'ppt/slideMasters/slideMaster1.xml': files['ppt/slideMasters/slideMaster1.xml'].replace('<a:solidFill><a:srgbClr val="000000"/></a:solidFill>', '<a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:ln w="2000"><a:solidFill><a:srgbClr val="FEDCBA"/></a:solidFill></a:ln>'),
+}
+
 const pngBytes = new Uint8Array([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
   0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
@@ -360,6 +367,26 @@ describe('importPptx', () => {
     expect(imported.source?.modelFingerprint).toBe(fingerprintDocument(imported))
     expect(structuredClone(imported).source).toEqual(imported.source)
     expect(structuredClone(imported)).toEqual(imported)
+  })
+
+  it('imports direct shape and text strokes without treating line fills as shape fills', async () => {
+    const imported = await importPptx(createStoredZip(strokeFiles))
+
+    expect(imported.elements.el_1).toMatchObject({
+      kind: 'shape',
+      stroke: { color: { type: 'srgb', v: '112233', transforms: [{ type: 'alpha', value: 50000 }] } },
+    })
+    expect(imported.elements.el_1).not.toHaveProperty('fill')
+    expect(imported.elements.el_2).toMatchObject({
+      kind: 'text',
+      stroke: { color: { type: 'scheme', v: 'accent2' } },
+    })
+    expect(imported.masters?.mst_1?.defaults?.title).toMatchObject({
+      stroke: { color: { type: 'srgb', v: 'FEDCBA' } },
+    })
+    expect(imported.layouts?.lyt_1?.defaults?.title).toMatchObject({
+      stroke: { color: { type: 'srgb', v: 'ABCDEF' } },
+    })
   })
 
   it('reuses shared layouts and masters while preserving slide element order', async () => {
