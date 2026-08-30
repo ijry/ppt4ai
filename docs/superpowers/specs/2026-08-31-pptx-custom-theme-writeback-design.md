@@ -1,6 +1,6 @@
 # PPTX Custom Theme Color Write-back Design
 
-> **Status**: proposed after brainstorming; pending written-spec review
+> **Status**: approved for implementation
 >
 > **Date**: 2026-08-31
 
