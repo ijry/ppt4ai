@@ -33,6 +33,11 @@ export interface PlaygroundAssetHost {
   uploadAndReplace(input: PlaygroundImageUploadInput): Promise<PlaygroundAssetHostSnapshot>
 }
 
+export interface PlaygroundAssetHostOptions {
+  adapter?: AssetAdapter
+  document?: Ppt4aiDocument
+}
+
 export const playgroundSnapOptions: SnapOptions = {
   enabled: true,
   gridSize: 914400,
@@ -102,9 +107,9 @@ function createDocument(): Ppt4aiDocument {
   }
 }
 
-export function createPlaygroundAssetHost(): PlaygroundAssetHost {
-  const engine = new EditorEngine(createDocument(), { snap: structuredClone(playgroundSnapOptions) })
-  const adapter = createMemoryAssetAdapter()
+export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = {}): PlaygroundAssetHost {
+  const engine = new EditorEngine(structuredClone(options.document ?? createDocument()), { snap: structuredClone(playgroundSnapOptions) })
+  const adapter = options.adapter ?? createMemoryAssetAdapter()
   let selectedAssetId: string | undefined
   let imageSequence = 1
   let assetSequence = 1

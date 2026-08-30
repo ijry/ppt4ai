@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { AssetAdapter } from '@ppt4ai/model'
 import { createPlaygroundAssetHost } from './asset-host'
 
 const uploadPng = new Uint8Array([
@@ -7,6 +8,26 @@ const uploadPng = new Uint8Array([
 ])
 
 describe('createPlaygroundAssetHost', () => {
+  it('accepts an injected adapter and document for isolated page hosts', async () => {
+    const sourceDocument = createPlaygroundAssetHost().getSnapshot().engineState.document
+    const document = structuredClone(sourceDocument)
+    document.id = 'dck_injected'
+    document.slides.sld_playground!.elementIds = []
+    const stored = new Uint8Array([1, 2, 3])
+    const adapter: AssetAdapter = {
+      async get(assetId) {
+        return assetId === 'asset_injected' ? stored.slice() : undefined
+      },
+      async put() {},
+    }
+
+    const host = createPlaygroundAssetHost({ document, adapter })
+
+    expect(host.getSnapshot().engineState.document.id).toBe('dck_injected')
+    expect(host.getSnapshot().engineState.document.slides.sld_playground?.elementIds).toEqual([])
+    expect(await host.adapter.get('asset_injected')).toEqual(stored)
+  })
+
   it('seeds clone-isolated assets and returns clone-safe snapshots', async () => {
     const host = createPlaygroundAssetHost()
     const snapshot = host.getSnapshot()
