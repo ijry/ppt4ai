@@ -184,8 +184,8 @@ function serializeTransformContents(bounds: Rect): string {
   return `<a:off x="${bounds.x}" y="${bounds.y}"/><a:ext cx="${bounds.w}" cy="${bounds.h}"/>`
 }
 
-function serializeShapeTransform(bounds: Rect): string {
-  return `<a:xfrm>${serializeTransformContents(bounds)}</a:xfrm>`
+function serializeShapeTransform(bounds: Rect, rotation: number | undefined): string {
+  return `<a:xfrm${attrs([['rot', rotation]])}>${serializeTransformContents(bounds)}</a:xfrm>`
 }
 
 function serializeGeometry(preset: ShapeElement['preset']): string {
@@ -309,7 +309,7 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   const preset = isText ? 'rect' : element.preset
   const placeholder = serializePlaceholder(element.placeholder)
   const nonVisualProperties = `<p:nvSpPr><p:cNvPr id="${shapeId}" name="${escapeXml(element.id)}"/><p:cNvSpPr${isText ? ' txBox="1"' : ''}/><p:nvPr>${placeholder}</p:nvPr></p:nvSpPr>`
-  const shapeProperties = `<p:spPr>${serializeShapeTransform(element.bounds)}${serializeGeometry(preset)}${serializeFillXml(element.fill)}${element.stroke ? `<a:ln>${serializeFillXml(element.stroke)}</a:ln>` : ''}</p:spPr>`
+  const shapeProperties = `<p:spPr>${serializeShapeTransform(element.bounds, element.rotation)}${serializeGeometry(preset)}${serializeFillXml(element.fill)}${element.stroke ? `<a:ln>${serializeFillXml(element.stroke)}</a:ln>` : ''}</p:spPr>`
   const textBody = isText
     ? serializeTextBodyXml(element.body ?? { paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }] })
     : ''

@@ -116,6 +116,17 @@ function strokedShapeSourcePackage(): Uint8Array {
   ])
 }
 
+function rotatedShapeSourcePackage(shapeRotation?: string, textRotation?: string): Uint8Array {
+  const shapeTransform = `<a:xfrm${shapeRotation === undefined ? '' : ` rot="${shapeRotation}"`} data-shape-transform="keep"><a:off x="10" y="20"/><a:ext cx="300" cy="400"/><a:customTransform keep="yes"/></a:xfrm>`
+  const textTransform = `<a:xfrm${textRotation === undefined ? '' : ` rot="${textRotation}"`} data-text-transform="keep"><a:off x="500" y="600"/><a:ext cx="700" cy="800"/><a:customTextTransform keep="yes"/></a:xfrm>`
+  const rotatedSlide = `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp data-preserve="rotation-shape"><p:nvSpPr><p:cNvPr id="1" name="Shape"/><p:nvPr/></p:nvSpPr><p:spPr>${shapeTransform}<a:prstGeom prst="triangle"/></p:spPr></p:sp><p:sp data-preserve="rotation-text"><p:nvSpPr><p:cNvPr id="2" name="Text"/><p:nvPr/></p:nvSpPr><p:spPr>${textTransform}</p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>Rotated</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`
+  return writeStoredZip([
+    { name: 'ppt/presentation.xml', data: new TextEncoder().encode(presentation) },
+    { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(relationships) },
+    { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(rotatedSlide) },
+  ])
+}
+
 function structuralSourcePackage(): Uint8Array {
   const firstSlide = '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="First"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr><p:txBody><a:p><a:r><a:t>First slide</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>'
   const secondSlide = firstSlide.replaceAll('First', 'Second').replaceAll('id="1"', 'id="2"')
@@ -583,6 +594,58 @@ describe('exportPptx', () => {
     expect(outputSlide).toContain('<a:ln w="25400" data-text-line="keep"><a:noFill/><a:customTextLine keep="yes"/></a:ln>')
     expect(imported.elements.el_1).not.toHaveProperty('stroke')
     expect(imported.elements.el_2).not.toHaveProperty('stroke')
+  })
+
+  it('writes edited shape and text rotations while preserving xfrm metadata', async () => {
+    const source = rotatedShapeSourcePackage('60000', '-120000')
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    const text = document.elements.el_2
+    if (!shape || shape.kind !== 'shape' || !text || text.kind !== 'text') throw new Error('fixture rotations were not imported')
+    shape.rotation = 180000
+    text.rotation = -240000
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    const imported = await importPptx(output)
+
+    expect(outputSlide).toContain('<a:xfrm rot="180000" data-shape-transform="keep"><a:off x="10" y="20"/><a:ext cx="300" cy="400"/><a:customTransform keep="yes"/></a:xfrm>')
+    expect(outputSlide).toContain('<a:xfrm rot="-240000" data-text-transform="keep"><a:off x="500" y="600"/><a:ext cx="700" cy="800"/><a:customTextTransform keep="yes"/></a:xfrm>')
+    expect(imported.elements.el_1).toMatchObject({ kind: 'shape', rotation: 180000 })
+    expect(imported.elements.el_2).toMatchObject({ kind: 'text', rotation: -240000 })
+  })
+
+  it('adds and removes shape and text rotation attributes without rebuilding xfrm', async () => {
+    const addedSource = rotatedShapeSourcePackage()
+    const addedDocument = await importPptx(addedSource)
+    const addedShape = addedDocument.elements.el_1
+    const addedText = addedDocument.elements.el_2
+    if (!addedShape || addedShape.kind !== 'shape' || !addedText || addedText.kind !== 'text') throw new Error('fixture rotations were not imported')
+    addedShape.rotation = 300000
+    addedText.rotation = 600000
+
+    const addedOutput = await exportPptx(addedDocument, addedSource)
+    const addedEntries = await packageEntries(addedOutput)
+    const addedSlide = new TextDecoder().decode(addedEntries.get('ppt/slides/slide1.xml'))
+    expect(addedSlide).toContain('<a:xfrm rot="300000" data-shape-transform="keep">')
+    expect(addedSlide).toContain('<a:xfrm rot="600000" data-text-transform="keep">')
+
+    const removedSource = rotatedShapeSourcePackage('60000', '-120000')
+    const removedDocument = await importPptx(removedSource)
+    const removedShape = removedDocument.elements.el_1
+    const removedText = removedDocument.elements.el_2
+    if (!removedShape || removedShape.kind !== 'shape' || !removedText || removedText.kind !== 'text') throw new Error('fixture rotations were not imported')
+    delete removedShape.rotation
+    delete removedText.rotation
+
+    const removedOutput = await exportPptx(removedDocument, removedSource)
+    const removedEntries = await packageEntries(removedOutput)
+    const removedSlide = new TextDecoder().decode(removedEntries.get('ppt/slides/slide1.xml'))
+    expect(removedSlide).toContain('<a:xfrm data-shape-transform="keep">')
+    expect(removedSlide).toContain('<a:xfrm data-text-transform="keep">')
+    expect(removedSlide).not.toContain('rot="60000"')
+    expect(removedSlide).not.toContain('rot="-120000"')
   })
 
   it('writes edited shape preset geometry while preserving geometry XML', async () => {

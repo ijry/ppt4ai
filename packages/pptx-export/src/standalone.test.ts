@@ -248,6 +248,29 @@ describe('createPptx', () => {
     expect(shapeTextDocument).toEqual(before)
   })
 
+  it('serializes shape and text rotations in OOXML units', async () => {
+    const rotatedDocument = structuredClone(shapeTextDocument)
+    const rotatedShape = rotatedDocument.elements[shape.id]
+    const rotatedText = rotatedDocument.elements[text.id]
+    if (!rotatedShape || rotatedShape.kind !== 'shape' || !rotatedText || rotatedText.kind !== 'text') throw new Error('rotation fixtures are missing')
+    rotatedShape.rotation = -5400000
+    rotatedText.rotation = 2700000
+    const before = structuredClone(rotatedDocument)
+
+    const output = await createPptx(rotatedDocument)
+    const xml = await slideXml(output)
+    const imported = await importPptx(output)
+    const importedIds = imported.slides.sld_1?.elementIds ?? []
+    const importedShape = imported.elements[importedIds[0] ?? '']
+    const importedText = imported.elements[importedIds[1] ?? '']
+
+    expect(xml).toContain('<a:xfrm rot="-5400000"><a:off x="1000000" y="500000"/><a:ext cx="3000000" cy="1500000"/></a:xfrm>')
+    expect(xml).toContain('<a:xfrm rot="2700000"><a:off x="4500000" y="500000"/><a:ext cx="5000000" cy="2500000"/></a:xfrm>')
+    expect(importedShape).toMatchObject({ kind: 'shape', rotation: -5400000 })
+    expect(importedText).toMatchObject({ kind: 'text', rotation: 2700000 })
+    expect(rotatedDocument).toEqual(before)
+  })
+
   it('serializes table elements as graphic frames and round-trips their grid', async () => {
     const before = structuredClone(tableDocument)
     const output = await createPptx(tableDocument)

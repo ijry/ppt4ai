@@ -285,6 +285,44 @@ function replaceXmlAttribute(source: string, name: string, value: string | numbe
   return source.slice(0, match.index) + replacement + source.slice(match.index + match[0].length)
 }
 
+function xmlAttributePattern(name: string): RegExp {
+  return new RegExp(`\\s${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, 'u')
+}
+
+function addXmlAttribute(source: string, name: string, value: string | number): string {
+  const nameMatch = /^<([^\s/>]+)/u.exec(source)
+  if (!nameMatch) throw new Error('PPTX export source transform opening tag malformed')
+  const insertion = nameMatch[0].length
+  return `${source.slice(0, insertion)} ${name}="${escapeXml(String(value))}"${source.slice(insertion)}`
+}
+
+function updateXmlAttribute(source: string, name: string, value: string | number | undefined): string {
+  const expression = xmlAttributePattern(name)
+  if (value === undefined) return source.replace(expression, '')
+  return expression.test(source)
+    ? replaceXmlAttribute(source, name, value)
+    : addXmlAttribute(source, name, value)
+}
+
+function sourceRotation(element: XmlElement): number | undefined {
+  const transform = firstDescendant(element, 'xfrm')
+  const value = transform?.attributes.rot
+  if (value === undefined || value.trim() === '') return undefined
+  const rotation = Number(value)
+  return Number.isFinite(rotation) && Number.isInteger(rotation) ? rotation : undefined
+}
+
+function rotationReplacements(xml: string, sourceElement: XmlElement, rotation: number | undefined): Replacement[] {
+  const transform = firstDescendant(sourceElement, 'xfrm')
+  if (!transform) return []
+  const previous = sourceRotation(sourceElement)
+  if (previous === rotation || (previous === undefined && rotation === undefined)) return []
+  const openingEnd = tagEnd(xml, transform.start + 1)
+  const openingXml = xml.slice(transform.start, openingEnd)
+  const value = updateXmlAttribute(openingXml, 'rot', rotation)
+  return value === openingXml ? [] : [{ start: transform.start, end: openingEnd, value }]
+}
+
 function boundsReplacements(xml: string, sourceElement: XmlElement, bounds: Rect): Replacement[] {
   const previous = sourceBounds(sourceElement)
   if (!previous || previous.x === bounds.x && previous.y === bounds.y && previous.w === bounds.w && previous.h === bounds.h) return []
@@ -932,12 +970,14 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
           replacements.push({ start: sourceTextBody.start, end: sourceTextBody.end, value: serializeTextBodyXml(body) })
         }
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
+        replacements.push(...rotationReplacements(xml, sourceElement, element.rotation))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
         replacements.push(...strokeReplacements(xml, sourceElement, element.stroke))
       } else if (element.kind === 'text') {
         throw new Error(`PPTX export text source mismatch for element ${element.id}`)
       } else if (element.kind === 'shape') {
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
+        replacements.push(...rotationReplacements(xml, sourceElement, element.rotation))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
         replacements.push(...strokeReplacements(xml, sourceElement, element.stroke))
         replacements.push(...geometryReplacements(xml, sourceElement, element.preset))
