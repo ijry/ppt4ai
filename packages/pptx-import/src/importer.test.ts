@@ -455,6 +455,8 @@ describe('importPptx', () => {
       relationshipId: 'rId2',
       presentationId: '257',
     })
+    expect(imported.masters?.mst_1?.source).toEqual({ partPath: 'ppt/slideMasters/slideMaster1.xml' })
+    expect(imported.layouts?.lyt_1?.source).toEqual({ partPath: 'ppt/slideLayouts/slideLayout1.xml' })
   })
 
   it('imports structured character and auto-number bullets without marker text', async () => {

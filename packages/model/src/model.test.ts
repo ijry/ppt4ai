@@ -17,6 +17,8 @@ import {
   type TextElement,
   type Theme,
   type ThemeSource,
+  type SlideLayoutSource,
+  type SlideMasterSource,
 } from './index'
 
 const minimalDocument: Ppt4aiDocument = {
@@ -113,6 +115,34 @@ describe('ppt4ai file model', () => {
     expect(validateDocument(document as Ppt4aiDocument)).toEqual({
       valid: false,
       errors: ['themes.theme_1.source.partPath must be a non-empty string'],
+    })
+  })
+
+  it('keeps master and layout source bindings clone-safe and fingerprinted', () => {
+    const masterSource: SlideMasterSource = { partPath: 'ppt/slideMasters/custom.xml' }
+    const layoutSource: SlideLayoutSource = { partPath: 'ppt/slideLayouts/custom.xml' }
+    const document = structuredClone(minimalDocument)
+    document.masters = { master_1: { id: 'master_1', source: masterSource } }
+    document.layouts = { layout_1: { id: 'layout_1', masterId: 'master_1', source: layoutSource } }
+
+    expect(validateDocument(document)).toEqual({ valid: true })
+    expect(structuredClone(document)).toEqual(document)
+    expect(fingerprintDocument(document)).not.toBe(fingerprintDocument(minimalDocument))
+  })
+
+  it('rejects empty master and layout source paths', () => {
+    const document = {
+      ...minimalDocument,
+      masters: { master_1: { id: 'master_1', source: { partPath: '' } } },
+      layouts: { layout_1: { id: 'layout_1', masterId: 'master_1', source: { partPath: '' } } },
+    }
+
+    expect(validateDocument(document as Ppt4aiDocument)).toEqual({
+      valid: false,
+      errors: [
+        'masters.master_1.source.partPath must be a non-empty string',
+        'layouts.layout_1.source.partPath must be a non-empty string',
+      ],
     })
   })
 

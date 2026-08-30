@@ -690,7 +690,7 @@ function parseDefaults(shape: XmlNode): [string, ElementDefaults] | undefined {
   return [placeholder, defaults]
 }
 
-function parseMaster(xml: string, id: string, themeId?: string): SlideMaster {
+function parseMaster(xml: string, id: string, themeId: string | undefined, partPath: string): SlideMaster {
   const root = parseXml(xml)
   const defaults: Record<string, ElementDefaults> = {}
   for (const shape of findDescendants(root, 'sp')) {
@@ -698,10 +698,10 @@ function parseMaster(xml: string, id: string, themeId?: string): SlideMaster {
     if (parsed) defaults[parsed[0]] = parsed[1]
   }
   const colorMap = parseColorMap(findDescendants(root, 'clrMap')[0])
-  return { id, defaults, ...(themeId ? { themeId } : {}), ...(colorMap ? { colorMap } : {}) }
+  return { id, defaults, ...(themeId ? { themeId } : {}), ...(colorMap ? { colorMap } : {}), source: { partPath } }
 }
 
-function parseLayout(xml: string, id: string, masterId: string): SlideLayout {
+function parseLayout(xml: string, id: string, masterId: string, partPath: string): SlideLayout {
   const root = parseXml(xml)
   const defaults: Record<string, ElementDefaults> = {}
   for (const shape of findDescendants(root, 'sp')) {
@@ -709,7 +709,7 @@ function parseLayout(xml: string, id: string, masterId: string): SlideLayout {
     if (parsed) defaults[parsed[0]] = parsed[1]
   }
   const colorMapOverride = parseColorMapOverride(root)
-  return { id, masterId, defaults, ...(colorMapOverride ? { colorMapOverride } : {}) }
+  return { id, masterId, defaults, ...(colorMapOverride ? { colorMapOverride } : {}), source: { partPath } }
 }
 
 function parsePart(entries: Record<string, Uint8Array>, path: string): ImportedPart | undefined {
@@ -820,11 +820,11 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
                   themeIdsByPath.set(themePath, themeId)
                 }
               }
-              masters[masterId] = parseMaster(new TextDecoder().decode(entries[masterPath]!), masterId, themeId)
+              masters[masterId] = parseMaster(new TextDecoder().decode(entries[masterPath]!), masterId, themeId, masterPath)
             }
           }
         }
-        if (layoutPart) layouts[layoutId] = parseLayout(new TextDecoder().decode(entries[layoutPath]!), layoutId, masterId ?? '')
+        if (layoutPart) layouts[layoutId] = parseLayout(new TextDecoder().decode(entries[layoutPath]!), layoutId, masterId ?? '', layoutPath)
       }
     }
 

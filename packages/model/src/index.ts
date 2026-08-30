@@ -280,11 +280,20 @@ export interface ElementDefaults {
   body?: TextBody
 }
 
+export interface SlideLayoutSource {
+  partPath: string
+}
+
+export interface SlideMasterSource {
+  partPath: string
+}
+
 export interface SlideLayout {
   id: string
   masterId: string
   defaults?: Record<string, ElementDefaults>
   colorMapOverride?: Partial<ColorMap>
+  source?: SlideLayoutSource
 }
 
 export interface SlideMaster {
@@ -292,6 +301,7 @@ export interface SlideMaster {
   defaults?: Record<string, ElementDefaults>
   themeId?: string
   colorMap?: Partial<ColorMap>
+  source?: SlideMasterSource
 }
 
 export interface SlideSource {
@@ -1027,6 +1037,13 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       }
       const master = masterValue as unknown as Record<string, unknown>
       if (master.id !== masterId) errors.push(`master key does not match id: ${masterId}`)
+      if ('source' in master && master.source !== undefined) {
+        if (!master.source || typeof master.source !== 'object' || Array.isArray(master.source)) errors.push(`${masterPath}.source must be an object`)
+        else {
+          const source = master.source as Record<string, unknown>
+          if (typeof source.partPath !== 'string' || source.partPath.length === 0) errors.push(`${masterPath}.source.partPath must be a non-empty string`)
+        }
+      }
       if ('themeId' in master && master.themeId !== undefined && (typeof master.themeId !== 'string' || master.themeId.length === 0)) errors.push(`${masterPath}.themeId must be a non-empty string`)
       if ('colorMap' in master && master.colorMap !== undefined) validateColorMap(master.colorMap, `${masterPath}.colorMap`, errors)
       if ('defaults' in master && master.defaults !== undefined) validateDefaultRotations(master.defaults, `${masterPath}.defaults`, errors)
@@ -1043,6 +1060,13 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       }
       const layout = layoutValue as unknown as Record<string, unknown>
       if (layout.id !== layoutId) errors.push(`layout key does not match id: ${layoutId}`)
+      if ('source' in layout && layout.source !== undefined) {
+        if (!layout.source || typeof layout.source !== 'object' || Array.isArray(layout.source)) errors.push(`${layoutPath}.source must be an object`)
+        else {
+          const source = layout.source as Record<string, unknown>
+          if (typeof source.partPath !== 'string' || source.partPath.length === 0) errors.push(`${layoutPath}.source.partPath must be a non-empty string`)
+        }
+      }
       if ('colorMapOverride' in layout && layout.colorMapOverride !== undefined) validateColorMap(layout.colorMapOverride, `${layoutPath}.colorMapOverride`, errors)
       if ('defaults' in layout && layout.defaults !== undefined) validateDefaultRotations(layout.defaults, `${layoutPath}.defaults`, errors)
     }
