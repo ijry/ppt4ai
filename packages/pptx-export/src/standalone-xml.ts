@@ -152,14 +152,14 @@ export function serializeLayoutRelationshipsXml(): string {
   return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationship(`${officeRelationshipNamespace}/slideMaster`, 'rId1', '../slideMasters/slideMaster1.xml')}</Relationships>`
 }
 
-export function serializeColorXml(color: Color): string {
+export function serializeColorXml(color: Color, prefix = 'a:'): string {
   const transformXml = (color.transforms ?? [])
-    .map((transform) => `<a:${transform.type}${attrs([['val', transform.value]])}/>`)
+    .map((transform) => `<${prefix}${transform.type}${attrs([['val', transform.value]])}/>`)
     .join('')
   if (color.type === 'scrgb') {
     const channels = color.v.split(',')
     const colorAttributes = attrs([['r', channels[0]], ['g', channels[1]], ['b', channels[2]]])
-    return transformXml ? `<a:scrgbClr${colorAttributes}>${transformXml}</a:scrgbClr>` : `<a:scrgbClr${colorAttributes}/>`
+    return transformXml ? `<${prefix}scrgbClr${colorAttributes}>${transformXml}</${prefix}scrgbClr>` : `<${prefix}scrgbClr${colorAttributes}/>`
   }
   const element = color.type === 'srgb'
     ? 'srgbClr'
@@ -172,8 +172,8 @@ export function serializeColorXml(color: Color): string {
     ? attrs([['val', 'windowText'], ['lastClr', color.v]])
     : attrs([['val', color.v]])
   return transformXml
-    ? `<a:${element}${colorAttributes}>${transformXml}</a:${element}>`
-    : `<a:${element}${colorAttributes}/>`
+    ? `<${prefix}${element}${colorAttributes}>${transformXml}</${prefix}${element}>`
+    : `<${prefix}${element}${colorAttributes}/>`
 }
 
 export function serializeFillXml(fill: Fill | undefined): string {
