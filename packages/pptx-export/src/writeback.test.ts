@@ -134,6 +134,64 @@ describe('exportPptx', () => {
     expect(entries.get('custom/unknown.bin')).toEqual(new Uint8Array([7, 3, 1, 4]))
   })
 
+  it('writes a blank slide with a deterministic layout relationship', async () => {
+    const source = structuralSourcePackage()
+    const document = await importPptx(source)
+    const blankSlideId = 'sld_blank'
+    document.slides[blankSlideId] = {
+      id: blankSlideId,
+      elementIds: [],
+      ...(document.slides.sld_1?.layoutId ? { layoutId: document.slides.sld_1.layoutId } : {}),
+    }
+    document.slideOrder = ['sld_1', blankSlideId, 'sld_2']
+    const expectedDocument = structuredClone(document)
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const presentationXml = new TextDecoder().decode(entries.get('ppt/presentation.xml'))
+    const presentationRelationships = new TextDecoder().decode(entries.get('ppt/_rels/presentation.xml.rels'))
+    const blankRelationships = new TextDecoder().decode(entries.get('ppt/slides/_rels/slide3.xml.rels'))
+    const outputContentTypes = new TextDecoder().decode(entries.get('[Content_Types].xml'))
+    const imported = await importPptx(output)
+
+    expect(entries.get('ppt/slides/slide3.xml')).toBeDefined()
+    expect(new TextDecoder().decode(entries.get('ppt/slides/slide3.xml'))).toContain('<p:spTree>')
+    expect(presentationXml).toContain('<p:sldId id="258" r:id="rId3"/>')
+    expect(presentationRelationships).toContain('Id="rId3"')
+    expect(presentationRelationships).toContain('Target="slides/slide3.xml"')
+    expect(blankRelationships).toContain('Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"')
+    expect(blankRelationships).toContain('Target="../slideLayouts/slideLayout1.xml"')
+    expect(outputContentTypes).toContain('PartName="/ppt/slides/slide3.xml"')
+    expect(imported.slideOrder).toHaveLength(3)
+    expect(imported.slides.sld_2?.elementIds).toEqual([])
+    expect(entries.get('custom/unknown.bin')).toEqual(new Uint8Array([7, 3, 1, 4]))
+    expect(document).toEqual(expectedDocument)
+  })
+
+  it('clones a source slide into a fresh part while retaining its source XML', async () => {
+    const source = structuralSourcePackage()
+    const document = await importPptx(source)
+    const copiedSlide = structuredClone(document.slides.sld_1!)
+    copiedSlide.id = 'sld_copy'
+    document.slides.sld_copy = copiedSlide
+    document.slideOrder = ['sld_1', 'sld_copy', 'sld_2']
+    const expectedDocument = structuredClone(document)
+    const sourceEntries = await packageEntries(source)
+
+    const first = await exportPptx(document, source)
+    const second = await exportPptx(document, source)
+    const entries = await packageEntries(first)
+    const imported = await importPptx(first)
+
+    expect(first).toEqual(second)
+    expect(entries.get('ppt/slides/slide3.xml')).toEqual(sourceEntries.get('ppt/slides/slide1.xml'))
+    expect(entries.get('ppt/slides/_rels/slide3.xml.rels')).toEqual(sourceEntries.get('ppt/slides/_rels/slide1.xml.rels'))
+    expect(new TextDecoder().decode(entries.get('ppt/_rels/presentation.xml.rels'))).toContain('Target="slides/slide3.xml"')
+    expect(imported.slideOrder).toHaveLength(3)
+    expect(imported.elements[imported.slides.sld_2?.elementIds[0] ?? '']).toMatchObject({ text: 'First slide' })
+    expect(document).toEqual(expectedDocument)
+  })
+
   it('replaces imported table XML while preserving the package', async () => {
     const source = sourcePackage()
     const document = await importPptx(source)

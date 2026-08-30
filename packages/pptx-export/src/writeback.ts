@@ -71,9 +71,14 @@ interface SourcePackage {
   slides: SourceSlide[]
 }
 
-interface ReuseSlidePlan {
+interface SlidePlan {
+  mode: 'reuse' | 'clone' | 'blank'
   slideId: string
-  source: SourceSlide
+  outputPath: string
+  presentationId: string
+  relationshipId: string
+  source?: SourceSlide
+  layoutRelationship?: SlideRelationship
 }
 
 const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
@@ -334,7 +339,7 @@ function sourcePackage(entries: Map<string, ZipEntry>): SourcePackage {
   }
 }
 
-function resolveSourceSlide(slideId: string, slide: Ppt4aiDocument['slides'][string] | undefined, slides: SourceSlide[]): SourceSlide {
+function resolveSourceSlide(slideId: string, slide: Ppt4aiDocument['slides'][string] | undefined, slides: SourceSlide[]): SourceSlide | undefined {
   if (!slide) throw new Error(`PPTX export document slide missing: ${slideId}`)
   if (slide.source) {
     const source = slides.find((candidate) => candidate.partPath === slide.source?.partPath
@@ -346,19 +351,94 @@ function resolveSourceSlide(slideId: string, slide: Ppt4aiDocument['slides'][str
   const legacyMatch = /^sld_(\d+)$/u.exec(slideId)
   const index = legacyMatch ? Number(legacyMatch[1]) - 1 : -1
   const source = index >= 0 ? slides[index] : undefined
-  if (!source || source.originId !== slideId) throw new Error(`PPTX export source slide binding missing for slide ${slideId}`)
-  return source
+  return source?.originId === slideId ? source : undefined
 }
 
-function reuseSlidePlans(document: Ppt4aiDocument, source: SourcePackage): ReuseSlidePlan[] {
-  const usedPaths = new Set<string>()
-  return document.slideOrder.map((slideId) => {
+function escapeXml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;')
+}
+
+function allocateSlidePath(entryNames: Set<string>): string {
+  let next = 1
+  for (const entryName of entryNames) {
+    const match = /^ppt\/slides\/slide(\d+)\.xml$/u.exec(entryName)
+    if (match) next = Math.max(next, Number(match[1]) + 1)
+  }
+  while (entryNames.has(`ppt/slides/slide${next}.xml`) || entryNames.has(`ppt/slides/_rels/slide${next}.xml.rels`)) next += 1
+  return `ppt/slides/slide${next}.xml`
+}
+
+function allocatePresentationId(ids: Set<string>): string {
+  let next = 1
+  for (const id of ids) {
+    if (/^\d+$/u.test(id)) next = Math.max(next, Number(id) + 1)
+  }
+  while (ids.has(String(next))) next += 1
+  return String(next)
+}
+
+function presentationRelationshipIds(xml: string): Set<string> {
+  return new Set(descendants(scanXml(xml), 'Relationship').flatMap((relationship) => {
+    const id = relationship.attributes.Id
+    return id ? [id] : []
+  }))
+}
+
+function firstLayoutRelationship(source: SourcePackage, entries: Map<string, ZipEntry>): SlideRelationship | undefined {
+  for (const slide of source.slides) {
+    const relationship = readRelationships(entries, slide.partPath).find((candidate) => candidate.type === 'slideLayout')
+    if (relationship) return relationship
+  }
+  return undefined
+}
+
+function slidePlans(document: Ppt4aiDocument, source: SourcePackage, entries: Map<string, ZipEntry>): SlidePlan[] {
+  const entryNames = new Set(entries.keys())
+  const usedSourcePaths = new Set<string>()
+  const presentationIds = new Set(source.slides.map((slide) => slide.presentationId))
+  const relationshipIds = presentationRelationshipIds(source.presentationRelationshipsXml)
+  const layoutRelationship = firstLayoutRelationship(source, entries)
+  const plans: SlidePlan[] = []
+
+  for (const slideId of document.slideOrder) {
     const slide = document.slides[slideId]
     const sourceSlide = resolveSourceSlide(slideId, slide, source.slides)
-    if (usedPaths.has(sourceSlide.partPath)) throw new Error(`PPTX export source slide reused by multiple pages: ${sourceSlide.partPath}`)
-    usedPaths.add(sourceSlide.partPath)
-    return { slideId, source: sourceSlide }
-  })
+    const isOriginal = sourceSlide !== undefined && (slide?.source?.originId === slideId || sourceSlide.originId === slideId)
+    if (sourceSlide && isOriginal) {
+      if (usedSourcePaths.has(sourceSlide.partPath)) throw new Error(`PPTX export source slide reused by multiple pages: ${sourceSlide.partPath}`)
+      usedSourcePaths.add(sourceSlide.partPath)
+      plans.push({
+        mode: 'reuse',
+        slideId,
+        outputPath: sourceSlide.partPath,
+        presentationId: sourceSlide.presentationId,
+        relationshipId: sourceSlide.relationshipId,
+        source: sourceSlide,
+      })
+      continue
+    }
+
+    const outputPath = allocateSlidePath(entryNames)
+    const outputRelationshipPath = relationshipFilePath(outputPath)
+    entryNames.add(outputPath)
+    entryNames.add(outputRelationshipPath)
+    const presentationId = allocatePresentationId(presentationIds)
+    presentationIds.add(presentationId)
+    const relationshipId = allocateRelationshipId(relationshipIds)
+    relationshipIds.add(relationshipId)
+    if (sourceSlide) {
+      plans.push({ mode: 'clone', slideId, outputPath, presentationId, relationshipId, source: sourceSlide })
+    } else {
+      if (!layoutRelationship) throw new Error(`PPTX export blank slide layout missing for slide ${slideId}`)
+      plans.push({ mode: 'blank', slideId, outputPath, presentationId, relationshipId, layoutRelationship })
+    }
+  }
+  return plans
 }
 
 function scanSourceSlides(source: SourcePackage, entries: Map<string, ZipEntry>): Map<string, ScannedSlide> {
@@ -383,12 +463,14 @@ function replaceRanges(xml: string, replacements: Replacement[]): string {
   return output
 }
 
-function rewritePresentationOrder(xml: string, plans: ReuseSlidePlan[], originalSlides: SourceSlide[]): string {
+function rewritePresentationOrder(xml: string, plans: SlidePlan[], originalSlides: SourceSlide[]): string {
   const list = descendants(scanXml(xml), 'sldIdLst')[0]
   if (!list) throw new Error('PPTX export presentation slide list missing')
   const originalPaths = originalSlides.map((slide) => slide.partPath)
-  const currentPaths = plans.map((plan) => plan.source.partPath)
-  if (originalPaths.length === currentPaths.length && originalPaths.every((path, index) => path === currentPaths[index])) return xml
+  const currentPaths = plans.map((plan) => plan.outputPath)
+  if (plans.every((plan) => plan.mode === 'reuse')
+    && originalPaths.length === currentPaths.length
+    && originalPaths.every((path, index) => path === currentPaths[index])) return xml
   if (plans.length === 0) throw new Error('PPTX export presentation cannot be empty')
   const references = list.children.filter((child) => child.localName === 'sldId')
   if (references.length === 0) throw new Error('PPTX export presentation slide list missing')
@@ -401,7 +483,9 @@ function rewritePresentationOrder(xml: string, plans: ReuseSlidePlan[], original
   const leading = xml.slice(openingEnd, first.start)
   const separator = references.length > 1 ? xml.slice(first.end, references[1]!.start) : leading
   const trailing = xml.slice(last.end, closingStart)
-  const rawReferences = plans.map((plan) => xml.slice(plan.source.reference.start, plan.source.reference.end))
+  const rawReferences = plans.map((plan) => plan.mode === 'reuse' && plan.source
+    ? xml.slice(plan.source.reference.start, plan.source.reference.end)
+    : `<${first.name} id="${escapeXml(plan.presentationId)}" r:id="${escapeXml(plan.relationshipId)}"/>`)
   const replacement: Replacement = {
     start: first.start,
     end: last.end,
@@ -410,22 +494,34 @@ function rewritePresentationOrder(xml: string, plans: ReuseSlidePlan[], original
   return xml.slice(0, replacement.start) + replacement.value + xml.slice(replacement.end)
 }
 
-function rewritePresentationRelationships(xml: string, originalSlides: SourceSlide[], usedPaths: Set<string>): string {
+function rewritePresentationRelationships(xml: string, originalSlides: SourceSlide[], plans: SlidePlan[]): string {
+  const usedPaths = new Set(plans.filter((plan) => plan.mode === 'reuse').map((plan) => plan.outputPath))
   const replacements = originalSlides
     .filter((slide) => !usedPaths.has(slide.partPath))
     .map((slide) => ({ start: slide.relationship.start, end: slide.relationship.end, value: '' }))
-  return replacements.length > 0 ? replaceRanges(xml, replacements) : xml
+  const removed = replacements.length > 0 ? replaceRanges(xml, replacements) : xml
+  const additions = plans.filter((plan) => plan.mode !== 'reuse').map((plan) => (
+    `<Relationship Id="${escapeXml(plan.relationshipId)}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="${escapeXml(plan.outputPath.slice('ppt/'.length))}"/>`
+  ))
+  return additions.length > 0 ? appendRelationships(removed, additions) : removed
 }
 
-function rewriteContentTypes(xml: string, removedPaths: string[]): string {
+function rewriteContentTypes(xml: string, removedPaths: string[], addedPaths: string[] = []): string {
   const removed = new Set(removedPaths.map((path) => `/${path}`))
   const replacements = descendants(scanXml(xml), 'Override')
     .filter((override) => override.attributes.PartName !== undefined && removed.has(override.attributes.PartName))
     .map((override) => ({ start: override.start, end: override.end, value: '' }))
-  return replacements.length > 0 ? replaceRanges(xml, replacements) : xml
+  const updated = replacements.length > 0 ? replaceRanges(xml, replacements) : xml
+  if (addedPaths.length === 0) return updated
+  const additions = addedPaths.map((path) => (
+    `<Override PartName="/${escapeXml(path)}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`
+  ))
+  const close = updated.lastIndexOf('</Types>')
+  if (close < 0) throw new Error('PPTX export content types malformed')
+  return `${updated.slice(0, close)}${additions.join('')}${updated.slice(close)}`
 }
 
-function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: string, scanned: ScannedSlide, imageReplacements: Replacement[]): string {
+function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: string, scanned: ScannedSlide, imageReplacements: Replacement[], strictIdentity: boolean): string {
   const slide = document.slides[slideId]
   if (!slide) throw new Error(`PPTX export document slide missing: ${slideId}`)
   const sourceElements = scanned.elements
@@ -438,7 +534,7 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
     const element = elementId ? document.elements[elementId] : undefined
     if (!source || !element) throw new Error(`PPTX export element mapping missing for slide ${slideId}`)
     const sourceElement = source.element
-    if (elementId !== source.expectedId) throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
+    if (strictIdentity && elementId !== source.expectedId) throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
     if (sourceElement.localName !== 'graphicFrame') {
       if (element.kind === 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
       continue
@@ -483,6 +579,20 @@ function appendRelationships(xml: string | undefined, relationships: string[]): 
   return `${xml.slice(0, close)}${relationships.join('')}${xml.slice(close)}`
 }
 
+function blankSlideXml(): string {
+  return '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld></p:sld>'
+}
+
+function blankSlideRelationships(layout: SlideRelationship): string {
+  return `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="${escapeXml(layout.id)}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="${escapeXml(layout.target)}"/></Relationships>`
+}
+
+function sourceRelationshipXml(entries: Map<string, ZipEntry>, sourcePath: string, layout: SlideRelationship | undefined): string {
+  const relationshipEntry = entries.get(relationshipFilePath(sourcePath))
+  if (relationshipEntry) return decoder.decode(relationshipEntry.data)
+  return layout ? blankSlideRelationships(layout) : '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
+}
+
 interface ImageWritebackState {
   adapter?: AssetAdapter
   assets?: Record<string, AssetMetadata>
@@ -517,17 +627,43 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
   const entries = await readZipEntries(source)
   const entriesByName = new Map(entries.map((entry) => [entry.name, entry]))
   const sourcePackageData = sourcePackage(entriesByName)
-  const plans = reuseSlidePlans(document, sourcePackageData)
+  const plans = slidePlans(document, sourcePackageData, entriesByName)
   const scannedSlides = scanSourceSlides(sourcePackageData, entriesByName)
-  const usedPaths = new Set(plans.map((plan) => plan.source.partPath))
+  const usedPaths = new Set(plans.filter((plan) => plan.mode === 'reuse').map((plan) => plan.outputPath))
   const removedSlides = sourcePackageData.slides.filter((slide) => !usedPaths.has(slide.partPath))
-  if (removedSlides.length > 0) {
+  const addedSlidePaths = plans.filter((plan) => plan.mode !== 'reuse').map((plan) => plan.outputPath)
+  if (removedSlides.length > 0 || addedSlidePaths.length > 0) {
     const contentTypesEntry = entriesByName.get('[Content_Types].xml')
     if (!contentTypesEntry) throw new Error('PPTX export source part missing: [Content_Types].xml')
     contentTypesEntry.data = encoder.encode(rewriteContentTypes(
       decoder.decode(contentTypesEntry.data),
       removedSlides.map((slide) => slide.partPath),
+      addedSlidePaths,
     ))
+  }
+  const layoutRelationship = firstLayoutRelationship(sourcePackageData, entriesByName)
+  for (const plan of plans) {
+    if (plan.mode === 'reuse') continue
+    const sourceEntry = plan.source ? entriesByName.get(plan.source.partPath) : undefined
+    const slideData = plan.mode === 'clone'
+      ? sourceEntry?.data.slice()
+      : encoder.encode(blankSlideXml())
+    if (!slideData) throw new Error(`PPTX export source part missing: ${plan.source?.partPath ?? plan.outputPath}`)
+    const relationshipXml = plan.mode === 'clone'
+      ? sourceRelationshipXml(entriesByName, plan.source?.partPath ?? '', layoutRelationship)
+      : plan.layoutRelationship
+        ? blankSlideRelationships(plan.layoutRelationship)
+        : layoutRelationship
+          ? blankSlideRelationships(layoutRelationship)
+          : undefined
+    if (!relationshipXml) throw new Error(`PPTX export blank slide layout missing for slide ${plan.slideId}`)
+    const relationshipPath = relationshipFilePath(plan.outputPath)
+    if (entriesByName.has(plan.outputPath) || entriesByName.has(relationshipPath)) throw new Error(`PPTX export slide part collision: ${plan.outputPath}`)
+    const slideEntry = { name: plan.outputPath, data: slideData }
+    const relationshipEntry = { name: relationshipPath, data: encoder.encode(relationshipXml) }
+    entries.push(slideEntry, relationshipEntry)
+    entriesByName.set(slideEntry.name, slideEntry)
+    entriesByName.set(relationshipEntry.name, relationshipEntry)
   }
   const state: ImageWritebackState = {
     ...(options.assetAdapter ? { adapter: options.assetAdapter } : {}),
@@ -538,15 +674,17 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
   }
   for (const plan of plans) {
     const slideId = plan.slideId
-    const slidePath = plan.source.partPath
+    const slidePath = plan.outputPath
     const entry = entriesByName.get(slidePath)
     if (!entry) throw new Error(`PPTX export source part missing: ${slidePath}`)
     const slideXml = decoder.decode(entry.data)
     const slideRelationships = readRelationships(entriesByName, slidePath)
     const slideRelationshipPath = relationshipFilePath(slidePath)
     const relationshipEntry = entriesByName.get(slideRelationshipPath)
-    const scanned = scannedSlides.get(slidePath)
-    if (!scanned) throw new Error(`PPTX export source slide scan missing: ${slidePath}`)
+    const scanned = plan.source
+      ? scannedSlides.get(plan.source.partPath)
+      : { elements: [], invalidPictures: [], nextElementNumber: 0 }
+    if (!scanned) throw new Error(`PPTX export source slide scan missing: ${plan.source?.partPath ?? slidePath}`)
     const slide = document.slides[slideId]
     if (!slide) throw new Error(`PPTX export document slide missing: ${slideId}`)
     if (slide.elementIds.length < scanned.elements.length) throw new Error(`PPTX export element count mismatch for slide ${slideId}`)
@@ -564,7 +702,7 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       const sourceElement = source?.element
       const sourceImage = source?.image
       if (!element) throw new Error(`PPTX export element mapping missing for slide ${slideId}`)
-      if (source && elementId !== source.expectedId) throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
+      if (source && plan.mode === 'reuse' && elementId !== source.expectedId) throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
       if (sourceElement?.localName === 'pic') {
         if (!sourceImage || element.kind !== 'image') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
         if (element.assetId !== sourceImage.assetId) {
@@ -593,7 +731,7 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       pictures.push(serializePictureXml(element, relationshipId, nextShapeId))
       nextShapeId += 1
     }
-    const replacedSlide = replaceSlideTables(document, slideId, slideXml, scanned, imageReplacements)
+    const replacedSlide = replaceSlideTables(document, slideId, slideXml, scanned, imageReplacements, plan.mode === 'reuse')
     entry.data = encoder.encode(appendBeforeSpTreeClose(replacedSlide, pictures))
     if (newRelationships.length > 0) {
       const relationshipXml = relationshipEntry ? decoder.decode(relationshipEntry.data) : undefined
@@ -615,7 +753,7 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
   sourcePackageData.presentationRelationshipsEntry.data = encoder.encode(rewritePresentationRelationships(
     sourcePackageData.presentationRelationshipsXml,
     sourcePackageData.slides,
-    usedPaths,
+    plans,
   ))
   const removedPaths = new Set(removedSlides.flatMap((slide) => [slide.partPath, relationshipFilePath(slide.partPath)]))
   const retainedEntries = entries.filter((entry) => !removedPaths.has(entry.name))
