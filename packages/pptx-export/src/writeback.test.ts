@@ -105,6 +105,25 @@ function themeSourcePackage(): Uint8Array {
   ])
 }
 
+function masterLayoutWritebackSourcePackage(): Uint8Array {
+  const placeholder = (text: string, fill: string, x: number): string => `<p:sp data-shape="keep"><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm rot="100" data-transform="keep"><a:off x="${x}" y="20"/><a:ext cx="300" cy="400"/></a:xfrm><a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom><a:solidFill data-fill="keep"><a:srgbClr val="${fill}"/></a:solidFill><a:ln data-line="keep"><a:solidFill><a:srgbClr val="445566"/></a:solidFill></a:ln><a:unknown data-unknown="keep"/></p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody></p:sp>`
+  const slide = `<p:sld xmlns:p="p" xmlns:a="a"><p:clrMapOvr><a:overrideClrMapping accent1="accent1" data-slide="keep"/></p:clrMapOvr><p:cSld><p:spTree>${placeholder('Slide', '778899', 1)}</p:spTree></p:cSld></p:sld>`
+  const layout = `<p:sldLayout xmlns:p="p" xmlns:a="a"><p:clrMapOvr data-layout-map="keep"><a:masterClrMapping/><a:overrideClrMapping accent1="accent2" data-override="keep"/></p:clrMapOvr><p:cSld><p:spTree>${placeholder('Layout', 'AABBCC', 2)}</p:spTree></p:cSld></p:sldLayout>`
+  const master = `<p:sldMaster xmlns:p="p" xmlns:a="a"><p:clrMap accent1="accent3" data-master-map="keep"/><p:cSld><p:spTree>${placeholder('Master', 'DDEEFF', 3)}</p:spTree></p:cSld></p:sldMaster>`
+  return writeStoredZip([
+    { name: 'ppt/presentation.xml', data: new TextEncoder().encode('<p:presentation xmlns:p="p" xmlns:r="r"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>') },
+    { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode('<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>') },
+    { name: '[Content_Types].xml', data: new TextEncoder().encode('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/></Types>') },
+    { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(slide) },
+    { name: 'ppt/slides/_rels/slide1.xml.rels', data: new TextEncoder().encode('<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>') },
+    { name: 'ppt/slideLayouts/slideLayout1.xml', data: new TextEncoder().encode(layout) },
+    { name: 'ppt/slideLayouts/_rels/slideLayout1.xml.rels', data: new TextEncoder().encode('<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>') },
+    { name: 'ppt/slideMasters/slideMaster1.xml', data: new TextEncoder().encode(master) },
+    { name: 'ppt/slideMasters/_rels/slideMaster1.xml.rels', data: new TextEncoder().encode('<Relationships xmlns="r"/>') },
+    { name: 'custom/unknown.bin', data: new Uint8Array([7, 3, 1, 4]) },
+  ])
+}
+
 function textSourcePackage(): Uint8Array {
   const textSlide = `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp data-preserve="text-shape"><p:nvSpPr><p:cNvPr id="1" name="Text"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm rot="60000" data-transform="keep"><a:off x="10" y="20"/><a:ext cx="300" cy="400"/><a:customTransform keep="yes"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr b="1"/><a:t>Before</a:t></a:r></a:p></p:txBody><p:customTextData keep="yes"/></p:sp>${neighborXml}</p:spTree></p:cSld></p:sld>`
   return writeStoredZip([
@@ -273,6 +292,137 @@ describe('exportPptx', () => {
     expect((await readZipEntries(output)).map((entry) => entry.name)).toEqual(sourceNames)
     expect(await importPptx(output)).toMatchObject({ themes: { [themeId]: { colors: { accent1: { type: 'srgb', v: 'FF0000' } } } } })
     expect(source).toEqual(sourceBefore)
+  })
+
+  it('writes imported master, layout, and slide defaults and color maps', async () => {
+    const source = masterLayoutWritebackSourcePackage()
+    const sourceBefore = new Uint8Array(source)
+    const document = await importPptx(source)
+    expect(document.masters?.mst_1?.source).toEqual({ partPath: 'ppt/slideMasters/slideMaster1.xml' })
+    expect(document.layouts?.lyt_1?.source).toEqual({ partPath: 'ppt/slideLayouts/slideLayout1.xml' })
+
+    const edited = structuredClone(document)
+    edited.masters!.mst_1!.defaults!.title!.bounds!.x = 30
+    edited.masters!.mst_1!.defaults!.title!.rotation = 60000
+    edited.masters!.mst_1!.defaults!.title!.fill = { color: { type: 'srgb', v: 'FF0000' } }
+    edited.masters!.mst_1!.defaults!.title!.text = 'Changed master'
+    edited.masters!.mst_1!.colorMap = { accent1: 'accent1' }
+    edited.layouts!.lyt_1!.defaults!.title!.fill = { color: { type: 'srgb', v: '00FF00' } }
+    edited.layouts!.lyt_1!.defaults!.title!.text = 'Changed layout'
+    edited.layouts!.lyt_1!.colorMapOverride = { accent1: 'accent4' }
+    edited.slides.sld_1!.colorMapOverride = { accent1: 'accent5' }
+
+    const output = await exportPptx(edited, source)
+    const entries = await packageEntries(output)
+    const masterXml = new TextDecoder().decode(entries.get('ppt/slideMasters/slideMaster1.xml'))
+    const layoutXml = new TextDecoder().decode(entries.get('ppt/slideLayouts/slideLayout1.xml'))
+    const slideXml = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    expect(masterXml).toContain('data-master-map="keep"')
+    expect(masterXml).toContain('accent1="accent1"')
+    expect(masterXml).toContain('<a:off x="30" y="20"/>')
+    expect(masterXml).toContain('rot="60000"')
+    expect(masterXml).toContain('<a:t>Changed master</a:t>')
+    expect(layoutXml).toContain('data-layout-map="keep"')
+    expect(layoutXml).toContain('accent1="accent4"')
+    expect(layoutXml).toContain('<a:solidFill><a:srgbClr val="00FF00"/></a:solidFill>')
+    expect(layoutXml).toContain('<a:t>Changed layout</a:t>')
+    expect(slideXml).toContain('data-slide="keep"')
+    expect(slideXml).toContain('accent1="accent5"')
+    expect(entries.get('custom/unknown.bin')).toEqual(new Uint8Array([7, 3, 1, 4]))
+
+    const imported = await importPptx(output)
+    expect(imported.masters?.mst_1?.defaults?.title).toMatchObject({ bounds: { x: 30 }, rotation: 60000, text: 'Changed master' })
+    expect(imported.layouts?.lyt_1?.defaults?.title).toMatchObject({ text: 'Changed layout', fill: { color: { type: 'srgb', v: '00FF00' } } })
+    expect(imported.masters?.mst_1?.colorMap).toMatchObject({ accent1: 'accent1' })
+    expect(imported.layouts?.lyt_1?.colorMapOverride).toMatchObject({ accent1: 'accent4' })
+    expect(imported.slides.sld_1?.colorMapOverride).toMatchObject({ accent1: 'accent5' })
+    expect(source).toEqual(sourceBefore)
+  })
+
+  it('keeps repeated master and layout write-back deterministic and clone-safe', async () => {
+    const source = masterLayoutWritebackSourcePackage()
+    const sourceBefore = new Uint8Array(source)
+    const document = await importPptx(source)
+    const documentBefore = structuredClone(document)
+    const edited = structuredClone(document)
+    edited.masters!.mst_1!.defaults!.title!.text = 'Repeated master'
+    edited.layouts!.lyt_1!.colorMapOverride = { accent1: 'accent4' }
+    edited.slides.sld_1!.colorMapOverride = { accent1: 'accent5' }
+
+    const first = await exportPptx(edited, source)
+    const second = await exportPptx(edited, source)
+
+    expect(first).toEqual(second)
+    expect(document).toEqual(documentBefore)
+    expect(source).toEqual(sourceBefore)
+  })
+
+  it('writes a cloned source slide color map on the clone path', async () => {
+    const source = masterLayoutWritebackSourcePackage()
+    const document = await importPptx(source)
+    const cloneId = 'sld_clone'
+    const clone = structuredClone(document.slides.sld_1!)
+    clone.id = cloneId
+    clone.colorMapOverride = { accent1: 'accent5' }
+    document.slides[cloneId] = clone
+    document.slideOrder.push(cloneId)
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const originalXml = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    const cloneXml = new TextDecoder().decode(entries.get('ppt/slides/slide2.xml'))
+
+    expect(originalXml).toContain('accent1="accent1"')
+    expect(cloneXml).toContain('accent1="accent5"')
+  })
+
+  it('writes one shared bound master part when records agree', async () => {
+    const source = masterLayoutWritebackSourcePackage()
+    const document = await importPptx(source)
+    const shared = structuredClone(document.masters!.mst_1!)
+    shared.id = 'mst_2'
+    document.masters!.mst_2 = shared
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const masterXml = new TextDecoder().decode(entries.get('ppt/slideMasters/slideMaster1.xml'))
+
+    expect(masterXml).toContain('Master')
+  })
+
+  it('rejects conflicting records bound to one source master part', async () => {
+    const source = masterLayoutWritebackSourcePackage()
+    const document = await importPptx(source)
+    const conflicting = structuredClone(document.masters!.mst_1!)
+    conflicting.id = 'mst_2'
+    conflicting.defaults!.title!.text = 'Conflicting master'
+    document.masters!.mst_2 = conflicting
+
+    await expect(exportPptx(document, source)).rejects.toThrow('PPTX export master source conflict')
+  })
+
+  it('rejects missing bound master and layout source parts', async () => {
+    const source = masterLayoutWritebackSourcePackage()
+    const document = await importPptx(source)
+    const missingMaster = structuredClone(document)
+    missingMaster.masters!.mst_1!.source!.partPath = 'ppt/slideMasters/missing.xml'
+    await expect(exportPptx(missingMaster, source)).rejects.toThrow('PPTX export master source missing')
+
+    const missingLayout = structuredClone(document)
+    missingLayout.layouts!.lyt_1!.source!.partPath = 'ppt/slideLayouts/missing.xml'
+    await expect(exportPptx(missingLayout, source)).rejects.toThrow('PPTX export layout source missing')
+  })
+
+  it('rejects a malformed bound master source before producing output', async () => {
+    const source = masterLayoutWritebackSourcePackage()
+    const document = await importPptx(source)
+    const entries = await readZipEntries(source)
+    const masterEntry = entries.find((entry) => entry.name === 'ppt/slideMasters/slideMaster1.xml')
+    if (!masterEntry) throw new Error('fixture master missing')
+    masterEntry.data = new TextEncoder().encode('<p:sldMaster>')
+    const malformedSource = writeStoredZip(entries)
+
+    await expect(exportPptx(document, malformedSource)).rejects.toThrow('PPTX export master source XML malformed')
   })
 
   it('leaves the theme entry byte-identical when only a slide changes', async () => {

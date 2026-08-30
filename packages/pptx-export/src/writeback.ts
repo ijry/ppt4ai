@@ -13,6 +13,7 @@ import {
 import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } from './dependency-graph.js'
 import { decodeXml, descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 import { rewriteThemeXml } from './theme-writeback.js'
+import { rewriteLayoutXml, rewriteMasterXml, rewriteSlideColorMapXml } from './master-layout-writeback.js'
 
 interface SlideRelationship {
   id: string
@@ -984,6 +985,51 @@ function rewriteSourceThemes(document: Ppt4aiDocument, entriesByName: Map<string
   }
 }
 
+function rewriteSourceMastersAndLayouts(document: Ppt4aiDocument, entriesByName: Map<string, ZipEntry>): void {
+  const originalXmlByPath = new Map<string, string>()
+  const rewrittenXmlByPath = new Map<string, string>()
+
+  const rewritePart = (
+    kind: 'master' | 'layout',
+    id: string,
+    path: string,
+    rewrite: (source: string) => string,
+  ): void => {
+    const entry = entriesByName.get(path)
+    if (!entry) throw new Error(`PPTX export ${kind} source missing: ${path}`)
+    let originalXml = originalXmlByPath.get(path)
+    if (originalXml === undefined) {
+      originalXml = decoder.decode(entry.data)
+      originalXmlByPath.set(path, originalXml)
+    }
+    const rewrittenXml = rewrite(originalXml)
+    const previous = rewrittenXmlByPath.get(path)
+    if (previous !== undefined && previous !== rewrittenXml) throw new Error(`PPTX export ${kind} source conflict: ${path}`)
+    rewrittenXmlByPath.set(path, rewrittenXml)
+  }
+
+  for (const id of Object.keys(document.masters ?? {}).sort()) {
+    const master = document.masters?.[id]
+    const path = master?.source?.partPath
+    if (!path || !master) continue
+    rewritePart('master', id, path, (source) => rewriteMasterXml(source, master.defaults ?? {}, master.colorMap, id))
+  }
+
+  for (const id of Object.keys(document.layouts ?? {}).sort()) {
+    const layout = document.layouts?.[id]
+    const path = layout?.source?.partPath
+    if (!path || !layout) continue
+    rewritePart('layout', id, path, (source) => rewriteLayoutXml(source, layout.defaults ?? {}, layout.colorMapOverride, id))
+  }
+
+  for (const [path, rewrittenXml] of rewrittenXmlByPath) {
+    const originalXml = originalXmlByPath.get(path)
+    const entry = entriesByName.get(path)
+    if (!originalXml || !entry || rewrittenXml === originalXml) continue
+    entry.data = encoder.encode(rewrittenXml)
+  }
+}
+
 export interface ExportPptxOptions {
   assetAdapter?: AssetAdapter
 }
@@ -998,6 +1044,7 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
   const entries = await readZipEntries(source)
   const entriesByName = new Map(entries.map((entry) => [entry.name, entry]))
   rewriteSourceThemes(document, entriesByName)
+  rewriteSourceMastersAndLayouts(document, entriesByName)
   const sourcePackageData = sourcePackage(entriesByName)
   const plans = slidePlans(document, sourcePackageData, entriesByName)
   const scannedSlides = scanSourceSlides(sourcePackageData, entriesByName)
@@ -1133,7 +1180,11 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       nextShapeId += 1
     }
     const replacedSlide = replaceSlideTables(document, slideId, slideXml, scanned, imageReplacements, plan.mode === 'reuse')
-    entry.data = encoder.encode(appendBeforeSpTreeClose(replacedSlide, pictures))
+    const materializedSlide = appendBeforeSpTreeClose(replacedSlide, pictures)
+    const rewrittenSlide = plan.source && slide.colorMapOverride !== undefined
+      ? rewriteSlideColorMapXml(materializedSlide, slide.colorMapOverride, slideId)
+      : materializedSlide
+    entry.data = encoder.encode(rewrittenSlide)
     if (newRelationships.length > 0) {
       const relationshipXml = relationshipEntry ? decoder.decode(relationshipEntry.data) : undefined
       const relationshipData = encoder.encode(appendRelationships(relationshipXml, newRelationships))
