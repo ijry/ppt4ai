@@ -90,7 +90,7 @@ In `standalone-xml.ts`, add pure serializers with these exact responsibilities:
 
 - `serializeContentTypesXml(slideCount: number, imageExtensions: Set<string>): string`
 - `serializeRootRelationshipsXml(): string`
-- `serializePresentationXml(page: Rect, slideCount: number): string`
+- `serializePresentationXml(page: Pick<Rect, 'w' | 'h'>, slideCount: number): string`
 - `serializePresentationRelationshipsXml(slideCount: number): string`
 - `serializeCorePropertiesXml(): string`
 - `serializeAppPropertiesXml(): string`
