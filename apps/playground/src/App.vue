@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { TextBody } from '@ppt4ai/model'
-import { computed, nextTick, ref, shallowRef } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { AssetLibrary, PptEditor, ThumbnailCanvas } from '@ppt4ai/editor'
 import { normalizeTextElement } from '@ppt4ai/text'
 import { useI18n } from 'vue-i18n'
@@ -25,8 +25,13 @@ const textBodies = computed<Record<string, TextBody>>(() => {
 const fileInput = ref<HTMLInputElement>()
 const pendingUploadIntent = ref<'insert' | 'replace' | undefined>()
 const uploadBusy = ref(false)
+const clipboardBusy = ref(false)
 const selectedElementIds = computed(() => [...activeSlideSnapshot.value.engineState.selection])
 const selectedElementId = computed(() => selectedElementIds.value.length === 1 ? selectedElementIds.value[0] : undefined)
+const canUndo = computed(() => activeSlideSnapshot.value.engineState.history.undoDepth > 0 || assetSnapshot.value.presentationHistory.undoDepth > 0)
+const canRedo = computed(() => activeSlideSnapshot.value.engineState.history.redoDepth > 0 || assetSnapshot.value.presentationHistory.redoDepth > 0)
+const canCopy = computed(() => selectedElementIds.value.length > 0)
+const canPaste = computed(() => assetSnapshot.value.clipboard.hasContent && !clipboardBusy.value)
 const selectedElementText = computed(() => {
   if (selectedElementIds.value.length === 0) return '—'
   if (selectedElementIds.value.length > 1) return selectedElementIds.value.join(', ')
@@ -58,6 +63,58 @@ function deleteSlide(): void {
 function moveSlide(direction: 'up' | 'down'): void {
   assetSnapshot.value = assetHost.moveSlide(assetSnapshot.value.activeSlideId, direction)
 }
+
+function undo(): void {
+  if (!canUndo.value) return
+  assetSnapshot.value = assetHost.undo()
+}
+
+function redo(): void {
+  if (!canRedo.value) return
+  assetSnapshot.value = assetHost.redo()
+}
+
+function copySelected(): void {
+  if (!canCopy.value) return
+  assetSnapshot.value = assetHost.copySelected()
+}
+
+async function paste(): Promise<void> {
+  if (!canPaste.value) return
+  clipboardBusy.value = true
+  try {
+    assetSnapshot.value = await assetHost.paste()
+  } finally {
+    clipboardBusy.value = false
+  }
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+}
+
+function handleKeydown(event: KeyboardEvent): void {
+  if (isEditableTarget(event.target) || (!event.ctrlKey && !event.metaKey) || event.altKey) return
+  const key = event.key.toLowerCase()
+  if (key === 'c' && canCopy.value) {
+    event.preventDefault()
+    copySelected()
+  } else if (key === 'v' && canPaste.value) {
+    event.preventDefault()
+    void paste()
+  } else if (key === 'z' && (canUndo.value || (event.shiftKey && canRedo.value))) {
+    event.preventDefault()
+    if (event.shiftKey) redo()
+    else undo()
+  } else if (key === 'y' && canRedo.value) {
+    event.preventDefault()
+    redo()
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', handleKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown))
 
 function selectElements(payload: { elementIds: string[] }): void {
   assetSnapshot.value = assetHost.selectElements(payload.elementIds)
@@ -175,6 +232,20 @@ async function uploadFile(event: Event): Promise<void> {
           @flip-image="flipImage"
           @text-edit="updateTextElement"
         />
+        <nav data-testid="editing-history-toolbar" class="mt-4 flex flex-wrap items-center gap-2" :aria-label="t('playground.history.title')">
+          <button data-testid="history-undo" type="button" :disabled="!canUndo" :aria-label="t('playground.history.undo')" :title="t('playground.history.undo')" class="border border-slate-400 px-3 py-1 text-sm hover:border-slate-700 disabled:cursor-not-allowed disabled:opacity-50" @click="undo">
+            {{ t('playground.history.undo') }}
+          </button>
+          <button data-testid="history-redo" type="button" :disabled="!canRedo" :aria-label="t('playground.history.redo')" :title="t('playground.history.redo')" class="border border-slate-400 px-3 py-1 text-sm hover:border-slate-700 disabled:cursor-not-allowed disabled:opacity-50" @click="redo">
+            {{ t('playground.history.redo') }}
+          </button>
+          <button data-testid="clipboard-copy" type="button" :disabled="!canCopy" :aria-label="t('playground.history.copy')" :title="t('playground.history.copy')" class="border border-slate-400 px-3 py-1 text-sm hover:border-slate-700 disabled:cursor-not-allowed disabled:opacity-50" @click="copySelected">
+            {{ t('playground.history.copy') }}
+          </button>
+          <button data-testid="clipboard-paste" type="button" :disabled="!canPaste" :aria-label="t('playground.history.paste')" :title="t('playground.history.paste')" class="border border-slate-400 px-3 py-1 text-sm hover:border-slate-700 disabled:cursor-not-allowed disabled:opacity-50" @click="paste">
+            {{ t('playground.history.paste') }}
+          </button>
+        </nav>
         <section class="mt-8 border border-slate-200 bg-white p-4" :aria-label="t('playground.slides.title')">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h2 class="text-sm font-semibold">{{ t('playground.slides.title') }}</h2>
@@ -259,6 +330,14 @@ async function uploadFile(event: Event): Promise<void> {
             <dd data-testid="selected-element" class="font-mono text-slate-900">{{ selectedElementText }}</dd>
             <dt>{{ t('playground.assetHost.undoDepth') }}</dt>
             <dd data-testid="undo-depth" class="font-mono text-slate-900">{{ activeSlideSnapshot.engineState.history.undoDepth }}</dd>
+            <dt>{{ t('playground.assetHost.redoDepth') }}</dt>
+            <dd data-testid="redo-depth" class="font-mono text-slate-900">{{ activeSlideSnapshot.engineState.history.redoDepth }}</dd>
+            <dt>{{ t('playground.assetHost.presentationUndoDepth') }}</dt>
+            <dd data-testid="presentation-undo-depth" class="font-mono text-slate-900">{{ assetSnapshot.presentationHistory.undoDepth }}</dd>
+            <dt>{{ t('playground.assetHost.presentationRedoDepth') }}</dt>
+            <dd data-testid="presentation-redo-depth" class="font-mono text-slate-900">{{ assetSnapshot.presentationHistory.redoDepth }}</dd>
+            <dt>{{ t('playground.assetHost.clipboard') }}</dt>
+            <dd data-testid="clipboard-state" class="font-mono text-slate-900">{{ assetSnapshot.clipboard.rootCount }}</dd>
             <dt>{{ t('playground.assetHost.statusLabel') }}</dt>
             <dd data-testid="asset-status" :class="assetSnapshot.status.kind === 'error' ? 'text-red-700' : 'text-slate-900'">{{ statusText() }}</dd>
           </dl>

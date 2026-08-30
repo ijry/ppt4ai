@@ -116,6 +116,66 @@ describe('Playground asset host wiring', () => {
     mountedApps.splice(mountedApps.indexOf(app), 1)
   })
 
+  it('renders history and clipboard controls with stateful availability', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+
+    const undo = host.querySelector('[data-testid="history-undo"]') as HTMLButtonElement
+    const redo = host.querySelector('[data-testid="history-redo"]') as HTMLButtonElement
+    const copy = host.querySelector('[data-testid="clipboard-copy"]') as HTMLButtonElement
+    const paste = host.querySelector('[data-testid="clipboard-paste"]') as HTMLButtonElement
+    expect(undo.disabled).toBe(true)
+    expect(redo.disabled).toBe(true)
+    expect(copy.disabled).toBe(true)
+    expect(paste.disabled).toBe(true)
+
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1280, height: 720 } as DOMRect)
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 110, bubbles: true }))
+    await nextTick()
+
+    expect(copy.disabled).toBe(false)
+    copy.click()
+    await nextTick()
+    expect(paste.disabled).toBe(false)
+    expect(host.querySelector('[data-testid="clipboard-state"]')?.textContent).toContain('1')
+    paste.click()
+    await vi.waitFor(() => expect(host.querySelector('[data-testid="asset-status"]')?.textContent).toContain('已粘贴选中元素'))
+    expect(undo.disabled).toBe(false)
+
+    undo.click()
+    await nextTick()
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('0')
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
+  it('routes keyboard copy, paste, undo, and redo through the presentation host', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1280, height: 720 } as DOMRect)
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 110, bubbles: true }))
+    await nextTick()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }))
+    await nextTick()
+    expect(host.querySelector('[data-testid="clipboard-state"]')?.textContent).toContain('1')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }))
+    await vi.waitFor(() => expect(host.querySelector('[data-testid="asset-status"]')?.textContent).toContain('已粘贴选中元素'))
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }))
+    await nextTick()
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('0')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true, bubbles: true }))
+    await nextTick()
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
   it('renders navigable page thumbnails and switches the active page', async () => {
     const { app, host } = mountApp()
     await nextTick()
