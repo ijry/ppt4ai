@@ -3,6 +3,7 @@ import type {
   Fill,
   Rect,
   ShapeElement,
+  TableElement,
   TextAutofit,
   TextBody,
   TextElement,
@@ -10,6 +11,7 @@ import type {
   TextParagraph,
   TextBullet,
 } from '@ppt4ai/model'
+import { serializeTableXml } from './table.js'
 
 const xmlHeader = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 const presentationNamespace = 'http://schemas.openxmlformats.org/presentationml/2006/main'
@@ -178,8 +180,12 @@ export function serializeFillXml(fill: Fill | undefined): string {
   return fill ? `<a:solidFill>${serializeColorXml(fill.color)}</a:solidFill>` : ''
 }
 
+function serializeTransformContents(bounds: Rect): string {
+  return `<a:off x="${bounds.x}" y="${bounds.y}"/><a:ext cx="${bounds.w}" cy="${bounds.h}"/>`
+}
+
 function serializeShapeTransform(bounds: Rect): string {
-  return `<a:xfrm><a:off x="${bounds.x}" y="${bounds.y}"/><a:ext cx="${bounds.w}" cy="${bounds.h}"/></a:xfrm>`
+  return `<a:xfrm>${serializeTransformContents(bounds)}</a:xfrm>`
 }
 
 function serializeGeometry(preset: ShapeElement['preset']): string {
@@ -308,6 +314,14 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
     ? serializeTextBodyXml(element.body ?? { paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }] })
     : ''
   return `<p:sp>${nonVisualProperties}${shapeProperties}${textBody}</p:sp>`
+}
+
+export function serializeTableFrameXml(table: TableElement, shapeId: number): string {
+  const placeholder = serializePlaceholder(table.placeholder)
+  const nonVisualProperties = `<p:nvGraphicFramePr><p:cNvPr id="${shapeId}" name="${escapeXml(table.id)}"/><p:cNvGraphicFramePr/><p:nvPr>${placeholder}</p:nvPr></p:nvGraphicFramePr>`
+  const transform = `<p:xfrm>${serializeTransformContents(table.bounds)}</p:xfrm>`
+  const graphic = `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">${serializeTableXml(table)}</a:graphicData></a:graphic>`
+  return `<p:graphicFrame>${nonVisualProperties}${transform}${graphic}</p:graphicFrame>`
 }
 
 export function serializeSlideXml(elements: string[]): string {

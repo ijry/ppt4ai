@@ -1,5 +1,5 @@
 import { importPptx } from '@ppt4ai/pptx-import'
-import type { Ppt4aiDocument, ShapeElement, TextElement } from '@ppt4ai/model'
+import type { Ppt4aiDocument, ShapeElement, TableElement, TextElement } from '@ppt4ai/model'
 import { describe, expect, it } from 'vitest'
 import { createPptx } from './index.js'
 import { readZipEntries } from './zip.js'
@@ -92,6 +92,46 @@ const shapeTextDocument: Ppt4aiDocument = {
   elements: { [shape.id]: shape, [text.id]: text },
 }
 
+const table: TableElement = {
+  id: 'table_1',
+  kind: 'table',
+  bounds: { x: 1000000, y: 3500000, w: 6000000, h: 2400000 },
+  columns: [1500000, 2000000, 2500000],
+  fill: { color: { type: 'srgb', v: 'F2F2F2' } },
+  rows: [
+    {
+      height: 1000000,
+      cells: [
+        {
+          column: 0,
+          rowSpan: 2,
+          body: { paragraphs: [{ runs: [{ text: 'Vertical' }] }] },
+          borders: { left: { color: { type: 'srgb', v: 'FF0000' }, width: 12700, style: 'solid' } },
+        },
+        {
+          column: 1,
+          colSpan: 2,
+          body: { paragraphs: [{ runs: [{ text: 'Header' }] }] },
+          fill: { color: { type: 'srgb', v: 'FFF2CC' } },
+        },
+      ],
+    },
+    {
+      height: 1100000,
+      cells: [
+        { column: 1, body: { paragraphs: [{ runs: [{ text: 'Left' }] }] } },
+        { column: 2, body: { paragraphs: [{ runs: [{ text: 'Right' }] }] } },
+      ],
+    },
+  ],
+}
+
+const tableDocument: Ppt4aiDocument = {
+  ...emptyDocument,
+  slides: { sld_1: { id: 'sld_1', elementIds: [table.id] } },
+  elements: { [table.id]: table },
+}
+
 describe('createPptx', () => {
   it('creates a deterministic importable OPC skeleton without source bytes', async () => {
     const first = await createPptx(emptyDocument)
@@ -143,5 +183,28 @@ describe('createPptx', () => {
     expect(importedShape).toMatchObject({ kind: 'shape', bounds: shape.bounds, preset: shape.preset })
     expect(importedText).toMatchObject({ kind: 'text', bounds: text.bounds, text: 'Hello & World tail Next\n' })
     expect(shapeTextDocument).toEqual(before)
+  })
+
+  it('serializes table elements as graphic frames and round-trips their grid', async () => {
+    const before = structuredClone(tableDocument)
+    const output = await createPptx(tableDocument)
+    const xml = await slideXml(output)
+    const imported = await importPptx(output)
+    const importedTableId = imported.slides.sld_1?.elementIds[0] ?? ''
+
+    expect(xml).toContain('uri="http://schemas.openxmlformats.org/drawingml/2006/table"')
+    expect(xml).toContain('gridSpan="2"')
+    expect(xml).toContain('vMerge="1"')
+    expect(xml).toContain('<a:off x="1000000" y="3500000"/>')
+    expect(xml).toContain('<a:ext cx="6000000" cy="2400000"/>')
+    expect(imported.elements[importedTableId]).toMatchObject({
+      kind: 'table',
+      columns: table.columns,
+      rows: [
+        { height: 1000000, cells: [{ column: 0, rowSpan: 2 }, { column: 1, colSpan: 2, body: { paragraphs: [{ runs: [{ text: 'Header' }] }] } }] },
+        { height: 1100000, cells: [{ column: 1, body: { paragraphs: [{ runs: [{ text: 'Left' }] }] } }, { column: 2, body: { paragraphs: [{ runs: [{ text: 'Right' }] }] } }] },
+      ],
+    })
+    expect(tableDocument).toEqual(before)
   })
 })

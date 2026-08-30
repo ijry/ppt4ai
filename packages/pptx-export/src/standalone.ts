@@ -15,6 +15,7 @@ import {
   serializeRootRelationshipsXml,
   serializeShapeXml,
   serializeSlideXml,
+  serializeTableFrameXml,
   serializeThemeXml,
 } from './standalone-xml.js'
 
@@ -34,10 +35,11 @@ function serializeSlideElements(document: Ppt4aiDocument, slideId: string): stri
   return slide.elementIds.map((elementId) => {
     const element = document.elements[elementId]
     if (!element) throw new Error(`PPTX generation element mapping missing for slide ${slideId}`)
-    if (element.kind !== 'shape' && element.kind !== 'text') {
-      throw new Error(`PPTX generation unsupported element kind: ${element.kind}`)
-    }
-    const xml = serializeShapeXml(element, nextShapeId)
+    const xml = element.kind === 'shape' || element.kind === 'text'
+      ? serializeShapeXml(element, nextShapeId)
+      : element.kind === 'table'
+        ? serializeTableFrameXml(element, nextShapeId)
+        : (() => { throw new Error(`PPTX generation unsupported element kind: ${element.kind}`) })()
     nextShapeId += 1
     return xml
   }).join('')
