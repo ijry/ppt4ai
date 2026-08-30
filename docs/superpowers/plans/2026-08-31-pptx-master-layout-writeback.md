@@ -35,7 +35,7 @@
 - Adds optional `source` to `SlideMaster` and `SlideLayout`.
 - `importPptx` attaches normalized source paths to each valid parsed master/layout.
 
-- [ ] **Step 1: Write the failing model and importer tests**
+- [x] **Step 1: Write the failing model and importer tests**
 
 Add type imports and assertions for a source-bound model:
 
@@ -75,7 +75,7 @@ expect(imported.layouts?.lyt_1?.source).toEqual({ partPath: 'ppt/slideLayouts/sl
 Add a second slide using the same layout/master and assert only one model
 record exists for each path and both records retain the same normalized path.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run:
 `pnpm exec vitest run packages/model/src/model.test.ts packages/pptx-import/src/importer.test.ts`
@@ -83,7 +83,7 @@ Run:
 Expected: failure because the source fields and validation/import population
 do not exist.
 
-- [ ] **Step 3: Implement the smallest source contract**
+- [x] **Step 3: Implement the smallest source contract**
 
 Add the two interfaces and optional fields beside `ThemeSource`, then add the
 same object/path validation branches used for themes under the master and
@@ -92,7 +92,7 @@ layout loops. Extend `parseMaster(xml, id, themeId, partPath)` and
 already normalized `masterPath` and `layoutPath` at their call sites; do not
 change the existing path caches or tolerant missing-part branches.
 
-- [ ] **Step 4: Verify and commit the binding task**
+- [x] **Step 4: Verify and commit the binding task**
 
 Run the focused tests and:
 `pnpm --filter @ppt4ai/model typecheck && pnpm --filter @ppt4ai/pptx-import typecheck`
@@ -114,7 +114,7 @@ Commit:
 - Exports `rewriteLayoutXml(source: string, defaults: Record<string, ElementDefaults>, colorMap?: Partial<ColorMap>, id?: string): string`.
 - Exports `rewriteSlideColorMapXml(source: string, colorMap: Partial<ColorMap>, id?: string): string`.
 
-- [ ] **Step 1: Write failing range-writer tests**
+- [x] **Step 1: Write failing range-writer tests**
 
 Use a source master with a custom `p`/`d` prefix, one `title` placeholder,
 unknown shape and mapping attributes, and a layout/slide with an existing
@@ -154,14 +154,14 @@ it('returns exact source when defaults and maps are unchanged', () => {
 Also test custom quote preservation, missing source mapping insertion, invalid
 XML, and invalid map targets with stable `PPTX export` errors.
 
-- [ ] **Step 2: Run the range-writer tests and verify RED**
+- [x] **Step 2: Run the range-writer tests and verify RED**
 
 Run:
 `pnpm exec vitest run packages/pptx-export/src/master-layout-writeback.test.ts`
 
 Expected: failure because the module and exports do not exist.
 
-- [ ] **Step 3: Implement source scanning and sparse default patches**
+- [x] **Step 3: Implement source scanning and sparse default patches**
 
 In the new module, scan XML with `scanXml` and match direct `sp` descendants
 by the first `ph` type/index pair. Reuse the existing attribute/range pattern
@@ -170,7 +170,7 @@ geometry, fill, stroke, and text body fragments. Compare source values before
 adding a replacement. Apply non-overlapping replacements through
 `replaceRanges`; never rewrite a complete placeholder shape.
 
-- [ ] **Step 4: Implement map attribute patches and insertion**
+- [x] **Step 4: Implement map attribute patches and insertion**
 
 Find direct `clrMap` or `clrMapOvr` mapping children. For every defined model
 key, replace its existing local-name attribute value or append a new attribute
@@ -179,7 +179,7 @@ using the mapping element prefix. For layout/slide parts, insert
 all existing `masterClrMapping` children. Validate map keys/targets at the
 writer boundary and use the part ID in deterministic errors.
 
-- [ ] **Step 5: Run focused writer tests and commit**
+- [x] **Step 5: Run focused writer tests and commit**
 
 Run the writer suite plus the exporter typecheck/build. Commit:
 `git add packages/pptx-export/src/master-layout-writeback.ts packages/pptx-export/src/master-layout-writeback.test.ts packages/pptx-export/src/index.ts && git commit -m "feat: add master layout range writers"`
@@ -198,7 +198,7 @@ Run the writer suite plus the exporter typecheck/build. Commit:
 - Current source-backed slide plans receive slide color-map patches at their
   output path, including cloned source slides.
 
-- [ ] **Step 1: Write failing package integration tests**
+- [x] **Step 1: Write failing package integration tests**
 
 Build a source package containing one master placeholder, one layout
 placeholder, master/layout/slide maps, unknown XML siblings, and an unrelated
@@ -221,14 +221,14 @@ Add tests for a shared bound part, unchanged source-byte identity, missing
 bound master/layout parts, malformed source XML, and deterministic repeated
 exports. Assert the source ZIP and document snapshots remain unchanged.
 
-- [ ] **Step 2: Run integration tests and verify RED**
+- [x] **Step 2: Run integration tests and verify RED**
 
 Run:
 `pnpm exec vitest run packages/pptx-export/src/writeback.test.ts`
 
 Expected: failure because only theme and slide-element writes are integrated.
 
-- [ ] **Step 3: Add deterministic master/layout rewrite coordination**
+- [x] **Step 3: Add deterministic master/layout rewrite coordination**
 
 Collect bound model records by sorted ID, resolve each `source.partPath` in
 `entriesByName`, compute `rewriteMasterXml`/`rewriteLayoutXml` results in local
@@ -236,7 +236,7 @@ maps, reject conflicting results for one source path, and commit entry data
 only after all calls succeed. Preserve the existing theme rewrite ordering and
 error behavior.
 
-- [ ] **Step 4: Add slide color-map rewriting to each output plan**
+- [x] **Step 4: Add slide color-map rewriting to each output plan**
 
 After a plan's source XML is materialized and before final entry assignment,
 call `rewriteSlideColorMapXml` for a source-backed current slide with a defined
@@ -244,7 +244,7 @@ override. Use the plan output path, so cloned pages are patched without
 changing the original source page. Leave blank plans untouched and preserve
 the existing element range replacements.
 
-- [ ] **Step 5: Verify integration and commit**
+- [x] **Step 5: Verify integration and commit**
 
 Run focused importer/model/exporter tests, exporter typecheck, and exporter
 build. Commit:
@@ -258,14 +258,14 @@ build. Commit:
 - Modify: `进度.md`
 - Modify: `docs/superpowers/plans/2026-08-31-pptx-master-layout-writeback.md`
 
-- [ ] **Step 1: Mark the plan and progress record**
+- [x] **Step 1: Mark the plan and progress record**
 
 Mark completed checkboxes in this plan. Add a dated progress entry stating
 that imported master/layout source bindings, placeholder default patches, and
 master/layout/slide color-map write-back are complete. Keep explicit theme
 deletion, master/layout UI/history, and real reader validation as follow-ups.
 
-- [ ] **Step 2: Run all repository gates**
+- [x] **Step 2: Run all repository gates**
 
 Run from the repository root:
 
@@ -282,7 +282,7 @@ git diff --check
 The Element Plus search must remain empty. PowerPoint/LibreOffice manual
 opening remains environment-gated and must not be claimed without a reader.
 
-- [ ] **Step 3: Review scope and commit the progress record**
+- [x] **Step 3: Review scope and commit the progress record**
 
 Confirm no package manifest or runtime dependency changed, no input bytes were
 mutated, and only intended model/import/export/docs files changed. Then run:
@@ -294,9 +294,9 @@ git commit -m "docs: record master layout writeback milestone"
 
 ## Completion Criteria
 
-- [ ] Imported masters and layouts retain normalized source paths.
-- [ ] Existing placeholder defaults patch selectively and re-import semantically.
-- [ ] Master, layout, and slide color-map edits patch or insert only defined attributes.
-- [ ] Unknown XML, unrelated entries, source bytes, and document state remain unchanged.
-- [ ] Missing/malformed bound parts fail deterministically without partial output.
-- [ ] Focused and repository gates pass.
+- [x] Imported masters and layouts retain normalized source paths.
+- [x] Existing placeholder defaults patch selectively and re-import semantically.
+- [x] Master, layout, and slide color-map edits patch or insert only defined attributes.
+- [x] Unknown XML, unrelated entries, source bytes, and document state remain unchanged.
+- [x] Missing/malformed bound parts fail deterministically without partial output.
+- [x] Focused and repository gates pass.
