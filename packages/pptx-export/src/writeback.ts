@@ -12,6 +12,7 @@ import {
 } from './image-writeback.js'
 import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } from './dependency-graph.js'
 import { decodeXml, descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
+import { rewriteThemeXml } from './theme-writeback.js'
 
 interface SlideRelationship {
   id: string
@@ -955,6 +956,34 @@ async function imageBytes(state: ImageWritebackState, element: ImageElement): Pr
   return result
 }
 
+function rewriteSourceThemes(document: Ppt4aiDocument, entriesByName: Map<string, ZipEntry>): void {
+  const originalXmlByPath = new Map<string, string>()
+  const rewrittenXmlByPath = new Map<string, string>()
+  for (const themeId of Object.keys(document.themes ?? {}).sort()) {
+    const theme = document.themes?.[themeId]
+    const path = theme?.source?.partPath
+    if (!path) continue
+    const entry = entriesByName.get(path)
+    if (!entry) throw new Error(`PPTX export theme source missing: ${path}`)
+    let originalXml = originalXmlByPath.get(path)
+    if (originalXml === undefined) {
+      originalXml = decoder.decode(entry.data)
+      originalXmlByPath.set(path, originalXml)
+    }
+    const rewrittenXml = rewriteThemeXml(originalXml, theme)
+    const previous = rewrittenXmlByPath.get(path)
+    if (previous !== undefined && previous !== rewrittenXml) throw new Error(`PPTX export theme source conflict: ${path}`)
+    rewrittenXmlByPath.set(path, rewrittenXml)
+  }
+
+  for (const [path, rewrittenXml] of rewrittenXmlByPath) {
+    const originalXml = originalXmlByPath.get(path)
+    const entry = entriesByName.get(path)
+    if (!originalXml || !entry || rewrittenXml === originalXml) continue
+    entry.data = encoder.encode(rewrittenXml)
+  }
+}
+
 export interface ExportPptxOptions {
   assetAdapter?: AssetAdapter
 }
@@ -968,6 +997,7 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
   }
   const entries = await readZipEntries(source)
   const entriesByName = new Map(entries.map((entry) => [entry.name, entry]))
+  rewriteSourceThemes(document, entriesByName)
   const sourcePackageData = sourcePackage(entriesByName)
   const plans = slidePlans(document, sourcePackageData, entriesByName)
   const scannedSlides = scanSourceSlides(sourcePackageData, entriesByName)

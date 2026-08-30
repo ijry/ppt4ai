@@ -86,6 +86,25 @@ function sourcePackage(): Uint8Array {
   ])
 }
 
+function themeSourcePackage(): Uint8Array {
+  const slide = '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="4000000" cy="2000000"/></a:xfrm><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></p:spPr><p:txBody><a:p><a:r><a:t>Title</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>'
+  const slideRels = '<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>'
+  const theme = '<a:theme xmlns:a="a" data-theme="keep"><a:themeElements><a:clrScheme name="Custom" data-scheme="keep"><a:dk1><a:srgbClr val="202020"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:accent1><a:srgbClr val="336699"><a:lumMod val="80000"/></a:srgbClr><a:extLst data-ext="keep"/></a:accent1></a:clrScheme><a:fontScheme data-font="keep"/></a:themeElements></a:theme>'
+  return writeStoredZip([
+    { name: 'ppt/presentation.xml', data: new TextEncoder().encode('<p:presentation xmlns:p="p" xmlns:r="r"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>') },
+    { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode('<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>') },
+    { name: '[Content_Types].xml', data: new TextEncoder().encode('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/><Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/> </Types>') },
+    { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(slide) },
+    { name: 'ppt/slides/_rels/slide1.xml.rels', data: new TextEncoder().encode(slideRels) },
+    { name: 'ppt/slideLayouts/slideLayout1.xml', data: new TextEncoder().encode('<p:sldLayout xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree/></p:cSld></p:sldLayout>') },
+    { name: 'ppt/slideLayouts/_rels/slideLayout1.xml.rels', data: new TextEncoder().encode('<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>') },
+    { name: 'ppt/slideMasters/slideMaster1.xml', data: new TextEncoder().encode('<p:sldMaster xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree/></p:cSld></p:sldMaster>') },
+    { name: 'ppt/slideMasters/_rels/slideMaster1.xml.rels', data: new TextEncoder().encode('<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/custom.xml"/></Relationships>') },
+    { name: 'ppt/theme/custom.xml', data: new TextEncoder().encode(theme) },
+    { name: 'custom/unknown.bin', data: new Uint8Array([7, 3, 1, 4]) },
+  ])
+}
+
 function textSourcePackage(): Uint8Array {
   const textSlide = `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp data-preserve="text-shape"><p:nvSpPr><p:cNvPr id="1" name="Text"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm rot="60000" data-transform="keep"><a:off x="10" y="20"/><a:ext cx="300" cy="400"/><a:customTransform keep="yes"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr b="1"/><a:t>Before</a:t></a:r></a:p></p:txBody><p:customTextData keep="yes"/></p:sp>${neighborXml}</p:spTree></p:cSld></p:sld>`
   return writeStoredZip([
@@ -229,6 +248,52 @@ describe('exportPptx', () => {
     const output = await exportPptx(document, altered)
 
     expect(output).not.toEqual(altered)
+  })
+
+  it('writes an edited imported theme color without rebuilding the theme part', async () => {
+    const source = themeSourcePackage()
+    const sourceBefore = new Uint8Array(source)
+    const document = await importPptx(source)
+    const themeId = document.masters?.mst_1?.themeId
+    if (!themeId) throw new Error('custom theme was not imported')
+    const edited = structuredClone(document)
+    edited.themes![themeId]!.colors.accent1 = { type: 'srgb', v: 'FF0000' }
+
+    const output = await exportPptx(edited, source)
+    const entries = new Map((await readZipEntries(output)).map((entry) => [entry.name, entry.data]))
+    const themeBytes = entries.get('ppt/theme/custom.xml')
+    if (!themeBytes) throw new Error('theme entry was not written')
+    const themeXml = new TextDecoder().decode(themeBytes)
+    expect(themeXml).toContain('<a:accent1>')
+    expect(themeXml).toContain('<a:srgbClr val="FF0000"/>')
+    expect(themeXml).toContain('name="Custom"')
+    expect(themeXml).toContain('data-theme="keep"')
+    expect(entries.get('custom/unknown.bin')).toEqual(new Uint8Array([7, 3, 1, 4]))
+    const sourceNames = (await readZipEntries(source)).map((entry) => entry.name)
+    expect((await readZipEntries(output)).map((entry) => entry.name)).toEqual(sourceNames)
+    expect(await importPptx(output)).toMatchObject({ themes: { [themeId]: { colors: { accent1: { type: 'srgb', v: 'FF0000' } } } } })
+    expect(source).toEqual(sourceBefore)
+  })
+
+  it('leaves the theme entry byte-identical when only a slide changes', async () => {
+    const source = themeSourcePackage()
+    const document = await importPptx(source)
+    const edited = structuredClone(document)
+    edited.elements.el_1!.bounds.x += 100
+    const output = await exportPptx(edited, source)
+    const before = new Map((await readZipEntries(source)).map((entry) => [entry.name, entry.data]))
+    const after = new Map((await readZipEntries(output)).map((entry) => [entry.name, entry.data]))
+    expect(after.get('ppt/theme/custom.xml')).toEqual(before.get('ppt/theme/custom.xml'))
+  })
+
+  it('rejects a bound theme whose source part is missing', async () => {
+    const source = themeSourcePackage()
+    const document = await importPptx(source)
+    const themeId = document.masters?.mst_1?.themeId
+    if (!themeId) throw new Error('custom theme was not imported')
+    const edited = structuredClone(document)
+    edited.themes![themeId]!.source!.partPath = 'ppt/theme/missing.xml'
+    await expect(exportPptx(edited, source)).rejects.toThrow('PPTX export theme source missing')
   })
 
   it('writes reordered source slides in document order', async () => {
