@@ -6,6 +6,7 @@ import { readZipEntries, writeStoredZip } from './zip.js'
 
 const presentation = '<p:presentation xmlns:p="p" xmlns:r="r"><p:sldIdLst><p:sldId id="1" r:id="rId1"/></p:sldIdLst></p:presentation>'
 const relationships = '<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>'
+const contentTypes = '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slides/slide2.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>'
 const tableXml = '<a:tbl><a:tblPr/><a:tblGrid><a:gridCol w="1000000"/></a:tblGrid><a:tr h="1000000"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>Before</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr></a:tbl>'
 const neighborXml = '<p:sp data-preserve="yes"><p:nvSpPr><p:cNvPr id="2" name="Neighbor"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1" cy="1"/></a:xfrm></p:spPr></p:sp>'
 const slide = `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="1" name="Table"/></p:nvGraphicFramePr><p:xfrm><a:off x="0" y="0"/><a:ext cx="1" cy="1"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">${tableXml}</a:graphicData></a:graphic></p:graphicFrame>${neighborXml}</p:spTree></p:cSld></p:sld>`
@@ -75,7 +76,64 @@ function sourcePackage(): Uint8Array {
   ])
 }
 
+function structuralSourcePackage(): Uint8Array {
+  const firstSlide = '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="First"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="100" cy="100"/></a:xfrm></p:spPr><p:txBody><a:p><a:r><a:t>First slide</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>'
+  const secondSlide = firstSlide.replaceAll('First', 'Second').replaceAll('id="1"', 'id="2"')
+  const slideRelationships = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>'
+  return writeStoredZip([
+    { name: 'ppt/presentation.xml', data: new TextEncoder().encode('<p:presentation xmlns:p="p" xmlns:r="r"><p:sldIdLst><p:sldId id="256" r:id="rId1"/><p:sldId id="257" r:id="rId2"/></p:sldIdLst></p:presentation>') },
+    { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/><Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/></Relationships>') },
+    { name: '[Content_Types].xml', data: new TextEncoder().encode(contentTypes) },
+    { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(firstSlide) },
+    { name: 'ppt/slides/slide2.xml', data: new TextEncoder().encode(secondSlide) },
+    { name: 'ppt/slides/_rels/slide1.xml.rels', data: new TextEncoder().encode(slideRelationships) },
+    { name: 'ppt/slides/_rels/slide2.xml.rels', data: new TextEncoder().encode(slideRelationships) },
+    { name: 'ppt/slideLayouts/slideLayout1.xml', data: new TextEncoder().encode('<p:sldLayout xmlns:p="p"/>') },
+    { name: 'ppt/theme/theme1.xml', data: new TextEncoder().encode('<a:theme xmlns:a="a" data-keep="yes"/>') },
+    { name: 'custom/unknown.bin', data: new Uint8Array([7, 3, 1, 4]) },
+  ])
+}
+
 describe('exportPptx', () => {
+  it('writes reordered source slides in document order', async () => {
+    const source = structuralSourcePackage()
+    const document = await importPptx(source)
+    document.slideOrder.reverse()
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const presentationXml = new TextDecoder().decode(entries.get('ppt/presentation.xml'))
+    const imported = await importPptx(output)
+
+    expect(presentationXml.indexOf('id="257"')).toBeLessThan(presentationXml.indexOf('id="256"'))
+    expect(imported.elements[imported.slides.sld_1?.elementIds[0] ?? '']).toMatchObject({ text: 'Second slide' })
+    expect(imported.elements[imported.slides.sld_2?.elementIds[0] ?? '']).toMatchObject({ text: 'First slide' })
+    expect(entries.get('custom/unknown.bin')).toEqual(new Uint8Array([7, 3, 1, 4]))
+  })
+
+  it('removes deleted source slide parts and references while retaining shared entries', async () => {
+    const source = structuralSourcePackage()
+    const document = await importPptx(source)
+    delete document.slides.sld_1
+    document.slideOrder = ['sld_2']
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const presentationXml = new TextDecoder().decode(entries.get('ppt/presentation.xml'))
+    const presentationRelationships = new TextDecoder().decode(entries.get('ppt/_rels/presentation.xml.rels'))
+    const outputContentTypes = new TextDecoder().decode(entries.get('[Content_Types].xml'))
+
+    expect(presentationXml).not.toContain('id="256"')
+    expect(presentationXml).toContain('id="257"')
+    expect(presentationRelationships).not.toContain('Target="slides/slide1.xml"')
+    expect(entries.get('ppt/slides/slide1.xml')).toBeUndefined()
+    expect(entries.get('ppt/slides/_rels/slide1.xml.rels')).toBeUndefined()
+    expect(outputContentTypes).not.toContain('/ppt/slides/slide1.xml')
+    expect(entries.get('ppt/slides/slide2.xml')).toBeDefined()
+    expect(entries.get('ppt/slideLayouts/slideLayout1.xml')).toBeDefined()
+    expect(entries.get('custom/unknown.bin')).toEqual(new Uint8Array([7, 3, 1, 4]))
+  })
+
   it('replaces imported table XML while preserving the package', async () => {
     const source = sourcePackage()
     const document = await importPptx(source)
