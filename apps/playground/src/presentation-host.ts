@@ -1,6 +1,6 @@
 import type { EngineState, ImageFlipAxis, SnapOptions } from '@ppt4ai/engine'
 import { documentToSceneGraph, type SceneGraph } from '@ppt4ai/render'
-import type { AssetAdapter, Ppt4aiDocument, Rect, TextBody } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Element, Ppt4aiDocument, Rect, TextBody } from '@ppt4ai/model'
 import { createPlaygroundAssetHost, type PlaygroundAssetHost, type PlaygroundAssetHostSnapshot } from './asset-host'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
@@ -21,6 +21,11 @@ export interface PlaygroundPresentationSnapshot {
     undoDepth: number
     redoDepth: number
   }
+  clipboard: {
+    hasContent: boolean
+    rootCount: number
+    elementCount: number
+  }
 }
 
 export interface PlaygroundPresentationHost {
@@ -30,6 +35,8 @@ export interface PlaygroundPresentationHost {
   selectSlide(slideId: string): PlaygroundPresentationSnapshot
   undo(): PlaygroundPresentationSnapshot
   redo(): PlaygroundPresentationSnapshot
+  copySelected(): PlaygroundPresentationSnapshot
+  paste(): Promise<PlaygroundPresentationSnapshot>
   addSlide(): PlaygroundPresentationSnapshot
   duplicateSlide(): PlaygroundPresentationSnapshot
   deleteSlide(): PlaygroundPresentationSnapshot
@@ -62,6 +69,55 @@ interface PresentationHistoryEntry {
   afterOrder: string[]
   beforeActiveSlideId: string
   afterActiveSlideId: string
+}
+
+interface PlaygroundClipboardPayload {
+  sourceSlideId: string
+  rootElementIds: string[]
+  elements: Element[]
+  assets: AssetMetadata[]
+}
+
+function descendantIds(document: Ppt4aiDocument, elementId: string, result = new Set<string>(), visiting = new Set<string>()): Set<string> {
+  if (visiting.has(elementId) || result.has(elementId)) return result
+  const element = document.elements[elementId]
+  if (!element) return result
+  result.add(elementId)
+  if (element.kind !== 'group') return result
+  visiting.add(elementId)
+  for (const childId of element.childIds) descendantIds(document, childId, result, visiting)
+  visiting.delete(elementId)
+  return result
+}
+
+function clipboardRoots(document: Ppt4aiDocument, selection: string[]): string[] {
+  const selected = selection.filter((elementId, index) => selection.indexOf(elementId) === index && Boolean(document.elements[elementId]))
+  return selected.filter((elementId) => !selected.some((candidateId) => (
+    candidateId !== elementId && document.elements[candidateId]?.kind === 'group' && descendantIds(document, candidateId).has(elementId)
+  )))
+}
+
+function clipboardElements(document: Ppt4aiDocument, rootElementIds: string[]): Element[] {
+  const elements: Element[] = []
+  const visited = new Set<string>()
+  const visit = (elementId: string): void => {
+    if (visited.has(elementId)) return
+    const element = document.elements[elementId]
+    if (!element) return
+    visited.add(elementId)
+    elements.push(structuredClone(element))
+    if (element.kind === 'group') for (const childId of element.childIds) visit(childId)
+  }
+  for (const elementId of rootElementIds) visit(elementId)
+  return elements
+}
+
+function sameAssetMetadata(left: AssetMetadata, right: AssetMetadata): boolean {
+  return left.id === right.id
+    && left.mimeType === right.mimeType
+    && left.pixelWidth === right.pixelWidth
+    && left.pixelHeight === right.pixelHeight
+    && left.originalFilename === right.originalFilename
 }
 
 function pageDocument(source: Ppt4aiDocument, slideId: string, elementIds: string[]): Ppt4aiDocument {
@@ -108,6 +164,9 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
   let status: PlaygroundAssetHostSnapshot['status'] = { kind: 'idle', message: '' }
   const undoStack: PresentationHistoryEntry[] = []
   const redoStack: PresentationHistoryEntry[] = []
+  let clipboard: PlaygroundClipboardPayload | undefined
+  let pasteElementSequence = 1
+  let pasteAssetSequence = 1
 
   const activeHost = (): PlaygroundAssetHost => pageHosts.get(activeSlideId)!
   const recordStructuralChange = (beforeOrder: string[], beforeActiveSlideId: string): void => {
@@ -143,6 +202,11 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
       ...(current.selectedAssetId ? { selectedAssetId: current.selectedAssetId } : {}),
       status,
       presentationHistory: { undoDepth: undoStack.length, redoDepth: redoStack.length },
+      clipboard: {
+        hasContent: Boolean(clipboard),
+        rootCount: clipboard?.rootElementIds.length ?? 0,
+        elementCount: clipboard?.elements.length ?? 0,
+      },
     })
   }
   const forward = (operation: (host: PlaygroundAssetHost) => PlaygroundAssetHostSnapshot): PlaygroundPresentationSnapshot => {
@@ -217,6 +281,90 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
       undoStack.push(entry)
       status = { kind: 'success', message: 'presentation-redone' }
       return snapshot()
+    },
+    copySelected() {
+      const sourceState = activeHost().getSnapshot().engineState
+      const rootElementIds = clipboardRoots(sourceState.document, sourceState.selection)
+      if (rootElementIds.length === 0) {
+        status = { kind: 'error', message: 'clipboard-empty' }
+        return snapshot()
+      }
+      const elements = clipboardElements(sourceState.document, rootElementIds)
+      const assets = new Map<string, AssetMetadata>()
+      for (const element of elements) {
+        if (element.kind !== 'image') continue
+        const asset = sourceState.document.assets?.[element.assetId]
+        if (asset) assets.set(asset.id, structuredClone(asset))
+      }
+      clipboard = structuredClone({
+        sourceSlideId: activeSlideId,
+        rootElementIds,
+        elements,
+        assets: [...assets.values()],
+      })
+      status = { kind: 'success', message: 'elements-copied' }
+      return snapshot()
+    },
+    async paste() {
+      if (!clipboard) {
+        status = { kind: 'error', message: 'clipboard-empty' }
+        return snapshot()
+      }
+      const targetHost = activeHost()
+      const targetState = targetHost.getSnapshot().engineState
+      const elementIds = new Map<string, string>()
+      const allocatedElementIds = new Set<string>()
+      const nextElementId = (): string => {
+        let elementId = `element_paste_${pasteElementSequence}`
+        pasteElementSequence += 1
+        while (targetState.document.elements[elementId] || allocatedElementIds.has(elementId)) {
+          elementId = `element_paste_${pasteElementSequence}`
+          pasteElementSequence += 1
+        }
+        allocatedElementIds.add(elementId)
+        return elementId
+      }
+      for (const element of clipboard.elements) elementIds.set(element.id, nextElementId())
+
+      const assetIds = new Map<string, string>()
+      const assets: AssetMetadata[] = []
+      const targetAssets = targetState.document.assets ?? {}
+      const nextAssetId = (): string => {
+        let assetId = `asset_paste_${pasteAssetSequence}`
+        pasteAssetSequence += 1
+        while (targetAssets[assetId] || assets.some((asset) => asset.id === assetId)) {
+          assetId = `asset_paste_${pasteAssetSequence}`
+          pasteAssetSequence += 1
+        }
+        return assetId
+      }
+      try {
+        for (const sourceAsset of clipboard.assets) {
+          const existing = targetAssets[sourceAsset.id]
+          const targetAssetId = existing && !sameAssetMetadata(existing, sourceAsset) ? nextAssetId() : sourceAsset.id
+          assetIds.set(sourceAsset.id, targetAssetId)
+          if (existing && targetAssetId === sourceAsset.id) continue
+          const bytes = await seedHost.adapter.get(sourceAsset.id)
+          if (!bytes) throw new Error(`asset bytes missing: ${sourceAsset.id}`)
+          const asset = { ...structuredClone(sourceAsset), id: targetAssetId }
+          assets.push(asset)
+          if (targetAssetId !== sourceAsset.id) await seedHost.adapter.put(targetAssetId, bytes, asset)
+        }
+        const elements = clipboard.elements.map((element) => {
+          const next = structuredClone(element)
+          next.id = elementIds.get(element.id)!
+          if (next.kind === 'group') next.childIds = next.childIds.map((childId) => elementIds.get(childId) ?? childId)
+          if (next.kind === 'image') next.assetId = assetIds.get(next.assetId) ?? next.assetId
+          return next
+        })
+        const rootElementIds = clipboard.rootElementIds.map((elementId) => elementIds.get(elementId)!)
+        const result = targetHost.insertElements(rootElementIds, elements, assets)
+        status = result.status
+        return snapshot()
+      } catch {
+        status = { kind: 'error', message: 'element-paste-failed' }
+        return snapshot()
+      }
     },
     addSlide() {
       const index = slideOrder.indexOf(activeSlideId) + 1

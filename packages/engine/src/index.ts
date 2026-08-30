@@ -58,6 +58,7 @@ export type ImageFlipAxis = 'horizontal' | 'vertical'
 
 export type EngineCommand =
   | { type: 'select'; elementIds: string[]; additive?: boolean }
+  | { type: 'insertElements'; slideId: string; rootElementIds: string[]; elements: Element[]; assets?: AssetMetadata[] }
   | { type: 'insertImage'; slideId: string; element: ImageElement; asset: AssetMetadata }
   | { type: 'insertImageReference'; slideId: string; element: ImageElement; assetId: string }
   | { type: 'replaceImageAsset'; elementId: string; asset: AssetMetadata }
@@ -593,6 +594,10 @@ export class EditorEngine {
         this.tableCellSelection = undefined
         break
       }
+      case 'insertElements': {
+        this.insertElements(command.slideId, command.rootElementIds, command.elements, command.assets ?? [])
+        break
+      }
       case 'insertImage': {
         this.insertImage(command.slideId, command.element, command.asset)
         break
@@ -1017,6 +1022,54 @@ export class EditorEngine {
       { path: ['slides', slideId, 'elementIds'], value: nextDocument.slides[slideId]!.elementIds },
     ])
     this.selection = [element.id]
+    this.tableCellSelection = undefined
+  }
+
+  private insertElements(slideId: string, rootElementIds: string[], elements: Element[], assets: AssetMetadata[]): void {
+    const slide = this.document.slides[slideId]
+    if (!slide) throw new Error(`slide does not exist: ${slideId}`)
+    if (rootElementIds.length === 0) throw new Error('element insertion requires at least one root')
+
+    const insertedIds = new Set<string>()
+    const nextDocument = clone(this.document)
+    for (const element of elements) {
+      if (insertedIds.has(element.id)) throw new Error(`duplicate inserted element: ${element.id}`)
+      if (this.document.elements[element.id]) throw new Error(`element already exists: ${element.id}`)
+      insertedIds.add(element.id)
+      nextDocument.elements[element.id] = clone(element)
+    }
+
+    const rootIds = new Set<string>()
+    for (const elementId of rootElementIds) {
+      if (rootIds.has(elementId)) throw new Error(`duplicate insertion root: ${elementId}`)
+      if (!insertedIds.has(elementId)) throw new Error(`insertion root is missing: ${elementId}`)
+      rootIds.add(elementId)
+    }
+
+    const nextAssets = { ...(nextDocument.assets ?? {}) }
+    const suppliedAssetIds = new Set<string>()
+    for (const asset of assets) {
+      if (suppliedAssetIds.has(asset.id)) throw new Error(`duplicate inserted asset: ${asset.id}`)
+      suppliedAssetIds.add(asset.id)
+      const existing = nextAssets[asset.id]
+      if (existing && JSON.stringify(existing) !== JSON.stringify(asset)) throw new Error(`asset metadata conflict: ${asset.id}`)
+      nextAssets[asset.id] = clone(asset)
+    }
+    if (Object.keys(nextAssets).length > 0) nextDocument.assets = nextAssets
+    nextDocument.slides[slideId]!.elementIds = [...slide.elementIds, ...rootElementIds]
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`element insertion is invalid: ${validation.errors.join('; ')}`)
+
+    const changes: Array<{ path: string[]; value: unknown }> = elements.map((element) => ({
+      path: ['elements', element.id],
+      value: nextDocument.elements[element.id],
+    }))
+    if (JSON.stringify(nextDocument.assets) !== JSON.stringify(this.document.assets)) {
+      changes.push({ path: ['assets'], value: nextDocument.assets })
+    }
+    changes.push({ path: ['slides', slideId, 'elementIds'], value: nextDocument.slides[slideId]!.elementIds })
+    this.commit(changes)
+    this.selection = [...rootElementIds]
     this.tableCellSelection = undefined
   }
 

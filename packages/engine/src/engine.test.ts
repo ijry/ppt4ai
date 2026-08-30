@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EditorEngine } from './index'
-import type { AssetMetadata, ImageElement, Ppt4aiDocument, TextBody } from '@ppt4ai/model'
+import type { AssetMetadata, Element, ImageElement, Ppt4aiDocument, TextBody } from '@ppt4ai/model'
 
 function makeDocument(): Ppt4aiDocument {
   return {
@@ -336,6 +336,29 @@ describe('EditorEngine', () => {
     expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
     expect(engine.dispatch({ type: 'undo' }).document).toEqual(document)
     expect(engine.dispatch({ type: 'redo' }).document).toEqual(state.document)
+  })
+
+  it('inserts a clone-safe element collection and selects its roots atomically', () => {
+    const engine = new EditorEngine(makeDocument())
+    const element = structuredClone(makeDocument().elements.el_a!) as Element
+    element.id = 'el_copy'
+    element.bounds.x = 7000000
+
+    const state = engine.dispatch({
+      type: 'insertElements',
+      slideId: 'sld_1',
+      rootElementIds: ['el_copy'],
+      elements: [element],
+    })
+
+    expect(state.document.slides.sld_1?.elementIds).toEqual(['el_a', 'el_b', 'el_copy'])
+    expect(state.document.elements.el_copy).toEqual(element)
+    expect(state.selection).toEqual(['el_copy'])
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    element.bounds.x = 1
+    expect(engine.getState().document.elements.el_copy).toMatchObject({ bounds: { x: 7000000 } })
+    expect(engine.dispatch({ type: 'undo' }).document.elements.el_copy).toBeUndefined()
+    expect(engine.dispatch({ type: 'redo' }).document.elements.el_copy).toEqual({ ...element, bounds: { ...element.bounds, x: 7000000 } })
   })
 
   it('replaces an image with an existing asset while preserving appearance', () => {

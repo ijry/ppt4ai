@@ -211,4 +211,77 @@ describe('createPlaygroundPresentationHost', () => {
     expect(structureUndone.slideOrder).toEqual(['sld_playground', 'sld_playground_blue'])
     expect(structureUndone.presentationHistory).toEqual({ undoDepth: 0, redoDepth: 1 })
   })
+
+  it('copies a selected group subtree across pages with remapped IDs', async () => {
+    const host = createPlaygroundPresentationHost()
+    host.selectElement('group_demo')
+    const copied = host.copySelected()
+
+    expect(copied.status).toEqual({ kind: 'success', message: 'elements-copied' })
+    expect(copied.clipboard).toEqual({ hasContent: true, rootCount: 1, elementCount: 3 })
+    host.selectSlide('sld_playground_blue')
+    const pasted = await host.paste()
+    expect(pasted.status).toEqual({ kind: 'success', message: 'elements-pasted' })
+    const target = pasted.slides.sld_playground_blue!.engineState
+    expect(target.document.slides.sld_playground_blue?.elementIds).toHaveLength(2)
+    const pastedRootId = target.document.slides.sld_playground_blue!.elementIds.find((id) => id !== 'table_demo')!
+    const pastedRoot = target.document.elements[pastedRootId]
+
+    expect(pastedRoot?.kind).toBe('group')
+    expect(pastedRootId).not.toBe('group_demo')
+    expect(pastedRoot && pastedRoot.kind === 'group' ? pastedRoot.childIds : []).not.toContain('shape_demo')
+    expect(pastedRoot && pastedRoot.kind === 'group' ? pastedRoot.childIds : []).not.toContain('text_demo')
+    expect(pastedRoot && pastedRoot.kind === 'group' ? pastedRoot.childIds.every((id) => Boolean(target.document.elements[id])) : false).toBe(true)
+    expect(target.selection).toEqual([pastedRootId])
+    expect(target.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+
+    const undone = host.undo()
+    expect(undone.slides.sld_playground_blue?.engineState.document.slides.sld_playground_blue?.elementIds).toEqual(['table_demo'])
+    expect(undone.slides.sld_playground_blue?.engineState.history).toEqual({ undoDepth: 0, redoDepth: 1 })
+  })
+
+  it('copies image asset references across pages without duplicating shared metadata', async () => {
+    const host = createPlaygroundPresentationHost()
+    host.insertAsset('asset_red')
+    const sourceImageId = host.getSnapshot().slides.sld_playground!.engineState.selection[0]!
+    host.copySelected()
+    host.selectSlide('sld_playground_blue')
+
+    const pasted = await host.paste()
+    expect(pasted.status).toEqual({ kind: 'success', message: 'elements-pasted' })
+    const target = pasted.slides.sld_playground_blue!.engineState
+    const pastedImageId = target.selection[0]!
+    const pastedImage = target.document.elements[pastedImageId]
+
+    expect(pastedImage?.kind).toBe('image')
+    expect(pastedImage && pastedImage.kind === 'image' ? pastedImage.assetId : undefined).toBe('asset_red')
+    expect(pastedImageId).not.toBe(sourceImageId)
+    expect(target.document.assets?.asset_red).toEqual(pastedImage && pastedImage.kind === 'image' ? target.document.assets?.[pastedImage.assetId] : undefined)
+    expect(target.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('reports an empty clipboard without changing page history', async () => {
+    const host = createPlaygroundPresentationHost()
+
+    const copied = host.copySelected()
+    expect(copied.status).toEqual({ kind: 'error', message: 'clipboard-empty' })
+    expect(copied.clipboard).toEqual({ hasContent: false, rootCount: 0, elementCount: 0 })
+
+    const pasted = await host.paste()
+    expect(pasted.status).toEqual({ kind: 'error', message: 'clipboard-empty' })
+    expect(pasted.slides.sld_playground?.engineState.history).toEqual({ undoDepth: 0, redoDepth: 0 })
+  })
+
+  it('routes image insertion to the active page document', () => {
+    const host = createPlaygroundPresentationHost()
+    host.selectSlide('sld_playground_blue')
+
+    const result = host.insertAsset('asset_blue')
+    const state = result.slides.sld_playground_blue!.engineState
+
+    expect(result.status).toEqual({ kind: 'success', message: 'asset-inserted' })
+    expect(state.document.slides.sld_playground_blue?.elementIds).toHaveLength(2)
+    expect(state.selection).toEqual(['image_1'])
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
 })

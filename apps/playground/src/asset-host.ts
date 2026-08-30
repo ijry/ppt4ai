@@ -1,6 +1,6 @@
 import { EditorEngine, type EngineState, type ImageFlipAxis, type SnapOptions } from '@ppt4ai/engine'
 import { createImageAssetController, ImageAssetControllerError } from '@ppt4ai/editor'
-import type { AssetAdapter, AssetMetadata, ImageElement, Ppt4aiDocument, Rect, TextBody } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Element, ImageElement, Ppt4aiDocument, Rect, TextBody } from '@ppt4ai/model'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
 export interface PlaygroundAssetHostSnapshot {
@@ -18,6 +18,7 @@ export interface PlaygroundAssetHost {
   getSnapshot(): PlaygroundAssetHostSnapshot
   undo(): PlaygroundAssetHostSnapshot
   redo(): PlaygroundAssetHostSnapshot
+  insertElements(rootElementIds: string[], elements: Element[], assets: AssetMetadata[]): PlaygroundAssetHostSnapshot
   selectElements(elementIds: string[]): PlaygroundAssetHostSnapshot
   selectElement(elementId: string | undefined): PlaygroundAssetHostSnapshot
   moveSelected(elementId: string, dx: number, dy: number): PlaygroundAssetHostSnapshot
@@ -123,6 +124,7 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
       return `asset_upload_${assetSequence}`
     },
   })
+  const currentSlideId = (): string => engine.getState().document.slideOrder[0]!
 
   const snapshot = (): PlaygroundAssetHostSnapshot => structuredClone({
     engineState: engine.getState(),
@@ -157,6 +159,15 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
       if (engine.getState().history.redoDepth === 0) return fail('redo-unavailable')
       engine.dispatch({ type: 'redo' })
       status = { kind: 'success', message: 'edit-redone' }
+      return snapshot()
+    },
+    insertElements(rootElementIds, elements, assets) {
+      try {
+        engine.dispatch({ type: 'insertElements', slideId: currentSlideId(), rootElementIds, elements, assets })
+        status = { kind: 'success', message: 'elements-pasted' }
+      } catch {
+        return fail('element-paste-failed')
+      }
       return snapshot()
     },
     selectAsset(assetId) {
@@ -265,7 +276,7 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
         assetId,
       }
       try {
-        engine.dispatch({ type: 'insertImageReference', slideId: 'sld_playground', element, assetId })
+        engine.dispatch({ type: 'insertImageReference', slideId: currentSlideId(), element, assetId })
         imageSequence += 1
         selectedAssetId = assetId
         status = { kind: 'success', message: 'asset-inserted' }
@@ -293,7 +304,7 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
       const assetId = `asset_upload_${assetSequence}`
       try {
         const state = await imageAssetController.insert({
-          slideId: 'sld_playground',
+          slideId: currentSlideId(),
           elementId,
           bounds: { x: 1219200, y: 1143000, w: 3657600, h: 2057400 },
           ...structuredClone(input),
