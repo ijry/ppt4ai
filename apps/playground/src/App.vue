@@ -11,6 +11,9 @@ const { t } = useI18n()
 const assetHost = createPlaygroundPresentationHost()
 const assetSnapshot = shallowRef(assetHost.getSnapshot())
 const activeSlideSnapshot = computed(() => assetSnapshot.value.slides[assetSnapshot.value.activeSlideId]!)
+const activeSlideIndex = computed(() => assetSnapshot.value.slideOrder.indexOf(assetSnapshot.value.activeSlideId))
+const canMoveSlideUp = computed(() => activeSlideIndex.value > 0)
+const canMoveSlideDown = computed(() => activeSlideIndex.value >= 0 && activeSlideIndex.value < assetSnapshot.value.slideOrder.length - 1)
 const scene = computed(() => activeSlideSnapshot.value.thumbnailScene)
 const textBodies = computed<Record<string, TextBody>>(() => {
   const bodies: Record<string, TextBody> = {}
@@ -38,6 +41,22 @@ function selectAsset(assetId: string): void {
 
 function selectSlide(slideId: string): void {
   assetSnapshot.value = assetHost.selectSlide(slideId)
+}
+
+function addSlide(): void {
+  assetSnapshot.value = assetHost.addSlide()
+}
+
+function duplicateSlide(): void {
+  assetSnapshot.value = assetHost.duplicateSlide()
+}
+
+function deleteSlide(): void {
+  assetSnapshot.value = assetHost.deleteSlide()
+}
+
+function moveSlide(direction: 'up' | 'down'): void {
+  assetSnapshot.value = assetHost.moveSlide(assetSnapshot.value.activeSlideId, direction)
 }
 
 function selectElements(payload: { elementIds: string[] }): void {
@@ -157,7 +176,26 @@ async function uploadFile(event: Event): Promise<void> {
           @text-edit="updateTextElement"
         />
         <section class="mt-8 border border-slate-200 bg-white p-4" :aria-label="t('playground.slides.title')">
-          <h2 class="text-sm font-semibold">{{ t('playground.slides.title') }}</h2>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2 class="text-sm font-semibold">{{ t('playground.slides.title') }}</h2>
+            <div class="flex flex-wrap gap-2">
+              <button data-testid="slide-add" type="button" class="border border-slate-400 px-2 py-1 text-xs hover:border-slate-700" @click="addSlide">
+                {{ t('playground.slides.add') }}
+              </button>
+              <button data-testid="slide-duplicate" type="button" class="border border-slate-400 px-2 py-1 text-xs hover:border-slate-700" @click="duplicateSlide">
+                {{ t('playground.slides.duplicate') }}
+              </button>
+              <button data-testid="slide-delete" type="button" :disabled="assetSnapshot.slideOrder.length <= 1" class="border border-slate-400 px-2 py-1 text-xs hover:border-slate-700 disabled:cursor-not-allowed disabled:opacity-50" @click="deleteSlide">
+                {{ t('playground.slides.delete') }}
+              </button>
+              <button data-testid="slide-move-up" type="button" :disabled="!canMoveSlideUp" class="border border-slate-400 px-2 py-1 text-xs hover:border-slate-700 disabled:cursor-not-allowed disabled:opacity-50" @click="moveSlide('up')">
+                {{ t('playground.slides.moveUp') }}
+              </button>
+              <button data-testid="slide-move-down" type="button" :disabled="!canMoveSlideDown" class="border border-slate-400 px-2 py-1 text-xs hover:border-slate-700 disabled:cursor-not-allowed disabled:opacity-50" @click="moveSlide('down')">
+                {{ t('playground.slides.moveDown') }}
+              </button>
+            </div>
+          </div>
           <div data-testid="slide-thumbnail-list" class="mt-3 grid gap-3 sm:grid-cols-2">
             <button
               v-for="(slideId, index) in assetSnapshot.slideOrder"

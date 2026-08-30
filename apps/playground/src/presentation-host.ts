@@ -24,6 +24,10 @@ export interface PlaygroundPresentationHost {
   readonly snapOptions: SnapOptions
   getSnapshot(): PlaygroundPresentationSnapshot
   selectSlide(slideId: string): PlaygroundPresentationSnapshot
+  addSlide(): PlaygroundPresentationSnapshot
+  duplicateSlide(): PlaygroundPresentationSnapshot
+  deleteSlide(): PlaygroundPresentationSnapshot
+  moveSlide(slideId: string, direction: 'up' | 'down'): PlaygroundPresentationSnapshot
   selectElements(elementIds: string[]): PlaygroundPresentationSnapshot
   selectElement(elementId: string | undefined): PlaygroundPresentationSnapshot
   moveSelected(elementId: string, dx: number, dy: number): PlaygroundPresentationSnapshot
@@ -87,6 +91,7 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
   const slideOrder = entries.map((entry) => entry.id)
   const titles = new Map(entries.map((entry) => [entry.id, entry.title]))
   let activeSlideId = slideOrder[0]!
+  let slideSequence = 1
   let status: PlaygroundAssetHostSnapshot['status'] = { kind: 'idle', message: '' }
 
   const activeHost = (): PlaygroundAssetHost => pageHosts.get(activeSlideId)!
@@ -115,6 +120,23 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     status = result.status
     return snapshot()
   }
+  const nextSlideId = (prefix = 'sld_playground'): string => {
+    let slideId = `${prefix}_${slideSequence}`
+    while (pageHosts.has(slideId)) {
+      slideSequence += 1
+      slideId = `${prefix}_${slideSequence}`
+    }
+    slideSequence += 1
+    return slideId
+  }
+  const insertPage = (slideId: string, title: string, document: Ppt4aiDocument, index: number): PlaygroundPresentationSnapshot => {
+    pageHosts.set(slideId, createPlaygroundAssetHost({ adapter: seedHost.adapter, document }))
+    titles.set(slideId, title)
+    slideOrder.splice(index, 0, slideId)
+    activeSlideId = slideId
+    status = { kind: 'success', message: 'slide-added' }
+    return snapshot()
+  }
 
   return {
     adapter: seedHost.adapter,
@@ -127,6 +149,58 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
       }
       activeSlideId = slideId
       status = { kind: 'success', message: 'slide-selected' }
+      return snapshot()
+    },
+    addSlide() {
+      const index = slideOrder.indexOf(activeSlideId) + 1
+      const slideId = nextSlideId()
+      const document = pageDocument(activeHost().getSnapshot().engineState.document, slideId, [])
+      return insertPage(slideId, `Page ${index + 1}`, document, index)
+    },
+    duplicateSlide() {
+      const sourceId = activeSlideId
+      const sourceState = activeHost().getSnapshot().engineState
+      const slideId = nextSlideId('sld_playground_copy')
+      const sourceSlide = sourceState.document.slides[sourceState.document.slideOrder[0]!]!
+      const document = pageDocument(sourceState.document, slideId, sourceSlide.elementIds)
+      const index = slideOrder.indexOf(sourceId) + 1
+      pageHosts.set(slideId, createPlaygroundAssetHost({ adapter: seedHost.adapter, document }))
+      titles.set(slideId, `${titles.get(sourceId)} copy`)
+      slideOrder.splice(index, 0, slideId)
+      activeSlideId = slideId
+      status = { kind: 'success', message: 'slide-duplicated' }
+      return snapshot()
+    },
+    deleteSlide() {
+      if (slideOrder.length === 1) {
+        status = { kind: 'error', message: 'slide-delete-blocked' }
+        return snapshot()
+      }
+      const index = slideOrder.indexOf(activeSlideId)
+      const deletedSlideId = activeSlideId
+      slideOrder.splice(index, 1)
+      pageHosts.delete(deletedSlideId)
+      titles.delete(deletedSlideId)
+      activeSlideId = slideOrder[Math.min(index, slideOrder.length - 1)]!
+      status = { kind: 'success', message: 'slide-deleted' }
+      return snapshot()
+    },
+    moveSlide(slideId, direction) {
+      const index = slideOrder.indexOf(slideId)
+      if (index < 0) {
+        status = { kind: 'error', message: 'slide-missing' }
+        return snapshot()
+      }
+      const nextIndex = direction === 'up' ? index - 1 : index + 1
+      if (nextIndex < 0 || nextIndex >= slideOrder.length) {
+        status = { kind: 'error', message: 'slide-reorder-blocked' }
+        return snapshot()
+      }
+      const neighborId = slideOrder[nextIndex]!
+      slideOrder[index] = neighborId
+      slideOrder[nextIndex] = slideId
+      activeSlideId = slideId
+      status = { kind: 'success', message: 'slide-reordered' }
       return snapshot()
     },
     selectElements(elementIds) {

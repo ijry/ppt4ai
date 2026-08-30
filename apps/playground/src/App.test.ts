@@ -85,6 +85,37 @@ afterEach(() => {
 })
 
 describe('Playground asset host wiring', () => {
+  it('renders page structure controls and updates the thumbnail list', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+
+    expect(host.querySelector('[data-testid="slide-add"]')).not.toBeNull()
+    expect(host.querySelector('[data-testid="slide-duplicate"]')).not.toBeNull()
+    expect(host.querySelector('[data-testid="slide-delete"]')).not.toBeNull()
+    expect(host.querySelector('[data-testid="slide-move-up"]')).not.toBeNull()
+    expect(host.querySelector('[data-testid="slide-move-down"]')).not.toBeNull()
+
+    ;(host.querySelector('[data-testid="slide-add"]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(host.querySelectorAll('[data-testid="slide-thumbnail-list"] > button')).toHaveLength(3)
+    expect(host.querySelector('[data-testid="slide-thumbnail-sld_playground"]')?.getAttribute('aria-current')).toBeNull()
+
+    ;(host.querySelector('[data-testid="slide-duplicate"]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(host.querySelectorAll('[data-testid="slide-thumbnail-list"] > button')).toHaveLength(4)
+
+    ;(host.querySelector('[data-testid="slide-move-up"]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(host.querySelector('[data-testid="asset-status"]')?.textContent).toContain('页面顺序已调整')
+
+    ;(host.querySelector('[data-testid="slide-delete"]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(host.querySelectorAll('[data-testid="slide-thumbnail-list"] > button')).toHaveLength(3)
+    expect(host.querySelector('[data-testid="asset-status"]')?.textContent).toContain('页面已删除')
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
   it('renders navigable page thumbnails and switches the active page', async () => {
     const { app, host } = mountApp()
     await nextTick()
