@@ -40,6 +40,16 @@ function imageSourcePackage(twoPictures = false): Uint8Array {
   ])
 }
 
+async function imageSourceWithContentTypes(jpegDefault?: string): Promise<Uint8Array> {
+  const entries = await readZipEntries(imageSourcePackage())
+  const jpegDeclaration = jpegDefault ? `<Default Extension="jpg" ContentType="${jpegDefault}"/>` : ''
+  entries.push({
+    name: '[Content_Types].xml',
+    data: new TextEncoder().encode(`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>${jpegDeclaration}<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>`),
+  })
+  return writeStoredZip(entries)
+}
+
 class RecordingAssetAdapter implements AssetAdapter {
   readonly requests: string[] = []
 
@@ -465,6 +475,50 @@ describe('exportPptx', () => {
     expect(outputRelationships).toContain('Target="../media/image2.jpg"')
     expect(document).toEqual(expectedDocument)
     expect(source).toEqual(expectedSource)
+  })
+
+  it('adds a media content-type default for a newly written extension', async () => {
+    const source = await imageSourceWithContentTypes()
+    const document = await importPptx(source)
+    replaceImportedImage(document)
+
+    const output = await exportPptx(document, source, {
+      assetAdapter: new RecordingAssetAdapter(new Map([['asset_new', jpegBytes]])),
+    })
+    const entries = await packageEntries(output)
+    const outputContentTypes = new TextDecoder().decode(entries.get('[Content_Types].xml'))
+
+    expect(outputContentTypes).toContain('<Default Extension="jpg" ContentType="image/jpeg"/>')
+    expect((outputContentTypes.match(/Extension="jpg"/g) ?? [])).toHaveLength(1)
+  })
+
+  it('uses a per-part media override when an extension default conflicts', async () => {
+    const source = await imageSourceWithContentTypes('application/octet-stream')
+    const document = await importPptx(source)
+    replaceImportedImage(document)
+
+    const output = await exportPptx(document, source, {
+      assetAdapter: new RecordingAssetAdapter(new Map([['asset_new', jpegBytes]])),
+    })
+    const entries = await packageEntries(output)
+    const outputContentTypes = new TextDecoder().decode(entries.get('[Content_Types].xml'))
+
+    expect(outputContentTypes).toContain('<Override PartName="/ppt/media/image2.jpg" ContentType="image/jpeg"/>')
+    expect(outputContentTypes).not.toContain('<Default Extension="jpg" ContentType="image/jpeg"/>')
+  })
+
+  it('does not duplicate an existing compatible media content-type default', async () => {
+    const source = await imageSourceWithContentTypes('image/jpeg')
+    const document = await importPptx(source)
+    replaceImportedImage(document)
+
+    const output = await exportPptx(document, source, {
+      assetAdapter: new RecordingAssetAdapter(new Map([['asset_new', jpegBytes]])),
+    })
+    const entries = await packageEntries(output)
+    const outputContentTypes = new TextDecoder().decode(entries.get('[Content_Types].xml'))
+
+    expect((outputContentTypes.match(/<Default Extension="jpg" ContentType="image\/jpeg"\/>/g) ?? [])).toHaveLength(1)
   })
 
   it('appends trailing images and reuses one new media asset', async () => {

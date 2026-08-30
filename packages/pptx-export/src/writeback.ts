@@ -91,6 +91,11 @@ interface ContentTypeAddition {
   contentType?: string
 }
 
+interface ContentTypeDefaultAddition {
+  extension: string
+  contentType: string
+}
+
 const decoder = new TextDecoder('utf-8', { ignoreBOM: true })
 const encoder = new TextEncoder()
 
@@ -566,26 +571,87 @@ function sourceContentType(xml: string, path: string): string | undefined {
   return descendants(scanXml(xml), 'Override').find((override) => override.attributes.PartName === `/${path}`)?.attributes.ContentType
 }
 
-function rewriteContentTypes(xml: string, removedPaths: string[], addedPaths: string[] = [], addedOverrides: ContentTypeAddition[] = []): string {
+function mediaContentTypeAdditions(xml: string, media: Map<string, string>): { defaults: ContentTypeDefaultAddition[]; overrides: ContentTypeAddition[] } {
+  const roots = scanXml(xml)
+  const defaults = descendants(roots, 'Default').flatMap((entry) => {
+    const extension = entry.attributes.Extension?.toLowerCase()
+    const contentType = entry.attributes.ContentType
+    return extension && contentType ? [{ extension, contentType }] : []
+  })
+  const overrides = descendants(roots, 'Override').flatMap((entry) => {
+    const path = entry.attributes.PartName
+    const contentType = entry.attributes.ContentType
+    return path && contentType ? [{ path, contentType }] : []
+  })
+  const addedDefaults: ContentTypeDefaultAddition[] = []
+  const addedOverrides: ContentTypeAddition[] = []
+  const plannedDefaults = new Map<string, string>()
+  for (const path of [...media.keys()].sort()) {
+    const contentType = media.get(path)
+    const extension = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
+    if (!contentType || !extension) continue
+    const existingOverride = overrides.find((entry) => entry.path === `/${path}`)
+    if (existingOverride?.contentType === contentType) continue
+    const existingDefault = defaults.find((entry) => entry.extension === extension)
+    if (existingDefault?.contentType === contentType) continue
+    const plannedDefault = plannedDefaults.get(extension)
+    if (!existingDefault && (!plannedDefault || plannedDefault === contentType)) {
+      if (!plannedDefault) {
+        plannedDefaults.set(extension, contentType)
+        addedDefaults.push({ extension, contentType })
+      }
+      continue
+    }
+    addedOverrides.push({ path, contentType })
+  }
+  return { defaults: addedDefaults, overrides: addedOverrides }
+}
+
+function contentTypePrefix(xml: string): string {
+  const root = scanXml(xml)[0]
+  if (!root) throw new Error('PPTX export content types malformed')
+  const separator = root.name.lastIndexOf(':')
+  return separator >= 0 ? root.name.slice(0, separator + 1) : ''
+}
+
+function rewriteContentTypes(
+  xml: string,
+  removedPaths: string[],
+  addedPaths: string[] = [],
+  addedOverrides: ContentTypeAddition[] = [],
+  addedDefaults: ContentTypeDefaultAddition[] = [],
+): string {
   const removed = new Set(removedPaths.map((path) => `/${path}`))
   const replacements = descendants(scanXml(xml), 'Override')
     .filter((override) => override.attributes.PartName !== undefined && removed.has(override.attributes.PartName))
     .map((override) => ({ start: override.start, end: override.end, value: '' }))
   const updated = replacements.length > 0 ? replaceRanges(xml, replacements) : xml
+  const prefix = contentTypePrefix(updated)
+  const existingOverrides = new Set(descendants(scanXml(updated), 'Override').flatMap((override) => override.attributes.PartName ? [override.attributes.PartName] : []))
+  const existingDefaults = new Map(descendants(scanXml(updated), 'Default').flatMap((entry) => {
+    const extension = entry.attributes.Extension?.toLowerCase()
+    const contentType = entry.attributes.ContentType
+    return extension && contentType ? [[extension, contentType] as const] : []
+  }))
+  const defaults = addedDefaults
+    .filter((entry, index, values) => values.findIndex((value) => value.extension.toLowerCase() === entry.extension.toLowerCase()) === index)
+    .filter((entry) => existingDefaults.get(entry.extension.toLowerCase()) !== entry.contentType)
+    .map((entry) => `<${prefix}Default Extension="${escapeXml(entry.extension)}" ContentType="${escapeXml(entry.contentType)}"/>`)
   const additions = [
     ...addedPaths.map((path) => ({ path, contentType: 'application/vnd.openxmlformats-officedocument.presentationml.slide+xml' })),
     ...addedOverrides,
   ].filter(({ path }, index, values) => values.findIndex((value) => value.path === path) === index)
+    .filter(({ path }) => !existingOverrides.has(`/${path}`))
     .map(({ path, contentType }) => (
       contentType
-        ? `<Override PartName="/${escapeXml(path)}" ContentType="${escapeXml(contentType)}"/>`
+        ? `<${prefix}Override PartName="/${escapeXml(path)}" ContentType="${escapeXml(contentType)}"/>`
         : ''
     ))
     .filter((value) => value.length > 0)
-  if (additions.length === 0) return updated
+  if (defaults.length === 0 && additions.length === 0) return updated
   const close = updated.lastIndexOf('</Types>')
   if (close < 0) throw new Error('PPTX export content types malformed')
-  return `${updated.slice(0, close)}${additions.join('')}${updated.slice(close)}`
+  return `${updated.slice(0, close)}${defaults.join('')}${additions.join('')}${updated.slice(close)}`
 }
 
 function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: string, scanned: ScannedSlide, imageReplacements: Replacement[], strictIdentity: boolean): string {
@@ -688,6 +754,7 @@ interface ImageWritebackState {
   assets?: Record<string, AssetMetadata>
   entryNames: Set<string>
   mediaByAsset: Map<string, { path: string; bytes: Uint8Array }>
+  mediaContentTypes: Map<string, string>
   pendingMedia: ZipEntry[]
 }
 
@@ -705,6 +772,7 @@ async function imageBytes(state: ImageWritebackState, element: ImageElement): Pr
   const result = { path, bytes: new Uint8Array(bytes) }
   state.entryNames.add(path)
   state.mediaByAsset.set(element.assetId, result)
+  state.mediaContentTypes.set(path, mimeType)
   state.pendingMedia.push({ name: path, data: result.bytes })
   return result
 }
@@ -777,6 +845,7 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
     ...(document.assets ? { assets: document.assets } : {}),
     entryNames: new Set(entries.map((entry) => entry.name)),
     mediaByAsset: new Map(),
+    mediaContentTypes: new Map(),
     pendingMedia: [],
   }
   for (const plan of plans) {
@@ -879,20 +948,25 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
     removedSlides.map((slide) => slide.partPath),
     [...protectedRoots, ...presentationDependencies],
   )
-  if (removedSlides.length > 0 || addedSlidePaths.length > 0 || dependencyClones.size > 0 || orphanedPaths.size > 0) {
-    if (!contentTypesEntry || !sourceContentTypesXml) throw new Error('PPTX export source part missing: [Content_Types].xml')
-    const dependencyOverrides = [...dependencyClones.values()].flatMap((clone) => [...clone.pathMap.entries()]
-      .filter(([sourcePath, outputPath]) => sourcePath !== outputPath && !sourcePath.endsWith('.rels'))
-      .flatMap(([sourcePath, outputPath]) => {
-        const contentType = sourceContentType(sourceContentTypesXml, sourcePath)
-        return contentType ? [{ path: outputPath, contentType }] : []
-      }))
-    contentTypesEntry.data = encoder.encode(rewriteContentTypes(
-      sourceContentTypesXml,
-      [...orphanedPaths],
-      addedSlidePaths,
-      dependencyOverrides,
-    ))
+  const structureRequiresContentTypes = removedSlides.length > 0 || addedSlidePaths.length > 0 || dependencyClones.size > 0 || orphanedPaths.size > 0
+  if (structureRequiresContentTypes || state.pendingMedia.length > 0) {
+    if ((!contentTypesEntry || !sourceContentTypesXml) && structureRequiresContentTypes) throw new Error('PPTX export source part missing: [Content_Types].xml')
+    if (contentTypesEntry && sourceContentTypesXml) {
+      const mediaAdditions = mediaContentTypeAdditions(sourceContentTypesXml, state.mediaContentTypes)
+      const dependencyOverrides = [...dependencyClones.values()].flatMap((clone) => [...clone.pathMap.entries()]
+        .filter(([sourcePath, outputPath]) => sourcePath !== outputPath && !sourcePath.endsWith('.rels'))
+        .flatMap(([sourcePath, outputPath]) => {
+          const contentType = sourceContentType(sourceContentTypesXml, sourcePath)
+          return contentType ? [{ path: outputPath, contentType }] : []
+        }))
+      contentTypesEntry.data = encoder.encode(rewriteContentTypes(
+        sourceContentTypesXml,
+        [...orphanedPaths],
+        addedSlidePaths,
+        [...dependencyOverrides, ...mediaAdditions.overrides],
+        mediaAdditions.defaults,
+      ))
+    }
   }
 
   sourcePackageData.presentationEntry.data = encoder.encode(rewritePresentationOrder(
