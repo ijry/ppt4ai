@@ -2,42 +2,42 @@
 import type { TextBody } from '@ppt4ai/model'
 import { computed, nextTick, ref, shallowRef } from 'vue'
 import { AssetLibrary, PptEditor, ThumbnailCanvas } from '@ppt4ai/editor'
-import { documentToSceneGraph } from '@ppt4ai/render'
 import { normalizeTextElement } from '@ppt4ai/text'
 import { useI18n } from 'vue-i18n'
-import { createPlaygroundAssetHost } from './asset-host'
 import { ImageFileReadError, readImageUploadFile, type PlaygroundImageUploadInput } from './image-file-upload'
-import { createThumbnailScene, thumbnailAdapter } from './thumbnail-smoke'
+import { createPlaygroundPresentationHost } from './presentation-host'
 
 const { t } = useI18n()
-const assetHost = createPlaygroundAssetHost()
+const assetHost = createPlaygroundPresentationHost()
 const assetSnapshot = shallowRef(assetHost.getSnapshot())
-const activeSlide = ref<'red' | 'blue'>('red')
-const thumbnailScene = computed(() => createThumbnailScene(activeSlide.value))
-const scene = computed(() => documentToSceneGraph(assetSnapshot.value.engineState.document))
+const activeSlideSnapshot = computed(() => assetSnapshot.value.slides[assetSnapshot.value.activeSlideId]!)
+const scene = computed(() => activeSlideSnapshot.value.thumbnailScene)
 const textBodies = computed<Record<string, TextBody>>(() => {
   const bodies: Record<string, TextBody> = {}
-  for (const element of Object.values(assetSnapshot.value.engineState.document.elements)) {
+  for (const element of Object.values(activeSlideSnapshot.value.engineState.document.elements)) {
     if (element.kind === 'text') bodies[element.id] = normalizeTextElement(element)
   }
   return bodies
 })
-const thumbnailResult = ref('')
 const fileInput = ref<HTMLInputElement>()
 const pendingUploadIntent = ref<'insert' | 'replace' | undefined>()
 const uploadBusy = ref(false)
-const selectedElementIds = computed(() => [...assetSnapshot.value.engineState.selection])
+const selectedElementIds = computed(() => [...activeSlideSnapshot.value.engineState.selection])
 const selectedElementId = computed(() => selectedElementIds.value.length === 1 ? selectedElementIds.value[0] : undefined)
 const selectedElementText = computed(() => {
   if (selectedElementIds.value.length === 0) return '—'
   if (selectedElementIds.value.length > 1) return selectedElementIds.value.join(', ')
   const elementId = selectedElementIds.value[0]!
-  const element = assetSnapshot.value.engineState.document.elements[elementId]
+  const element = activeSlideSnapshot.value.engineState.document.elements[elementId]
   return element?.kind === 'image' ? `${element.id} → ${element.assetId}` : elementId
 })
 
 function selectAsset(assetId: string): void {
   assetSnapshot.value = assetHost.selectAsset(assetId)
+}
+
+function selectSlide(slideId: string): void {
+  assetSnapshot.value = assetHost.selectSlide(slideId)
 }
 
 function selectElements(payload: { elementIds: string[] }): void {
@@ -156,22 +156,28 @@ async function uploadFile(event: Event): Promise<void> {
           @flip-image="flipImage"
           @text-edit="updateTextElement"
         />
-        <section class="mt-8 border border-slate-200 bg-white p-4">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <h2 class="text-sm font-semibold">Thumbnail smoke</h2>
-            <button data-testid="thumbnail-next" class="border border-slate-400 px-3 py-1 text-sm" type="button" @click="activeSlide = 'blue'">
-              Next
+        <section class="mt-8 border border-slate-200 bg-white p-4" :aria-label="t('playground.slides.title')">
+          <h2 class="text-sm font-semibold">{{ t('playground.slides.title') }}</h2>
+          <div data-testid="slide-thumbnail-list" class="mt-3 grid gap-3 sm:grid-cols-2">
+            <button
+              v-for="(slideId, index) in assetSnapshot.slideOrder"
+              :key="slideId"
+              :data-testid="`slide-thumbnail-${slideId}`"
+              :data-slide-id="slideId"
+              :aria-current="assetSnapshot.activeSlideId === slideId ? 'page' : undefined"
+              class="min-w-0 border p-2 text-left transition-colors hover:border-slate-500 aria-[current=page]:border-blue-600 aria-[current=page]:ring-2 aria-[current=page]:ring-blue-200"
+              type="button"
+              @click="selectSlide(slideId)"
+            >
+              <ThumbnailCanvas
+                :scene="assetSnapshot.slides[slideId]!.thumbnailScene"
+                :adapter="assetHost.adapter"
+                :width="240"
+                :height="135"
+              />
+              <span class="mt-2 block text-xs text-slate-600">{{ t('playground.slides.page', { number: index + 1 }) }}</span>
             </button>
           </div>
-          <ThumbnailCanvas
-            :scene="thumbnailScene"
-            :adapter="thumbnailAdapter"
-            :width="320"
-            :height="180"
-            data-testid="thumbnail-canvas"
-            @render="thumbnailResult = JSON.stringify($event)"
-          />
-          <output data-testid="thumbnail-result" class="mt-2 block text-sm text-slate-600">{{ thumbnailResult }}</output>
         </section>
       </section>
 
@@ -199,7 +205,7 @@ async function uploadFile(event: Event): Promise<void> {
           </div>
         </section>
         <AssetLibrary
-          :assets="assetSnapshot.engineState.document.assets"
+          :assets="activeSlideSnapshot.engineState.document.assets"
           :adapter="assetHost.adapter"
           :selected-asset-id="assetSnapshot.selectedAssetId"
           @select="selectAsset"
@@ -214,7 +220,7 @@ async function uploadFile(event: Event): Promise<void> {
             <dt>{{ t('playground.assetHost.selectedElement') }}</dt>
             <dd data-testid="selected-element" class="font-mono text-slate-900">{{ selectedElementText }}</dd>
             <dt>{{ t('playground.assetHost.undoDepth') }}</dt>
-            <dd data-testid="undo-depth" class="font-mono text-slate-900">{{ assetSnapshot.engineState.history.undoDepth }}</dd>
+            <dd data-testid="undo-depth" class="font-mono text-slate-900">{{ activeSlideSnapshot.engineState.history.undoDepth }}</dd>
             <dt>{{ t('playground.assetHost.statusLabel') }}</dt>
             <dd data-testid="asset-status" :class="assetSnapshot.status.kind === 'error' ? 'text-red-700' : 'text-slate-900'">{{ statusText() }}</dd>
           </dl>

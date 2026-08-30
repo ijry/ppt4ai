@@ -59,6 +59,10 @@ const zhCN = {
     imageFlipped: '图片已翻转',
   },
   playground: {
+    slides: {
+      title: '幻灯片页面',
+      page: '第 {number} 页',
+    },
     assetHost: {
       title: '资产操作状态',
       uploadTitle: '上传图片',
@@ -87,6 +91,8 @@ const zhCN = {
         'text-updated': '已更新文字',
         'element-missing': '元素不存在',
         'element-operation-failed': '元素操作失败',
+        'slide-selected': '已选择页面',
+        'slide-missing': '页面不存在',
       },
     },
   },

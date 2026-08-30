@@ -59,6 +59,10 @@ const enUS = {
     imageFlipped: 'Image flipped',
   },
   playground: {
+    slides: {
+      title: 'Slides',
+      page: 'Page {number}',
+    },
     assetHost: {
       title: 'Asset operation status',
       uploadTitle: 'Upload image',
@@ -87,6 +91,8 @@ const enUS = {
         'text-updated': 'Text updated',
         'element-missing': 'Element is missing',
         'element-operation-failed': 'Element operation failed',
+        'slide-selected': 'Slide selected',
+        'slide-missing': 'Slide is missing',
       },
     },
   },

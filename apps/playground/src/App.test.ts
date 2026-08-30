@@ -85,6 +85,50 @@ afterEach(() => {
 })
 
 describe('Playground asset host wiring', () => {
+  it('renders navigable page thumbnails and switches the active page', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+
+    const redThumbnail = host.querySelector('[data-testid="slide-thumbnail-sld_playground"]') as HTMLButtonElement
+    const blueThumbnail = host.querySelector('[data-testid="slide-thumbnail-sld_playground_blue"]') as HTMLButtonElement
+    expect(redThumbnail).not.toBeNull()
+    expect(blueThumbnail).not.toBeNull()
+    expect(redThumbnail.getAttribute('aria-current')).toBe('page')
+    expect(blueThumbnail.getAttribute('aria-current')).toBeNull()
+
+    blueThumbnail.click()
+    await nextTick()
+
+    expect(blueThumbnail.getAttribute('aria-current')).toBe('page')
+    expect(redThumbnail.getAttribute('aria-current')).toBeNull()
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('0')
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('—')
+    expect(host.querySelector('[data-testid="asset-status"]')?.textContent).toContain('已选择页面')
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
+  it('restores each page selection after switching away and back', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1280, height: 720 } as DOMRect)
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 110, bubbles: true }))
+    await nextTick()
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('group_demo')
+
+    ;(host.querySelector('[data-testid="slide-thumbnail-sld_playground_blue"]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('—')
+
+    ;(host.querySelector('[data-testid="slide-thumbnail-sld_playground"]') as HTMLButtonElement).click()
+    await nextTick()
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('group_demo')
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
   it('renders the seeded scene and selects a node from the slide canvas', async () => {
     const { app, host } = mountApp()
     await nextTick()
