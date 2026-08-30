@@ -373,6 +373,18 @@ describe('importPptx', () => {
     expect(imported.slides.sld_2).toMatchObject({ layoutId: 'lyt_1', masterId: 'mst_1' })
     expect(imported.slides.sld_1?.elementIds).toEqual(['el_1'])
     expect(imported.slides.sld_2?.elementIds).toEqual(['el_2'])
+    expect(imported.slides.sld_1?.source).toEqual({
+      originId: 'sld_1',
+      partPath: 'ppt/slides/slide1.xml',
+      relationshipId: 'rId1',
+      presentationId: '256',
+    })
+    expect(imported.slides.sld_2?.source).toEqual({
+      originId: 'sld_2',
+      partPath: 'ppt/slides/slide2.xml',
+      relationshipId: 'rId2',
+      presentationId: '257',
+    })
   })
 
   it('imports structured character and auto-number bullets without marker text', async () => {

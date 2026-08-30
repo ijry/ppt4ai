@@ -286,12 +286,20 @@ export interface SlideMaster {
   colorMap?: Partial<ColorMap>
 }
 
+export interface SlideSource {
+  originId: string
+  partPath: string
+  relationshipId: string
+  presentationId: string
+}
+
 export interface Slide {
   id: string
   elementIds: string[]
   layoutId?: string
   masterId?: string
   colorMapOverride?: Partial<ColorMap>
+  source?: SlideSource
 }
 
 export interface Ppt4aiDocument {
@@ -879,6 +887,15 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
 
   for (const [slideId, slide] of Object.entries(value.slides)) {
     if (slide.id !== slideId) errors.push(`slide key does not match id: ${slideId}`)
+    if (slide.source !== undefined) {
+      const source = slide.source as unknown as Record<string, unknown>
+      if (!source || typeof source !== 'object' || Array.isArray(source)) errors.push(`slide ${slideId} source must be an object`)
+      else {
+        for (const field of ['originId', 'partPath', 'relationshipId', 'presentationId']) {
+          if (typeof source[field] !== 'string' || source[field].length === 0) errors.push(`slide ${slideId} source.${field} must be a non-empty string`)
+        }
+      }
+    }
     const elementIds = new Set<string>()
     for (const elementId of slide.elementIds) {
       if (elementIds.has(elementId)) errors.push(`slide ${slideId} references duplicate element: ${elementId}`)

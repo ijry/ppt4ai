@@ -589,6 +589,40 @@ describe('ppt4ai file model', () => {
     expect(structuredClone(minimalDocument)).toEqual(minimalDocument)
   })
 
+  it('validates optional slide source provenance', () => {
+    const sourced = {
+      ...minimalDocument,
+      slides: {
+        sld_1: {
+          ...minimalDocument.slides.sld_1!,
+          source: {
+            originId: 'sld_1',
+            partPath: 'ppt/slides/slide1.xml',
+            relationshipId: 'rId1',
+            presentationId: '256',
+          },
+        },
+      },
+    }
+
+    expect(validateDocument(sourced)).toEqual({ valid: true })
+    expect(validateDocument({
+      ...sourced,
+      slides: {
+        sld_1: {
+          ...sourced.slides.sld_1,
+          source: { ...sourced.slides.sld_1.source, partPath: '', relationshipId: '' },
+        },
+      },
+    })).toEqual({
+      valid: false,
+      errors: [
+        'slide sld_1 source.partPath must be a non-empty string',
+        'slide sld_1 source.relationshipId must be a non-empty string',
+      ],
+    })
+  })
+
   it('reports duplicate and dangling element references', () => {
     const broken = {
       ...minimalDocument,

@@ -814,7 +814,15 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
       elementIds.push(id)
     }
     const colorMapOverride = parseColorMapOverride(slidePart.xml)
-    slides[slideId] = { id: slideId, elementIds, ...(layoutId ? { layoutId } : {}), ...(masterId ? { masterId } : {}), ...(colorMapOverride ? { colorMapOverride } : {}) }
+    const source = relationshipId && reference.attributes.id
+      ? {
+          originId: slideId,
+          partPath: slidePath,
+          relationshipId,
+          presentationId: reference.attributes.id,
+        }
+      : undefined
+    slides[slideId] = { id: slideId, elementIds, ...(layoutId ? { layoutId } : {}), ...(masterId ? { masterId } : {}), ...(colorMapOverride ? { colorMapOverride } : {}), ...(source ? { source } : {}) }
     slideOrder.push(slideId)
   }
 
