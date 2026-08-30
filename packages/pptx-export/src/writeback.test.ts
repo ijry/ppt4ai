@@ -97,7 +97,7 @@ function textSourcePackage(): Uint8Array {
 }
 
 function styledShapeSourcePackage(): Uint8Array {
-  const styledSlide = `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp data-preserve="styled-shape"><p:nvSpPr><p:cNvPr id="1" name="Shape"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="10" y="20"/><a:ext cx="300" cy="400"/></a:xfrm><a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom><a:solidFill data-fill="keep"><a:srgbClr val="FF0000"><a:tint val="50000"/></a:srgbClr></a:solidFill><a:customStyle keep="yes"/></p:spPr></p:sp><p:sp data-preserve="styled-text"><p:nvSpPr><p:cNvPr id="2" name="Text"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="500" y="600"/><a:ext cx="700" cy="800"/></a:xfrm><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>Styled</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`
+  const styledSlide = `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp data-preserve="styled-shape"><p:nvSpPr><p:cNvPr id="1" name="Shape"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="10" y="20"/><a:ext cx="300" cy="400"/></a:xfrm><a:prstGeom prst="roundRect" data-geometry="keep"><a:avLst/><a:customGeometry keep="yes"/></a:prstGeom><a:solidFill data-fill="keep"><a:srgbClr val="FF0000"><a:tint val="50000"/></a:srgbClr></a:solidFill><a:customStyle keep="yes"/></p:spPr></p:sp><p:sp data-preserve="styled-text"><p:nvSpPr><p:cNvPr id="2" name="Text"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="500" y="600"/><a:ext cx="700" cy="800"/></a:xfrm><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>Styled</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`
   return writeStoredZip([
     { name: 'ppt/presentation.xml', data: new TextEncoder().encode(presentation) },
     { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(relationships) },
@@ -511,6 +511,22 @@ describe('exportPptx', () => {
     expect(outputSlide).toContain('<a:customStyle keep="yes"/>')
     expect(imported.elements.el_1).toMatchObject({ fill: { color: { type: 'srgb', v: '00FF00' } } })
     expect(imported.elements.el_2).toMatchObject({ fill: { color: { type: 'scheme', v: 'accent2' } } })
+  })
+
+  it('writes edited shape preset geometry while preserving geometry XML', async () => {
+    const source = styledShapeSourcePackage()
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    if (!shape || shape.kind !== 'shape') throw new Error('fixture shape was not imported')
+    shape.preset = 'ellipse'
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    const imported = await importPptx(output)
+
+    expect(outputSlide).toContain('<a:prstGeom prst="ellipse" data-geometry="keep"><a:avLst/><a:customGeometry keep="yes"/></a:prstGeom>')
+    expect(imported.elements.el_1).toMatchObject({ kind: 'shape', preset: 'ellipse' })
   })
 
   it('rejects a slide element count mismatch', async () => {

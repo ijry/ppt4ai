@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
@@ -277,7 +277,7 @@ function sourceBounds(element: XmlElement): Rect | undefined {
   return { x, y, w, h }
 }
 
-function replaceXmlAttribute(source: string, name: string, value: number): string {
+function replaceXmlAttribute(source: string, name: string, value: string | number): string {
   const expression = new RegExp(`(\\s${name}\\s*=\\s*)(["'])([\\s\\S]*?)\\2`, 'u')
   const match = expression.exec(source)
   if (!match) throw new Error(`PPTX export source transform attribute missing: ${name}`)
@@ -372,6 +372,40 @@ function fillReplacements(xml: string, sourceElement: XmlElement, fill: Fill | u
     return [{ start: fillNode.start, end: fillNode.end, value: '' }]
   }
   return []
+}
+
+function importedPreset(value: string | undefined): PresetGeometry {
+  return value === 'roundRect' || value === 'ellipse' || value === 'triangle' ? value : 'rect'
+}
+
+function qualifiedName(sourceName: string, localName: string): string {
+  const separator = sourceName.lastIndexOf(':')
+  return separator >= 0 ? `${sourceName.slice(0, separator + 1)}${localName}` : localName
+}
+
+function serializePresetGeometry(sourceName: string | undefined, preset: PresetGeometry): string {
+  const name = qualifiedName(sourceName ?? 'a:prstGeom', 'prstGeom')
+  const avList = qualifiedName(sourceName ?? 'a:prstGeom', 'avLst')
+  return `<${name} prst="${escapeXml(preset)}"><${avList}/></${name}>`
+}
+
+function geometryReplacements(xml: string, sourceElement: XmlElement, preset: PresetGeometry): Replacement[] {
+  const properties = sourceShapeProperties(sourceElement)
+  if (!properties) return []
+  const geometry = properties.children.find((child) => child.localName === 'prstGeom' || child.localName === 'custGeom')
+  const previous = geometry?.localName === 'prstGeom' ? importedPreset(geometry.attributes.prst) : 'rect'
+  if (previous === preset) return []
+  if (geometry?.localName === 'prstGeom' && geometry.attributes.prst !== undefined) {
+    const value = xml.slice(geometry.start, geometry.end)
+    return [{ start: geometry.start, end: geometry.end, value: replaceXmlAttribute(value, 'prst', preset) }]
+  }
+  const value = serializePresetGeometry(geometry?.name, preset)
+  if (geometry) return [{ start: geometry.start, end: geometry.end, value }]
+  const fill = properties.children.find((child) => fillNodeNames.has(child.localName))
+  const line = properties.children.find((child) => child.localName === 'ln')
+  const insertion = fill?.start ?? line?.start ?? xml.lastIndexOf('</', properties.end)
+  if (insertion < properties.start) throw new Error('PPTX export source shape properties malformed')
+  return [{ start: insertion, end: insertion, value }]
 }
 
 function normalizePath(path: string): string {
@@ -834,6 +868,7 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
       } else if (element.kind === 'shape') {
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
+        replacements.push(...geometryReplacements(xml, sourceElement, element.preset))
       } else {
         throw new Error(`PPTX export shape source mismatch for element ${element.id}`)
       }
