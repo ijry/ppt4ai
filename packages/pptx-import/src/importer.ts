@@ -69,6 +69,12 @@ function parseNumber(value: string | undefined): number | undefined {
   return Number.isFinite(number) ? number : undefined
 }
 
+function parseIntegerAttribute(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === '') return undefined
+  const number = Number(value)
+  return Number.isFinite(number) && Number.isInteger(number) ? number : undefined
+}
+
 const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 const colorMapKeys = new Set<ColorMapKey>(['bg1', 'tx1', 'bg2', 'tx2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
@@ -224,6 +230,11 @@ function parseDirectFill(node: XmlNode | undefined): Fill | undefined {
 
 function shapeProperties(shape: XmlNode): XmlNode | undefined {
   return findDescendants(shape, 'spPr')[0]
+}
+
+function parseRotation(shape: XmlNode): number | undefined {
+  const transform = findDescendants(shape, 'xfrm')[0]
+  return parseIntegerAttribute(transform ? attribute(transform, 'rot') : undefined)
 }
 
 function parseShapeFill(shape: XmlNode): Fill | undefined {
@@ -631,10 +642,11 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   const bounds = parseBounds(shape)
   if (requireBounds && !bounds) return undefined
   const placeholder = parsePlaceholder(shape)
+  const rotation = parseRotation(shape)
   const text = parseText(shape)
   if (text.present) {
     if (!bounds) return undefined
-    const element: Extract<Element, { kind: 'text' }> = { id, kind: 'text', bounds, text: text.value }
+    const element: Extract<Element, { kind: 'text' }> = { id, kind: 'text', bounds, ...(rotation === undefined ? {} : { rotation }), text: text.value }
     const body = parseTextBody(shape)
     if (body) element.body = body
     if (placeholder) element.placeholder = placeholder
@@ -650,6 +662,7 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     kind: 'shape',
     preset: parsePreset(shape),
     bounds,
+    ...(rotation === undefined ? {} : { rotation }),
   }
   if (placeholder) element.placeholder = placeholder
   const fill = parseShapeFill(shape)
@@ -665,6 +678,8 @@ function parseDefaults(shape: XmlNode): [string, ElementDefaults] | undefined {
   const defaults: ElementDefaults = {}
   const bounds = parseBounds(shape)
   if (bounds) defaults.bounds = bounds
+  const rotation = parseRotation(shape)
+  if (rotation !== undefined) defaults.rotation = rotation
   defaults.preset = parsePreset(shape)
   const fill = parseShapeFill(shape)
   if (fill) defaults.fill = fill

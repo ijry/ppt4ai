@@ -117,6 +117,7 @@ export interface ShapeElement {
   kind: 'shape'
   preset: PresetGeometry
   bounds: Rect
+  rotation?: number
   fill?: Fill
   stroke?: Fill
   placeholder?: string
@@ -126,6 +127,7 @@ export interface TextElement {
   id: string
   kind: 'text'
   bounds: Rect
+  rotation?: number
   text?: string
   body?: TextBody
   fill?: Fill
@@ -265,6 +267,7 @@ export type Element = ShapeElement | TextElement | TableElement | GroupElement |
 
 export interface ElementDefaults {
   bounds?: Rect
+  rotation?: number
   preset?: PresetGeometry
   fill?: Fill
   stroke?: Fill
@@ -560,6 +563,15 @@ const imageEffects = new Set(['alphaModFix', 'grayscl'])
 
 function validateFiniteNumber(value: unknown, path: string, errors: string[], predicate: (value: number) => boolean, message: string): void {
   if (typeof value !== 'number' || !Number.isFinite(value) || !predicate(value)) errors.push(`${path} ${message}`)
+}
+
+function validateDefaultRotations(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return
+  for (const [key, defaultValue] of Object.entries(value as Record<string, unknown>)) {
+    if (!defaultValue || typeof defaultValue !== 'object' || Array.isArray(defaultValue)) continue
+    const rotation = (defaultValue as Record<string, unknown>).rotation
+    if (rotation !== undefined) validateFiniteNumber(rotation, `${path}.${key}.rotation`, errors, Number.isInteger, 'must be an integer')
+  }
 }
 
 function validateColor(value: unknown, path: string, errors: string[]): void {
@@ -1005,6 +1017,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       if (master.id !== masterId) errors.push(`master key does not match id: ${masterId}`)
       if ('themeId' in master && master.themeId !== undefined && (typeof master.themeId !== 'string' || master.themeId.length === 0)) errors.push(`${masterPath}.themeId must be a non-empty string`)
       if ('colorMap' in master && master.colorMap !== undefined) validateColorMap(master.colorMap, `${masterPath}.colorMap`, errors)
+      if ('defaults' in master && master.defaults !== undefined) validateDefaultRotations(master.defaults, `${masterPath}.defaults`, errors)
     }
   }
 
@@ -1019,6 +1032,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       const layout = layoutValue as unknown as Record<string, unknown>
       if (layout.id !== layoutId) errors.push(`layout key does not match id: ${layoutId}`)
       if ('colorMapOverride' in layout && layout.colorMapOverride !== undefined) validateColorMap(layout.colorMapOverride, `${layoutPath}.colorMapOverride`, errors)
+      if ('defaults' in layout && layout.defaults !== undefined) validateDefaultRotations(layout.defaults, `${layoutPath}.defaults`, errors)
     }
   }
 
@@ -1029,6 +1043,9 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
   for (const [elementId, element] of Object.entries(value.elements)) {
     if (element.id !== elementId) errors.push(`element key does not match id: ${elementId}`)
     if (element.bounds.w <= 0 || element.bounds.h <= 0) errors.push(`element ${elementId} bounds must be positive`)
+    if ((element.kind === 'shape' || element.kind === 'text') && element.rotation !== undefined) {
+      validateFiniteNumber(element.rotation, `elements.${elementId}.rotation`, errors, Number.isInteger, 'must be an integer')
+    }
     if (element.kind === 'group') {
       const childIds = new Set<string>()
       for (const childId of element.childIds) {

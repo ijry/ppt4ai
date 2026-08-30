@@ -74,6 +74,22 @@ const strokeFiles = {
   'ppt/slideMasters/slideMaster1.xml': files['ppt/slideMasters/slideMaster1.xml'].replace('<a:solidFill><a:srgbClr val="000000"/></a:solidFill>', '<a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:ln w="2000"><a:solidFill><a:srgbClr val="FEDCBA"/></a:solidFill></a:ln>'),
 }
 
+const rotationFiles = {
+  ...files,
+  'ppt/slides/slide1.xml': '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp data-preserve="rotation-shape"><p:nvSpPr><p:cNvPr id="3" name="Shape"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm rot="-5400000" data-rotation="keep"><a:off x="1000000" y="1000000"/><a:ext cx="4000000" cy="2000000"/><a:customTransform keep="yes"/></a:xfrm><a:prstGeom prst="triangle"/></p:spPr></p:sp><p:sp data-preserve="rotation-text"><p:nvSpPr><p:cNvPr id="4" name="Text"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm rot="2700000"><a:off x="500000" y="4000000"/><a:ext cx="4000000" cy="1000000"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>Rotated text</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>',
+}
+
+const malformedRotationFiles = {
+  ...rotationFiles,
+  'ppt/slides/slide1.xml': rotationFiles['ppt/slides/slide1.xml'].replace('rot="-5400000"', 'rot="bad"').replace('rot="2700000"', 'rot="1.5"'),
+}
+
+const rotationDefaultsFiles = {
+  ...files,
+  'ppt/slideLayouts/slideLayout1.xml': files['ppt/slideLayouts/slideLayout1.xml'].replace('<p:spPr>', '<p:spPr><a:xfrm rot="-1800000"/>'),
+  'ppt/slideMasters/slideMaster1.xml': files['ppt/slideMasters/slideMaster1.xml'].replace('<p:spPr>', '<p:spPr><a:xfrm rot="3600000"/>'),
+}
+
 const pngBytes = new Uint8Array([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
   0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
@@ -387,6 +403,29 @@ describe('importPptx', () => {
     expect(imported.layouts?.lyt_1?.defaults?.title).toMatchObject({
       stroke: { color: { type: 'srgb', v: 'ABCDEF' } },
     })
+  })
+
+  it('imports shape and text rotations in OOXML units', async () => {
+    const imported = await importPptx(createStoredZip(rotationFiles))
+
+    expect(imported.elements.el_1).toMatchObject({ kind: 'shape', rotation: -5400000 })
+    expect(imported.elements.el_2).toMatchObject({ kind: 'text', rotation: 2700000 })
+    expect(structuredClone(imported)).toEqual(imported)
+  })
+
+  it('ignores malformed shape and text rotation attributes', async () => {
+    const imported = await importPptx(createStoredZip(malformedRotationFiles))
+
+    expect(imported.elements.el_1).not.toHaveProperty('rotation')
+    expect(imported.elements.el_2).not.toHaveProperty('rotation')
+  })
+
+  it('imports rotations from layout and master placeholder defaults', async () => {
+    const imported = await importPptx(createStoredZip(rotationDefaultsFiles))
+
+    expect(imported.masters?.mst_1?.defaults?.title).toMatchObject({ rotation: 3600000 })
+    expect(imported.layouts?.lyt_1?.defaults?.title).toMatchObject({ rotation: -1800000 })
+    expect(structuredClone(imported)).toEqual(imported)
   })
 
   it('reuses shared layouts and masters while preserving slide element order', async () => {

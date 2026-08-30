@@ -523,6 +523,76 @@ describe('ppt4ai file model', () => {
     })
   })
 
+  it('accepts OOXML rotations on shape and text elements', () => {
+    const document = structuredClone(minimalDocument)
+    const shape = document.elements.el_shape
+    if (!shape || shape.kind !== 'shape') throw new Error('shape fixture is missing')
+    shape.rotation = -5400000
+    document.elements.el_text = {
+      id: 'el_text',
+      kind: 'text',
+      bounds: { x: 200, y: 300, w: 400, h: 500 },
+      text: 'Rotated',
+      rotation: 2700000,
+    }
+    document.slides.sld_1!.elementIds = ['el_shape', 'el_text']
+
+    expect(validateDocument(document)).toEqual({ valid: true })
+    expect(structuredClone(document)).toEqual(document)
+  })
+
+  it('reports stable paths for invalid shape and text rotations', () => {
+    const document = structuredClone(minimalDocument) as Ppt4aiDocument & {
+      elements: Record<string, Ppt4aiDocument['elements'][string] & { rotation?: unknown }>
+    }
+    const shape = document.elements.el_shape
+    if (!shape) throw new Error('shape fixture is missing')
+    shape.rotation = 1.5
+    document.elements.el_text = {
+      id: 'el_text',
+      kind: 'text',
+      bounds: { x: 200, y: 300, w: 400, h: 500 },
+      text: 'Invalid',
+      rotation: Number.NaN,
+    } as Ppt4aiDocument['elements'][string] & { rotation?: unknown }
+    document.slides.sld_1!.elementIds = ['el_shape', 'el_text']
+
+    expect(validateDocument(document)).toEqual({
+      valid: false,
+      errors: [
+        'elements.el_shape.rotation must be an integer',
+        'elements.el_text.rotation must be an integer',
+      ],
+    })
+  })
+
+  it('reports stable paths for invalid placeholder default rotations', () => {
+    const document = {
+      ...minimalDocument,
+      masters: {
+        master_1: {
+          id: 'master_1',
+          defaults: { title: { rotation: 1.5 } },
+        },
+      },
+      layouts: {
+        layout_1: {
+          id: 'layout_1',
+          masterId: 'master_1',
+          defaults: { title: { rotation: Number.NaN } },
+        },
+      },
+    } as unknown as Ppt4aiDocument
+
+    expect(validateDocument(document)).toEqual({
+      valid: false,
+      errors: [
+        'masters.master_1.defaults.title.rotation must be an integer',
+        'layouts.layout_1.defaults.title.rotation must be an integer',
+      ],
+    })
+  })
+
   it('accepts image assets and keeps their metadata clone-safe', () => {
     const image: ImageElement = {
       id: 'img_1',
