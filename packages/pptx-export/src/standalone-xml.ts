@@ -335,3 +335,7 @@ export function serializeEmptySlideXml(): string {
 export function serializeLayoutSlideRelationshipsXml(): string {
   return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationship(`${officeRelationshipNamespace}/slideLayout`, 'rId1', '../slideLayouts/slideLayout1.xml')}</Relationships>`
 }
+
+export function serializeSlideRelationshipsXml(imageRelationships: string[]): string {
+  return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationship(`${officeRelationshipNamespace}/slideLayout`, 'rId1', '../slideLayouts/slideLayout1.xml')}${imageRelationships.join('')}</Relationships>`
+}

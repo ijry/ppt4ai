@@ -1,5 +1,5 @@
 import { importPptx } from '@ppt4ai/pptx-import'
-import type { Ppt4aiDocument, ShapeElement, TableElement, TextElement } from '@ppt4ai/model'
+import type { AssetAdapter, ImageElement, Ppt4aiDocument, ShapeElement, TableElement, TextElement } from '@ppt4ai/model'
 import { describe, expect, it } from 'vitest'
 import { createPptx } from './index.js'
 import { readZipEntries } from './zip.js'
@@ -132,6 +132,69 @@ const tableDocument: Ppt4aiDocument = {
   elements: { [table.id]: table },
 }
 
+const pngBytes = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x10,
+  0x08, 0x06, 0x00, 0x00, 0x00,
+])
+
+const jpegBytes = new Uint8Array([
+  0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x18, 0x00, 0x28,
+  0x03, 0x01, 0x11, 0x00, 0x02, 0x11, 0x00, 0x03, 0x11, 0x00,
+])
+
+const pngImageOne: ImageElement = {
+  id: 'image_1',
+  kind: 'image',
+  bounds: { x: 500000, y: 500000, w: 2500000, h: 1500000 },
+  assetId: 'asset_png',
+  transform: { rotation: 60000, flipH: true },
+  sourceCrop: { left: 1000, right: 2000 },
+  maskPreset: 'ellipse',
+  effects: [{ type: 'grayscl' }],
+}
+
+const pngImageTwo: ImageElement = {
+  ...structuredClone(pngImageOne),
+  id: 'image_2',
+  bounds: { x: 3500000, y: 500000, w: 2500000, h: 1500000 },
+}
+
+const jpegImage: ImageElement = {
+  id: 'image_3',
+  kind: 'image',
+  bounds: { x: 6500000, y: 500000, w: 2500000, h: 1500000 },
+  assetId: 'asset_jpeg',
+}
+
+const imageDocument: Ppt4aiDocument = {
+  ...emptyDocument,
+  slides: {
+    sld_1: { id: 'sld_1', elementIds: [pngImageOne.id, jpegImage.id] },
+    sld_2: { id: 'sld_2', elementIds: [pngImageTwo.id] },
+  },
+  elements: { [pngImageOne.id]: pngImageOne, [pngImageTwo.id]: pngImageTwo, [jpegImage.id]: jpegImage },
+  assets: {
+    asset_png: { id: 'asset_png', mimeType: 'image/png', pixelWidth: 32, pixelHeight: 16 },
+    asset_jpeg: { id: 'asset_jpeg', mimeType: 'image/jpeg', pixelWidth: 40, pixelHeight: 24 },
+  },
+  slideOrder: ['sld_1', 'sld_2'],
+}
+
+class RecordingStandaloneAssetAdapter implements AssetAdapter {
+  readonly requests: string[] = []
+
+  constructor(readonly assets: Map<string, Uint8Array>) {}
+
+  async get(assetId: string): Promise<Uint8Array | undefined> {
+    this.requests.push(assetId)
+    return this.assets.get(assetId)
+  }
+
+  async put(): Promise<void> {}
+}
+
 describe('createPptx', () => {
   it('creates a deterministic importable OPC skeleton without source bytes', async () => {
     const first = await createPptx(emptyDocument)
@@ -206,5 +269,101 @@ describe('createPptx', () => {
       ],
     })
     expect(tableDocument).toEqual(before)
+  })
+
+  it('materializes deduplicated image assets and writes slide-local relationships', async () => {
+    const beforeDocument = structuredClone(imageDocument)
+    const beforePng = pngBytes.slice()
+    const beforeJpeg = jpegBytes.slice()
+    const adapter = new RecordingStandaloneAssetAdapter(new Map([
+      ['asset_png', pngBytes],
+      ['asset_jpeg', jpegBytes],
+    ]))
+    const output = await createPptx(imageDocument, { assetAdapter: adapter })
+    const repeated = await createPptx(structuredClone(imageDocument), {
+      assetAdapter: new RecordingStandaloneAssetAdapter(new Map([
+        ['asset_png', pngBytes],
+        ['asset_jpeg', jpegBytes],
+      ])),
+    })
+    const entries = await packageEntries(output)
+    const firstRelationships = new TextDecoder().decode(entries.get('ppt/slides/_rels/slide1.xml.rels'))
+    const secondRelationships = new TextDecoder().decode(entries.get('ppt/slides/_rels/slide2.xml.rels'))
+    const imported = await importPptx(output)
+    const importedFirst = imported.elements[imported.slides.sld_1?.elementIds[0] ?? '']
+    const importedSecond = imported.elements[imported.slides.sld_2?.elementIds[0] ?? '']
+
+    expect(output).toEqual(repeated)
+    expect(adapter.requests).toEqual(['asset_png', 'asset_jpeg'])
+    expect([...entries.keys()].slice(-2)).toEqual(['ppt/media/image1.png', 'ppt/media/image2.jpg'])
+    expect(entries.get('ppt/media/image1.png')).toEqual(pngBytes)
+    expect(entries.get('ppt/media/image2.jpg')).toEqual(jpegBytes)
+    expect(firstRelationships).toContain('Id="rId2"')
+    expect(firstRelationships).toContain('Target="../media/image1.png"')
+    expect(firstRelationships).toContain('Id="rId3"')
+    expect(firstRelationships).toContain('Target="../media/image2.jpg"')
+    expect(secondRelationships).toContain('Id="rId2"')
+    expect(secondRelationships).toContain('Target="../media/image1.png"')
+    expect(secondRelationships).not.toContain('rId3')
+    expect(importedFirst).toMatchObject({ kind: 'image', assetId: 'asset_ppt_media_image1_png', bounds: pngImageOne.bounds })
+    expect(importedSecond).toMatchObject({ kind: 'image', assetId: 'asset_ppt_media_image1_png', bounds: pngImageTwo.bounds })
+    expect(imported.assets?.asset_ppt_media_image1_png).toMatchObject({ mimeType: 'image/png', pixelWidth: 32, pixelHeight: 16 })
+    expect(imported.assets?.asset_ppt_media_image2_jpg).toMatchObject({ mimeType: 'image/jpeg', pixelWidth: 40, pixelHeight: 24 })
+    expect(imageDocument).toEqual(beforeDocument)
+    expect(pngBytes).toEqual(beforePng)
+    expect(jpegBytes).toEqual(beforeJpeg)
+  })
+
+  it('rejects an image without an asset adapter before writing a package', async () => {
+    const before = structuredClone(imageDocument)
+    await expect(createPptx(imageDocument)).rejects.toThrow('PPTX generation asset adapter missing: asset_png')
+    expect(imageDocument).toEqual(before)
+  })
+
+  it('rejects missing image bytes and MIME mismatches with stable asset errors', async () => {
+    const missingAdapter = new RecordingStandaloneAssetAdapter(new Map())
+    const before = structuredClone(imageDocument)
+    await expect(createPptx(imageDocument, { assetAdapter: missingAdapter })).rejects.toThrow('PPTX generation asset bytes missing: asset_png')
+    expect(missingAdapter.requests).toEqual(['asset_png'])
+    expect(imageDocument).toEqual(before)
+
+    const missingMetadataDocument = structuredClone(imageDocument)
+    delete missingMetadataDocument.assets!.asset_png
+    const metadataAdapter = new RecordingStandaloneAssetAdapter(new Map([['asset_png', pngBytes]]))
+    await expect(createPptx(missingMetadataDocument, { assetAdapter: metadataAdapter })).rejects.toThrow('asset_png')
+    expect(metadataAdapter.requests).toEqual([])
+
+    const mismatchDocument = structuredClone(imageDocument)
+    mismatchDocument.assets!.asset_png!.mimeType = 'image/jpeg'
+    const mismatchBefore = structuredClone(mismatchDocument)
+    const mismatchAdapter = new RecordingStandaloneAssetAdapter(new Map([['asset_png', pngBytes]]))
+    await expect(createPptx(mismatchDocument, { assetAdapter: mismatchAdapter })).rejects.toThrow('PPTX generation asset bytes MIME mismatch: asset_png')
+    expect(mismatchAdapter.requests).toEqual(['asset_png'])
+    expect(mismatchDocument).toEqual(mismatchBefore)
+  })
+
+  it('rejects unsupported groups and validates slide mappings before asset reads', async () => {
+    const groupDocument: Ppt4aiDocument = {
+      ...emptyDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: ['group_1'] } },
+      elements: { group_1: { id: 'group_1', kind: 'group', bounds: { x: 0, y: 0, w: 100, h: 100 }, childIds: [] } },
+    }
+    await expect(createPptx(groupDocument)).rejects.toThrow('PPTX generation unsupported element kind: group')
+
+    const invalidDocument = structuredClone(imageDocument)
+    invalidDocument.slideOrder = ['missing_slide']
+    const adapter = new RecordingStandaloneAssetAdapter(new Map([['asset_png', pngBytes]]))
+    await expect(createPptx(invalidDocument, { assetAdapter: adapter })).rejects.toThrow('PPTX generation document invalid:')
+    expect(adapter.requests).toEqual([])
+  })
+
+  it('rejects unsupported XML control characters without mutating the document', async () => {
+    const invalidDocument = structuredClone(shapeTextDocument)
+    const invalidText = invalidDocument.elements[text.id]
+    if (!invalidText || invalidText.kind !== 'text' || !invalidText.body) throw new Error('fixture text body missing')
+    invalidText.body.paragraphs[0]!.runs[0]!.text = `bad${String.fromCodePoint(1)}`
+    const before = structuredClone(invalidDocument)
+    await expect(createPptx(invalidDocument)).rejects.toThrow('PPTX generation unsupported XML control character')
+    expect(invalidDocument).toEqual(before)
   })
 })
