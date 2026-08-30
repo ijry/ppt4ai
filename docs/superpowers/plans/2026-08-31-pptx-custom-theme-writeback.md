@@ -34,7 +34,7 @@
 - Extends `Theme` with optional `source?: ThemeSource`.
 - `validateDocument` reports `themes.<id>.source must be an object` or `themes.<id>.source.partPath must be a non-empty string`.
 
-- [ ] **Step 1: Write the failing model tests**
+- [x] **Step 1: Write the failing model tests**
 
 Add `type ThemeSource` to the test imports, use it for the provenance
 literal, and add these assertions to the model suite:
@@ -76,14 +76,14 @@ it('rejects invalid theme source provenance', () => {
 })
 ```
 
-- [ ] **Step 2: Run the model tests and verify RED**
+- [x] **Step 2: Run the model tests and verify RED**
 
 Run: `pnpm exec vitest run packages/model/src/model.test.ts`
 
 Expected: FAIL because `Theme.source` is not yet part of the type and the
 theme validation path does not report the new error.
 
-- [ ] **Step 3: Implement the minimal model contract**
+- [x] **Step 3: Implement the minimal model contract**
 
 Add the interfaces directly beside `Theme`:
 
@@ -116,13 +116,13 @@ if ('source' in theme && theme.source !== undefined) {
 Do not alter the canonical serializer: nested theme provenance is model data,
 while only the top-level `document.source` remains excluded.
 
-- [ ] **Step 4: Run focused tests and typecheck**
+- [x] **Step 4: Run focused tests and typecheck**
 
 Run: `pnpm exec vitest run packages/model/src/model.test.ts && pnpm --filter @ppt4ai/model typecheck`
 
 Expected: PASS with no new warnings.
 
-- [ ] **Step 5: Commit the model slice**
+- [x] **Step 5: Commit the model slice**
 
 ```bash
 git add packages/model/src/index.ts packages/model/src/model.test.ts
@@ -140,7 +140,7 @@ git commit -m "feat: bind pptx theme source parts"
 - `importPptx` emits `themes.<id>.source.partPath` for every valid parsed theme.
 - Missing or malformed theme parts remain unbound and do not remove the slide.
 
-- [ ] **Step 1: Write the failing importer tests**
+- [x] **Step 1: Write the failing importer tests**
 
 Extend the existing custom `themeFiles` test coverage with:
 
@@ -177,14 +177,14 @@ it('leaves a malformed custom theme unbound without dropping the slide', async (
 })
 ```
 
-- [ ] **Step 2: Run importer tests and verify RED**
+- [x] **Step 2: Run importer tests and verify RED**
 
 Run: `pnpm exec vitest run packages/pptx-import/src/importer.test.ts`
 
 Expected: FAIL because parsed themes do not expose `source` and the new
 assertions cannot observe source provenance.
 
-- [ ] **Step 3: Pass the resolved theme path into `parseTheme`**
+- [x] **Step 3: Pass the resolved theme path into `parseTheme`**
 
 Return the same colors as today plus the source binding:
 
@@ -202,14 +202,14 @@ At the master relationship call site, invoke
 Keep `themeIdsByPath` keyed by the normalized `themePath`, and retain the
 existing behavior for missing bytes or parser failures.
 
-- [ ] **Step 4: Run focused importer tests and typecheck**
+- [x] **Step 4: Run focused importer tests and typecheck**
 
 Run: `pnpm exec vitest run packages/pptx-import/src/importer.test.ts && pnpm --filter @ppt4ai/pptx-import typecheck`
 
 Expected: PASS; existing color, inheritance, and clone-safety assertions stay
 green.
 
-- [ ] **Step 5: Commit the importer slice**
+- [x] **Step 5: Commit the importer slice**
 
 ```bash
 git add packages/pptx-import/src/importer.ts packages/pptx-import/src/importer.test.ts
@@ -231,7 +231,7 @@ git commit -m "feat: preserve pptx theme provenance"
 - `theme-writeback.ts` exports `rewriteThemeXml(source: string, theme: Theme): string`.
 - `serializeColorXml(color: Color, prefix?: string): string` keeps the existing default `a:` prefix and accepts a source namespace prefix for theme patches.
 
-- [ ] **Step 1: Write failing range-writer tests**
+- [x] **Step 1: Write failing range-writer tests**
 
 Create a fixture with a custom prefix, unknown attributes, unknown siblings,
 an existing transformed color, and a missing supported slot. Add these tests:
@@ -275,14 +275,14 @@ it('rejects malformed theme source with a stable error', () => {
 })
 ```
 
-- [ ] **Step 2: Run the range-writer tests and verify RED**
+- [x] **Step 2: Run the range-writer tests and verify RED**
 
 Run: `pnpm exec vitest run packages/pptx-export/src/theme-writeback.test.ts`
 
 Expected: FAIL because the new writer module and optional color-prefix API do
 not exist.
 
-- [ ] **Step 3: Extract the existing exporter range primitives**
+- [x] **Step 3: Extract the existing exporter range primitives**
 
 Move the current `XmlElement`, `Replacement`, `tagEnd`, `decodeXml`, XML
 attribute parser, `scanXml`, `descendants`, and `replaceRanges` implementations from
@@ -291,7 +291,7 @@ Import the exported types/functions back into `writeback.ts`. Run the
 existing writeback tests immediately after this mechanical change so the
 refactor cannot alter slide behavior.
 
-- [ ] **Step 4: Implement `rewriteThemeXml` minimally**
+- [x] **Step 4: Implement `rewriteThemeXml` minimally**
 
 Implement a local color parser matching importer semantics for `srgbClr`,
 `schemeClr`, `prstClr`, `sysClr`, `scrgbClr`, and the seven supported
@@ -317,14 +317,14 @@ selected color-node ranges. Keep the existing `serializeColorXml` default
 behavior for slide fills and strokes while adding its optional namespace
 prefix.
 
-- [ ] **Step 5: Run writer and regression tests**
+- [x] **Step 5: Run writer and regression tests**
 
 Run: `pnpm exec vitest run packages/pptx-export/src/theme-writeback.test.ts packages/pptx-export/src/writeback.test.ts packages/pptx-export/src/standalone.test.ts`
 
 Expected: PASS, including all pre-existing slide fill, stroke, geometry,
 rotation, image, and ZIP assertions.
 
-- [ ] **Step 6: Commit the range writer**
+- [x] **Step 6: Commit the range writer**
 
 ```bash
 git add packages/pptx-export/src/xml-range.ts packages/pptx-export/src/theme-writeback.ts packages/pptx-export/src/theme-writeback.test.ts packages/pptx-export/src/writeback.ts packages/pptx-export/src/standalone-xml.ts packages/pptx-export/src/index.ts
@@ -343,7 +343,7 @@ git commit -m "feat: add range-preserving pptx theme writer"
 - Exports `rewriteThemeXml` from the package entry point for direct headless coverage.
 - Theme source conflicts on one part path fail with `PPTX export theme source conflict: <path>`.
 
-- [ ] **Step 1: Write failing source-export tests**
+- [x] **Step 1: Write failing source-export tests**
 
 Define a local `themeSourcePackage()` helper in
 `packages/pptx-export/src/writeback.test.ts` with the following deterministic
@@ -422,14 +422,14 @@ it('rejects a bound theme whose source part is missing', async () => {
 Use `structuredClone` for every mutation and compare source bytes afterward;
 the tests must prove that exporter preparation does not mutate caller data.
 
-- [ ] **Step 2: Run source-export tests and verify RED**
+- [x] **Step 2: Run source-export tests and verify RED**
 
 Run: `pnpm exec vitest run packages/pptx-export/src/writeback.test.ts`
 
 Expected: FAIL because `exportPptx` currently leaves `ppt/theme/custom.xml`
 unchanged and has no bound-theme error path.
 
-- [ ] **Step 3: Implement deterministic theme integration**
+- [x] **Step 3: Implement deterministic theme integration**
 
 After `readZipEntries(source)` builds `entriesByName`, iterate
 `Object.keys(document.themes ?? {}).sort()`. For every theme with
@@ -450,7 +450,7 @@ Run this pass before slide/dependency mutations. It must not add content-type
 overrides or relationships. Leave the exact-byte fingerprint fast path before
 ZIP parsing and leave unbound themes untouched.
 
-- [ ] **Step 4: Run focused integration and full exporter tests**
+- [x] **Step 4: Run focused integration and full exporter tests**
 
 Run: `pnpm exec vitest run packages/pptx-export/src/theme-writeback.test.ts packages/pptx-export/src/writeback.test.ts packages/pptx-import/src/importer.test.ts`
 
@@ -458,7 +458,7 @@ Expected: PASS; imported edited theme colors re-import correctly, unrelated
 source entries remain unchanged, and old documents without provenance still
 use the existing fallback.
 
-- [ ] **Step 5: Commit source integration**
+- [x] **Step 5: Commit source integration**
 
 ```bash
 git add packages/pptx-export/src/writeback.ts packages/pptx-export/src/index.ts packages/pptx-export/src/writeback.test.ts
@@ -476,7 +476,7 @@ git commit -m "feat: write back imported pptx theme colors"
 - Changes `serializeThemeXml()` to `serializeThemeXml(theme?: Theme)` while preserving the no-argument Office output.
 - Adds an internal deterministic `effectiveTheme(document): Theme | undefined` selector.
 
-- [ ] **Step 1: Write failing standalone tests**
+- [x] **Step 1: Write failing standalone tests**
 
 Add a document with a master pointing at a custom theme and assert generated
 XML and semantic re-import:
@@ -506,14 +506,14 @@ it('serializes the effective document theme in standalone output', async () => {
 })
 ```
 
-- [ ] **Step 2: Run standalone tests and verify RED**
+- [x] **Step 2: Run standalone tests and verify RED**
 
 Run: `pnpm exec vitest run packages/pptx-export/src/standalone.test.ts`
 
 Expected: FAIL because standalone generation currently emits `4472C4` for
 `accent1` and ignores `document.themes`.
 
-- [ ] **Step 3: Implement effective-theme selection and serialization**
+- [x] **Step 3: Implement effective-theme selection and serialization**
 
 Use this deterministic selection order:
 
@@ -535,14 +535,14 @@ existing Office values as defaults and replace only slots defined by the
 selected theme. Use the already prefix-aware `serializeColorXml` for all
 supported color types and transforms.
 
-- [ ] **Step 4: Run standalone and package focused tests**
+- [x] **Step 4: Run standalone and package focused tests**
 
 Run: `pnpm exec vitest run packages/pptx-export/src/standalone.test.ts packages/pptx-export/src/theme-writeback.test.ts packages/pptx-export/src/writeback.test.ts`
 
 Expected: PASS, including byte-identical repeated generation and all legacy
 default-theme assertions.
 
-- [ ] **Step 5: Commit standalone theme support**
+- [x] **Step 5: Commit standalone theme support**
 
 ```bash
 git add packages/pptx-export/src/standalone.ts packages/pptx-export/src/standalone-xml.ts packages/pptx-export/src/standalone.test.ts
@@ -555,7 +555,7 @@ git commit -m "feat: serialize custom themes in standalone pptx"
 - Modify: `进度.md:1-20, 120-230`
 - Modify: `docs/superpowers/plans/2026-08-31-pptx-custom-theme-writeback.md`
 
-- [ ] **Step 1: Mark completed plan tasks and update the progress record**
+- [x] **Step 1: Mark completed plan tasks and update the progress record**
 
 Mark the completed checkboxes in this plan. At the top of `进度.md`, add a
 milestone stating that imported custom theme color source bindings, selective
@@ -564,7 +564,7 @@ errors, and re-import tests are complete. Record the focused test count and
 keep the remaining master/layout defaults, theme deletion, theme UI, and
 reader validation as explicit follow-ups.
 
-- [ ] **Step 2: Run all repository gates**
+- [x] **Step 2: Run all repository gates**
 
 Run each command from the repository root:
 
@@ -582,13 +582,13 @@ The Element Plus search must return no runtime dependency or import matches.
 PowerPoint/LibreOffice opening remains an environment-gated check, not a
 claimed automated pass.
 
-- [ ] **Step 3: Review the final diff for scope and immutability**
+- [x] **Step 3: Review the final diff for scope and immutability**
 
 Confirm that only model/import/export/docs files changed, no package manifest
 adds a runtime dependency, no input `Uint8Array` or document is mutated, and
 the source ZIP entry order is unchanged for a theme edit.
 
-- [ ] **Step 4: Commit the progress record**
+- [x] **Step 4: Commit the progress record**
 
 ```bash
 git add 进度.md docs/superpowers/plans/2026-08-31-pptx-custom-theme-writeback.md
@@ -597,10 +597,10 @@ git commit -m "docs: record custom pptx theme writeback milestone"
 
 ## Completion Criteria
 
-- [ ] `Theme.source.partPath` validates, clones, and fingerprints correctly.
-- [ ] Imported custom themes retain normalized source paths and shared-path identity.
-- [ ] Changed supported theme colors patch only their source color nodes and re-import semantically.
-- [ ] Unchanged theme XML remains byte-identical during unrelated slide edits.
-- [ ] Missing or malformed bound theme parts fail with stable errors.
-- [ ] Standalone output serializes the selected theme and remains deterministic.
-- [ ] Full repository tests, typecheck, build, boundaries, Element Plus scan, and diff checks pass.
+- [x] `Theme.source.partPath` validates, clones, and fingerprints correctly.
+- [x] Imported custom themes retain normalized source paths and shared-path identity.
+- [x] Changed supported theme colors patch only their source color nodes and re-import semantically.
+- [x] Unchanged theme XML remains byte-identical during unrelated slide edits.
+- [x] Missing or malformed bound theme parts fail with stable errors.
+- [x] Standalone output serializes the selected theme and remains deterministic.
+- [x] Full repository tests, typecheck, build, boundaries, Element Plus scan, and diff checks pass.
