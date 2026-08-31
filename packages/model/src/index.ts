@@ -24,13 +24,28 @@ export interface ColorTransform {
 
 export type ThemeColorSlot = 'dk1' | 'lt1' | 'dk2' | 'lt2' | 'accent1' | 'accent2' | 'accent3' | 'accent4' | 'accent5' | 'accent6' | 'hlink' | 'folHlink'
 
+export const DEFAULT_THEME_COLORS: Readonly<Record<ThemeColorSlot, Color>> = {
+  dk1: { type: 'srgb', v: '000000' },
+  lt1: { type: 'srgb', v: 'FFFFFF' },
+  dk2: { type: 'srgb', v: '1F1F1F' },
+  lt2: { type: 'srgb', v: 'F7F7F7' },
+  accent1: { type: 'srgb', v: '4472C4' },
+  accent2: { type: 'srgb', v: 'ED7D31' },
+  accent3: { type: 'srgb', v: 'A5A5A5' },
+  accent4: { type: 'srgb', v: 'FFC000' },
+  accent5: { type: 'srgb', v: '5B9BD5' },
+  accent6: { type: 'srgb', v: '70AD47' },
+  hlink: { type: 'srgb', v: '0563C1' },
+  folHlink: { type: 'srgb', v: '954F72' },
+}
+
 export interface ThemeSource {
   partPath: string
 }
 
 export interface Theme {
   id: string
-  colors: Partial<Record<ThemeColorSlot, Color>>
+  colors: Partial<Record<ThemeColorSlot, Color | null>>
   source?: ThemeSource
 }
 
@@ -450,8 +465,10 @@ function resolveColorSource(color: Color, theme: Theme | undefined, colorMap: Co
   } else if (color.type === 'scheme' && color.v !== 'phClr') {
     const slot = colorMap[color.v as ColorMapKey] ?? color.v
     if (seen.has(slot)) return undefined
-    const nested = theme?.colors[slot as ThemeColorSlot]
-    if (!nested) return undefined
+    const themeSlot = slot as ThemeColorSlot
+    const nestedValue = theme?.colors[themeSlot]
+    if (nestedValue === undefined) return undefined
+    const nested = nestedValue ?? DEFAULT_THEME_COLORS[themeSlot]
     seen.add(slot)
     const resolved = resolveColorSource(nested, theme, colorMap, seen, depth + 1)
     seen.delete(slot)
@@ -1022,7 +1039,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       else for (const [slot, color] of Object.entries(theme.colors)) {
         const colorPath = `${themePath}.colors.${slot}`
         if (!themeColorSlots.has(slot as ThemeColorSlot)) errors.push(`${colorPath} is not a supported theme color slot`)
-        validateColor(color, colorPath, errors)
+        if (color !== null) validateColor(color, colorPath, errors)
       }
     }
   }

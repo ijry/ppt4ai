@@ -164,6 +164,22 @@ describe('ppt4ai file model', () => {
     expect(resolveColor({ type: 'preset', v: 'not-a-preset' })).toBeUndefined()
   })
 
+  it('treats a null theme color as an explicit Office-default reset', () => {
+    const theme = {
+      id: 'theme-reset',
+      colors: { accent1: null },
+    } satisfies Theme
+    const document = {
+      ...minimalDocument,
+      themes: { 'theme-reset': theme },
+    }
+
+    expect(validateDocument(document)).toEqual({ valid: true })
+    expect(resolveColor({ type: 'scheme', v: 'accent1' }, theme)).toEqual({ rgb: '4472C4', alpha: 100000 })
+    expect(structuredClone(theme)).toEqual(theme)
+    expect(fingerprintDocument(document)).not.toBe(fingerprintDocument(minimalDocument))
+  })
+
   it('resolves recursive scheme colors and rejects unresolved scheme sources', () => {
     const recursiveTheme = {
       id: 'theme-recursive',

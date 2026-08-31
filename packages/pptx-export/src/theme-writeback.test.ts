@@ -28,6 +28,17 @@ describe('rewriteThemeXml', () => {
     expect(rewritten).toContain('<a:accent3><a:schemeClr val="accent1"/></a:accent3>')
   })
 
+  it('resets null colors to valid Office defaults while preserving slot XML', () => {
+    const rewritten = rewriteThemeXml(sourceTheme, {
+      id: 'theme_1',
+      colors: { accent1: null, accent2: null },
+    })
+
+    expect(rewritten).toContain('<a:accent1 data-slot="keep"><a:srgbClr val="4472C4"/><a:extLst data-ext="keep"/></a:accent1>')
+    expect(rewritten).toContain('<a:accent2><a:customSlot keep="yes"/><a:srgbClr val="ED7D31"/></a:accent2>')
+    expect(rewritten).toContain('<a:fontScheme data-font="keep"/>')
+  })
+
   it('returns the exact source when defined colors are unchanged', () => {
     expect(rewriteThemeXml(sourceTheme, {
       id: 'theme_1',

@@ -1,4 +1,4 @@
-import type { Color, ColorTransform, ColorTransformType, Theme, ThemeColorSlot } from '@ppt4ai/model'
+import { DEFAULT_THEME_COLORS, type Color, type ColorTransform, type ColorTransformType, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
 import { serializeColorXml } from './standalone-xml.js'
 import { descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 
@@ -170,10 +170,13 @@ function expandSelfClosing(xml: string, element: XmlElement, content: string): R
   return { start: element.start, end: element.end, value: `${opening}${content}</${element.name}>` }
 }
 
-function serializedColor(theme: Theme, slot: string, color: unknown, prefix: string): string {
-  const validated = validateColor(theme, slot, color)
+function effectiveColor(theme: Theme, slot: ThemeColorSlot, color: unknown): Color {
+  return color === null ? DEFAULT_THEME_COLORS[slot] : validateColor(theme, slot, color)
+}
+
+function serializedColor(theme: Theme, slot: ThemeColorSlot, color: Color, prefix: string): string {
   try {
-    return serializeColorXml(validated, prefix)
+    return serializeColorXml(color, prefix)
   } catch {
     throw unsupportedColor(theme, slot)
   }
@@ -199,9 +202,10 @@ export function rewriteThemeXml(source: string, theme: Theme): string {
   for (const slot of themeColorSlots) {
     const value = theme.colors[slot]
     if (value === undefined) continue
+    const color = effectiveColor(theme, slot, value)
     const sourceSlot = slots.get(slot)
     if (!sourceSlot) {
-      const colorXml = serializedColor(theme, slot, value, namespacePrefix(scheme.name))
+      const colorXml = serializedColor(theme, slot, color, namespacePrefix(scheme.name))
       missing.push(`<${namespacePrefix(scheme.name)}${slot}>${colorXml}</${namespacePrefix(scheme.name)}${slot}>`)
       continue
     }
@@ -209,8 +213,8 @@ export function rewriteThemeXml(source: string, theme: Theme): string {
     const parsed = sourceColor(sourceSlot)
     if (parsed.invalidKnownNode && !parsed.color) throw malformedTheme(theme)
     const prefix = namespacePrefix(sourceSlot.name)
-    const colorXml = serializedColor(theme, slot, value, prefix)
-    if (parsed.color && colorsEqual(parsed.color, validateColor(theme, slot, value))) continue
+    const colorXml = serializedColor(theme, slot, color, prefix)
+    if (parsed.color && colorsEqual(parsed.color, color)) continue
     if (parsed.node) {
       replacements.push({ start: parsed.node.start, end: parsed.node.end, value: colorXml })
       continue

@@ -255,6 +255,32 @@ describe('createPptx', () => {
     expect(themedDocument).toEqual(before)
   })
 
+  it('serializes null theme colors as Office defaults in standalone output', async () => {
+    const themedDocument = structuredClone(emptyDocument)
+    themedDocument.themes = {
+      theme_reset: {
+        id: 'theme_reset',
+        colors: { accent1: null },
+      },
+    }
+    themedDocument.masters = {
+      master_reset: { id: 'master_reset', themeId: 'theme_reset' },
+    }
+    const before = structuredClone(themedDocument)
+
+    const first = await createPptx(themedDocument)
+    const second = await createPptx(themedDocument)
+    const entries = await packageEntries(first)
+    const themeXml = new TextDecoder().decode(entries.get('ppt/theme/theme1.xml'))
+    const imported = await importPptx(first)
+    const themeId = imported.masters?.mst_1?.themeId
+
+    expect(first).toEqual(second)
+    expect(themeXml).toContain('<a:accent1><a:srgbClr val="4472C4"/></a:accent1>')
+    expect(imported.themes?.[themeId ?? '']?.colors.accent1).toEqual({ type: 'srgb', v: '4472C4' })
+    expect(themedDocument).toEqual(before)
+  })
+
   it('selects the first referenced theme by deterministic master key order', async () => {
     const themedDocument = structuredClone(emptyDocument)
     themedDocument.masters = {

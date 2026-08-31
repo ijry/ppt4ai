@@ -319,6 +319,30 @@ describe('exportPptx', () => {
     expect(source).toEqual(sourceBefore)
   })
 
+  it('resets an imported theme color to the Office default without mutating inputs', async () => {
+    const source = themeSourcePackage()
+    const sourceBefore = new Uint8Array(source)
+    const document = await importPptx(source)
+    const themeId = document.masters?.mst_1?.themeId
+    if (!themeId) throw new Error('custom theme was not imported')
+    const edited = structuredClone(document)
+    edited.themes![themeId]!.colors.accent1 = null
+    const editedBefore = structuredClone(edited)
+
+    const first = await exportPptx(edited, source)
+    const second = await exportPptx(edited, source)
+    const entries = await packageEntries(first)
+    const themeXml = new TextDecoder().decode(entries.get('ppt/theme/custom.xml'))
+    const imported = await importPptx(first)
+
+    expect(first).toEqual(second)
+    expect(themeXml).toContain('<a:accent1><a:srgbClr val="4472C4"/><a:extLst data-ext="keep"/></a:accent1>')
+    expect(themeXml).toContain('data-theme="keep"')
+    expect(imported.themes?.[themeId]?.colors.accent1).toEqual({ type: 'srgb', v: '4472C4' })
+    expect(edited).toEqual(editedBefore)
+    expect(source).toEqual(sourceBefore)
+  })
+
   it('writes imported master, layout, and slide defaults and color maps', async () => {
     const source = masterLayoutWritebackSourcePackage()
     const sourceBefore = new Uint8Array(source)
