@@ -10,6 +10,7 @@ import {
   serializePictureXml,
   stableAssetId,
 } from './image-writeback.js'
+import { rewritePictureAppearance } from './image-appearance-writeback.js'
 import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } from './dependency-graph.js'
 import { decodeXml, descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 import { rewriteThemeXml } from './theme-writeback.js'
@@ -1153,16 +1154,18 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       if (source && plan.mode === 'reuse' && elementId !== source.expectedId) throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
       if (sourceElement?.localName === 'pic') {
         if (!sourceImage || element.kind !== 'image') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
+        const pictureStart = sourceElement.start
+        const pictureEnd = sourceElement.end
+        const pictureXml = slideXml.slice(pictureStart, pictureEnd)
+        let rewrittenPicture = rewritePictureAppearance(pictureXml, element)
         if (element.assetId !== sourceImage.assetId) {
           const bytes = await imageBytes(state, element)
           const relationshipId = allocateRelationshipId(relationshipIds)
           relationshipIds.add(relationshipId)
           newRelationships.push(serializeImageRelationship(relationshipId, `../media/${bytes.path.slice('ppt/media/'.length)}`))
-          const pictureStart = sourceElement.start
-          const pictureEnd = sourceElement.end
-          const pictureXml = slideXml.slice(pictureStart, pictureEnd)
-          imageReplacements.push({ start: pictureStart, end: pictureEnd, value: replacePictureRelationship(pictureXml, relationshipId) })
+          rewrittenPicture = replacePictureRelationship(rewrittenPicture, relationshipId)
         }
+        if (rewrittenPicture !== pictureXml) imageReplacements.push({ start: pictureStart, end: pictureEnd, value: rewrittenPicture })
         continue
       }
       if (sourceElement) {

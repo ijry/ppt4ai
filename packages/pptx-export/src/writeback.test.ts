@@ -40,6 +40,31 @@ function imageSourcePackage(twoPictures = false): Uint8Array {
   ])
 }
 
+function customImageSourcePackage(picture: string, cloneable = false): Uint8Array {
+  const slideRelationships = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/></Relationships>'
+  return writeStoredZip([
+    { name: 'ppt/presentation.xml', data: new TextEncoder().encode(presentation) },
+    { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(relationships) },
+    { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(`<p:sld xmlns:p="p" xmlns:a="a" xmlns:r="r"><p:cSld><p:spTree>${picture}</p:spTree></p:cSld></p:sld>`) },
+    { name: 'ppt/slides/_rels/slide1.xml.rels', data: new TextEncoder().encode(slideRelationships) },
+    { name: 'ppt/media/image1.png', data: pngBytes },
+    ...(cloneable
+      ? [
+          { name: '[Content_Types].xml', data: new TextEncoder().encode('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/></Types>') },
+          { name: 'ppt/slideLayouts/slideLayout1.xml', data: new TextEncoder().encode('<p:sldLayout xmlns:p="p"/>') },
+        ]
+      : []),
+  ])
+}
+
+function appearancePictureXml(): string {
+  return "<p:pic data-preserve='picture'><p:nvPicPr><p:cNvPr id='5' name='Picture 5'/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill data-blip-fill='keep'><a:blip r:embed='rId2' data-blip='keep'><a:grayscl data-gray='keep'/><a:duotone data-effect='keep'><a:customColor keep='yes'/></a:duotone></a:blip><a:srcRect l='1000' data-crop='keep'/><a:stretch><a:fillRect/></a:stretch><a:customBlipFill keep='yes'/></p:blipFill><p:spPr data-properties='keep'><a:xfrm rot='60000' flipH='1' data-transform='keep'><a:off x='10' y='20' data-off='keep'/><a:ext cx='300' cy='400' data-ext='keep'/><a:customTransform keep='yes'/></a:xfrm><a:prstGeom prst='ellipse' data-geometry='keep'><a:avLst/><a:customGeometry keep='yes'/></a:prstGeom><a:customProperties keep='yes'/></p:spPr><p:customPicture keep='yes'/></p:pic>"
+}
+
+function minimalPictureXml(): string {
+  return '<p:pic data-preserve="minimal"><p:nvPicPr><p:cNvPr id="5" name="Picture 5"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill data-blip-fill="keep"><a:blip r:embed="rId2" data-blip="keep"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr data-properties="keep"><a:xfrm data-transform="keep"><a:off x="10" y="20"/><a:ext cx="300" cy="400"/><a:customTransform keep="yes"/></a:xfrm><a:customProperties keep="yes"/></p:spPr></p:pic>'
+}
+
 async function imageSourceWithContentTypes(jpegDefault?: string): Promise<Uint8Array> {
   const entries = await readZipEntries(imageSourcePackage())
   const jpegDeclaration = jpegDefault ? `<Default Extension="jpg" ContentType="${jpegDefault}"/>` : ''
@@ -896,6 +921,179 @@ describe('exportPptx', () => {
 
     expect(output).toEqual(source)
     expect(adapter.requests).toEqual([])
+  })
+
+  it('writes edited source image appearance while preserving unknown picture XML', async () => {
+    const source = customImageSourcePackage(appearancePictureXml())
+    const document = await importPptx(source)
+    const image = document.elements.el_1
+    if (!image || image.kind !== 'image') throw new Error('fixture image was not imported')
+    image.bounds = { x: 110, y: 120, w: 130, h: 140 }
+    image.transform = { rotation: 120000, flipV: true }
+    image.sourceCrop = { top: 2000, right: 3000, bottom: 4000 }
+    image.maskPreset = 'triangle'
+    image.effects = [{ type: 'alphaModFix', amount: 55000 }, { type: 'grayscl' }]
+    const expectedDocument = structuredClone(document)
+    const expectedSource = new Uint8Array(source)
+    const sourceEntries = await packageEntries(source)
+    const adapter = new RecordingAssetAdapter(new Map())
+
+    const first = await exportPptx(document, source, { assetAdapter: adapter })
+    const second = await exportPptx(document, source, { assetAdapter: new RecordingAssetAdapter(new Map()) })
+    const entries = await packageEntries(first)
+    const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    const imported = await importPptx(first)
+    const importedImage = imported.elements[imported.slides.sld_1?.elementIds[0] ?? '']
+
+    expect(first).toEqual(second)
+    expect(adapter.requests).toEqual([])
+    expect(entries.get('ppt/slides/_rels/slide1.xml.rels')).toEqual(sourceEntries.get('ppt/slides/_rels/slide1.xml.rels'))
+    expect(entries.get('ppt/media/image1.png')).toEqual(pngBytes)
+    expect(importedImage).toMatchObject({
+      kind: 'image',
+      bounds: { x: 110, y: 120, w: 130, h: 140 },
+      transform: { rotation: 120000, flipV: true },
+      sourceCrop: { top: 2000, right: 3000, bottom: 4000 },
+      maskPreset: 'triangle',
+      effects: [{ type: 'alphaModFix', amount: 55000 }, { type: 'grayscl' }],
+    })
+    expect(outputSlide).toContain("<p:pic data-preserve='picture'>")
+    expect(outputSlide).toContain("<a:off x='110' y='120' data-off='keep'/>")
+    expect(outputSlide).toContain("<a:ext cx='130' cy='140' data-ext='keep'/>")
+    expect(outputSlide).toContain("<a:alphaModFix data-gray='keep' amt=\"55000\"/>")
+    expect(outputSlide).toContain("data-crop='keep'")
+    expect(outputSlide).toContain("<a:duotone data-effect='keep'><a:customColor keep='yes'/></a:duotone>")
+    expect(outputSlide).toContain("<a:customTransform keep='yes'/>")
+    expect(outputSlide).toContain("data-geometry='keep'")
+    expect(outputSlide).toContain("<a:customGeometry keep='yes'/>")
+    expect(outputSlide).toContain("<p:customPicture keep='yes'/>")
+    expect(document).toEqual(expectedDocument)
+    expect(source).toEqual(expectedSource)
+  })
+
+  it('adds missing source image appearance nodes without rebuilding the picture', async () => {
+    const source = customImageSourcePackage(minimalPictureXml())
+    const document = await importPptx(source)
+    const image = document.elements.el_1
+    if (!image || image.kind !== 'image') throw new Error('fixture image was not imported')
+    image.transform = { rotation: 180000, flipH: true, flipV: true }
+    image.sourceCrop = { left: 1000, top: 2000, right: 3000, bottom: 4000 }
+    image.maskPreset = 'roundRect'
+    image.effects = [{ type: 'alphaModFix', amount: 65000 }, { type: 'grayscl' }]
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    const imported = await importPptx(output)
+    const importedImage = imported.elements[imported.slides.sld_1?.elementIds[0] ?? '']
+
+    expect(outputSlide).toContain('<a:blip r:embed="rId2" data-blip="keep"><a:alphaModFix amt="65000"/><a:grayscl/></a:blip>')
+    expect(outputSlide).toContain('<a:srcRect l="1000" t="2000" r="3000" b="4000"/>')
+    expect(outputSlide).toContain('<a:xfrm data-transform="keep" rot="180000" flipH="1" flipV="1">')
+    expect(outputSlide).toContain('<a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>')
+    expect(outputSlide).toContain('<a:customTransform keep="yes"/>')
+    expect(outputSlide).toContain('<a:customProperties keep="yes"/>')
+    expect(importedImage).toMatchObject({
+      kind: 'image',
+      transform: { rotation: 180000, flipH: true, flipV: true },
+      sourceCrop: { left: 1000, top: 2000, right: 3000, bottom: 4000 },
+      maskPreset: 'roundRect',
+      effects: [{ type: 'alphaModFix', amount: 65000 }, { type: 'grayscl' }],
+    })
+  })
+
+  it('clears optional source image appearance while retaining required geometry', async () => {
+    const source = imageSourcePackage()
+    const document = await importPptx(source)
+    const image = document.elements.el_1
+    if (!image || image.kind !== 'image') throw new Error('fixture image was not imported')
+    delete image.transform
+    delete image.sourceCrop
+    delete image.maskPreset
+    delete image.effects
+
+    const output = await exportPptx(document, source)
+    const entries = await packageEntries(output)
+    const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    const imported = await importPptx(output)
+    const importedImage = imported.elements[imported.slides.sld_1?.elementIds[0] ?? '']
+
+    expect(outputSlide).toContain('<a:xfrm><a:off x="10" y="20"/><a:ext cx="300" cy="400"/></a:xfrm>')
+    expect(outputSlide).toContain('<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>')
+    expect(outputSlide).not.toContain('<a:srcRect')
+    expect(outputSlide).not.toContain('<a:grayscl')
+    expect(importedImage).toMatchObject({ kind: 'image', maskPreset: 'rect' })
+    expect(importedImage).not.toHaveProperty('transform')
+    expect(importedImage).not.toHaveProperty('sourceCrop')
+    expect(importedImage).not.toHaveProperty('effects')
+  })
+
+  it('combines source image appearance edits with asset replacement', async () => {
+    const source = imageSourcePackage()
+    const document = await importPptx(source)
+    const image = replaceImportedImage(document)
+    image.bounds = { x: 210, y: 220, w: 230, h: 240 }
+    image.transform = { rotation: 300000, flipH: true }
+    image.sourceCrop = { right: 5000 }
+    image.maskPreset = 'roundRect'
+    image.effects = [{ type: 'alphaModFix', amount: 75000 }]
+
+    const output = await exportPptx(document, source, {
+      assetAdapter: new RecordingAssetAdapter(new Map([['asset_new', jpegBytes]])),
+    })
+    const entries = await packageEntries(output)
+    const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
+    const imported = await importPptx(output)
+    const importedImage = imported.elements[imported.slides.sld_1?.elementIds[0] ?? '']
+
+    expect(outputSlide).toContain('r:embed="rId3"')
+    expect(importedImage).toMatchObject({
+      kind: 'image',
+      bounds: { x: 210, y: 220, w: 230, h: 240 },
+      transform: { rotation: 300000, flipH: true },
+      sourceCrop: { right: 5000 },
+      maskPreset: 'roundRect',
+      effects: [{ type: 'alphaModFix', amount: 75000 }],
+    })
+  })
+
+  it('writes copied image appearance only into the cloned slide part', async () => {
+    const source = customImageSourcePackage(appearancePictureXml(), true)
+    const document = await importPptx(source)
+    const sourceImage = document.elements.el_1
+    if (!sourceImage || sourceImage.kind !== 'image') throw new Error('fixture image was not imported')
+    document.elements.img_copy = {
+      ...structuredClone(sourceImage),
+      id: 'img_copy',
+      bounds: { x: 310, y: 320, w: 330, h: 340 },
+      transform: { rotation: 420000, flipV: true },
+      sourceCrop: { left: 6000 },
+      maskPreset: 'roundRect',
+      effects: [{ type: 'alphaModFix', amount: 85000 }],
+    }
+    const copiedSlide = structuredClone(document.slides.sld_1!)
+    copiedSlide.id = 'sld_copy'
+    copiedSlide.elementIds = ['img_copy']
+    document.slides.sld_copy = copiedSlide
+    document.slideOrder.push('sld_copy')
+    const expectedDocument = structuredClone(document)
+    const expectedSource = new Uint8Array(source)
+    const sourceEntries = await packageEntries(source)
+
+    const first = await exportPptx(document, source)
+    const second = await exportPptx(document, source)
+    const entries = await packageEntries(first)
+    const clonedSlide = new TextDecoder().decode(entries.get('ppt/slides/slide2.xml'))
+
+    expect(first).toEqual(second)
+    expect(entries.get('ppt/slides/slide1.xml')).toEqual(sourceEntries.get('ppt/slides/slide1.xml'))
+    expect(clonedSlide).toContain("<a:off x='310' y='320' data-off='keep'/>")
+    expect(clonedSlide).toContain("<a:ext cx='330' cy='340' data-ext='keep'/>")
+    expect(clonedSlide).toContain('rot=\'420000\'')
+    expect(clonedSlide).toContain('flipV="1"')
+    expect(clonedSlide).toContain("<a:alphaModFix data-gray='keep' amt=\"85000\"/>")
+    expect(document).toEqual(expectedDocument)
+    expect(source).toEqual(expectedSource)
   })
 
   it('writes a replacement asset and changes only the existing picture embed', async () => {
