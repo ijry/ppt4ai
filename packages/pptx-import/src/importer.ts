@@ -467,14 +467,53 @@ function parseTable(frame: XmlNode, id: string): TableElement | undefined {
   }
 }
 
-function findSlideElements(node: XmlNode): XmlNode[] {
-  const result: XmlNode[] = []
+interface SlideShape {
+  node: XmlNode
+  /** Group children come after their group so the caller can register the group first. */
+  childOf?: number
+}
+
+/**
+ * Walk the shape tree keeping groups as structure. Leaves stay in document order so their
+ * `el_N` ids match the writeback scanner, which numbers the same three tag names.
+ */
+function findSlideShapes(node: XmlNode, groupIndex?: number, result: SlideShape[] = []): SlideShape[] {
   for (const current of node.children) {
     const name = localName(current.name)
-    if (name === 'sp' || name === 'graphicFrame' || name === 'pic') result.push(current)
-    result.push(...findSlideElements(current))
+    if (name === 'grpSp') {
+      const index = result.push({ node: current, ...(groupIndex === undefined ? {} : { childOf: groupIndex }) }) - 1
+      findSlideShapes(current, index, result)
+      continue
+    }
+    if (name === 'sp' || name === 'graphicFrame' || name === 'pic') {
+      result.push({ node: current, ...(groupIndex === undefined ? {} : { childOf: groupIndex }) })
+      continue
+    }
+    findSlideShapes(current, groupIndex, result)
   }
   return result
+}
+
+function parseGroupBounds(group: XmlNode): Rect | undefined {
+  const properties = child(group, 'grpSpPr')
+  if (!properties) return undefined
+  const transform = child(properties, 'xfrm')
+  if (!transform) return undefined
+  const off = child(transform, 'off')
+  const ext = child(transform, 'ext')
+  const x = parseNumber(off && attribute(off, 'x'))
+  const y = parseNumber(off && attribute(off, 'y'))
+  const w = parseNumber(ext && attribute(ext, 'cx'))
+  const h = parseNumber(ext && attribute(ext, 'cy'))
+  if (x === undefined || y === undefined || w === undefined || h === undefined) return undefined
+  if (w <= 0 || h <= 0) return undefined
+  return { x, y, w, h }
+}
+
+function parseGroupRotation(group: XmlNode): number | undefined {
+  const properties = child(group, 'grpSpPr')
+  const transform = properties && child(properties, 'xfrm')
+  return parseIntegerAttribute(transform ? attribute(transform, 'rot') : undefined)
 }
 
 function parseBitmapMetadata(path: string, bytes: Uint8Array, assetId: string): AssetMetadata | undefined {
@@ -776,6 +815,7 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
   const themes: NonNullable<Ppt4aiDocument['themes']> = {}
   const slideOrder: string[] = []
   let elementCounter = 1
+  let groupCounter = 1
   let layoutCounter = 1
   let masterCounter = 1
   let themeCounter = 1
@@ -845,10 +885,38 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
     }
 
     const elementIds: string[] = []
-    for (const shape of findSlideElements(slidePart.xml)) {
+    const shapes = findSlideShapes(slidePart.xml)
+    // Groups are registered before their children so the flattened scene cascades rotation.
+    const groupIds = new Map<number, string>()
+    const groupChildIds = new Map<number, string[]>()
+    const registerChild = (shape: SlideShape, id: string): void => {
+      if (shape.childOf === undefined) {
+        elementIds.push(id)
+        return
+      }
+      const owner = groupIds.get(shape.childOf)
+      if (!owner) {
+        elementIds.push(id)
+        return
+      }
+      groupChildIds.get(shape.childOf)!.push(id)
+      elementIds.push(id)
+    }
+    for (const [shapeIndex, shape] of shapes.entries()) {
+      if (localName(shape.node.name) === 'grpSp') {
+        const bounds = parseGroupBounds(shape.node)
+        if (!bounds) continue
+        const groupId = `grp_${groupCounter++}`
+        const rotation = parseGroupRotation(shape.node)
+        groupIds.set(shapeIndex, groupId)
+        groupChildIds.set(shapeIndex, [])
+        elements[groupId] = { id: groupId, kind: 'group', bounds, childIds: [], ...(rotation === undefined ? {} : { rotation }) }
+        registerChild(shape, groupId)
+        continue
+      }
       const id = `el_${elementCounter++}`
-      if (localName(shape.name) === 'pic') {
-        const picture = parsePicture(shape, id, slidePath, slideRelations, entries, (partPath) => {
+      if (localName(shape.node.name) === 'pic') {
+        const picture = parsePicture(shape.node, id, slidePath, slideRelations, entries, (partPath) => {
           options.onIssue?.({
             code: 'unsupported-media',
             slideId,
@@ -858,17 +926,29 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
         })
         if (!picture) continue
         elements[id] = picture.element
-        elementIds.push(id)
+        registerChild(shape, id)
         if (!assets[picture.metadata.id]) {
           assets[picture.metadata.id] = picture.metadata
           await options.assetAdapter?.put(picture.metadata.id, new Uint8Array(picture.bytes), picture.metadata)
         }
         continue
       }
-      const element = localName(shape.name) === 'graphicFrame' ? parseTable(shape, id) : parseElement(shape, id, true)
+      const element = localName(shape.node.name) === 'graphicFrame' ? parseTable(shape.node, id) : parseElement(shape.node, id, true)
       if (!element) continue
       elements[id] = element
-      elementIds.push(id)
+      registerChild(shape, id)
+    }
+    for (const [shapeIndex, groupId] of groupIds) {
+      const childIds = groupChildIds.get(shapeIndex) ?? []
+      const group = elements[groupId]
+      if (group?.kind !== 'group') continue
+      if (childIds.length === 0) {
+        delete elements[groupId]
+        const position = elementIds.indexOf(groupId)
+        if (position >= 0) elementIds.splice(position, 1)
+        continue
+      }
+      group.childIds = childIds
     }
     const colorMapOverride = parseColorMapOverride(slidePart.xml)
     const source = relationshipId && reference.attributes.id
