@@ -1,5 +1,7 @@
 # PPTX Exact No-op Byte Round-trip Implementation Plan
 
+> **状态：已实现（2026-09-01 核实）。** 下方复选框未回填，勿据此判断为待办 —— `fingerprint` 已在 `packages/model/src/index.ts` 与 `packages/pptx-export/src/writeback.ts` 落地，里程碑见 `进度.md`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Return exact source ZIP bytes for unchanged imported documents while preserving the existing write-back fallback for every edit.

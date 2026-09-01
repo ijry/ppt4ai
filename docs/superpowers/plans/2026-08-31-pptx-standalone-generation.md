@@ -1,5 +1,7 @@
 # Standalone PPTX Generation Implementation Plan
 
+> **状态：已实现（2026-09-01 核实）。** 下方复选框未回填，勿据此判断为待办 —— `createPptx` 已在 `packages/pptx-export/src/standalone.ts` 落地，里程碑见 `进度.md`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a deterministic `createPptx` generator for source-less `Ppt4aiDocument` values while preserving the existing source-package write-back API.

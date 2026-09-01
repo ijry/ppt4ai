@@ -1,5 +1,7 @@
 # PPTX Dependent Part Lifecycle Implementation Plan
 
+> **状态：已实现（2026-09-01 核实）。** 下方复选框未回填，勿据此判断为待办 —— `packages/pptx-export/src/dependency-graph.ts` 已落地并有独立测试，里程碑见 `进度.md`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Clone slide-owned OPC dependencies for duplicated PPTX pages and prune orphaned source dependencies after page deletion.
