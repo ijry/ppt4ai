@@ -109,3 +109,8 @@ export type {
 export { default as AssetLibrary } from './AssetLibrary.vue'
 export { createAssetLibraryModel } from './asset-library'
 export type { AssetLibraryItem, AssetLibraryModel } from './asset-library'
+export { default as ThemePanel } from './ThemePanel.vue'
+export { colorFromHex, hexFromColor, THEME_SLOT_GROUPS, themeSlotGroup } from './theme-panel'
+export type { ThemePanelEmit, ThemePanelProps, ThemePanelSlotModel, ThemeSlotGroup } from './theme-panel'
+export { createThemeEditorController } from './theme-editor-controller'
+export type { ThemeEditorController, ThemeEditorControllerOptions } from './theme-editor-controller'
