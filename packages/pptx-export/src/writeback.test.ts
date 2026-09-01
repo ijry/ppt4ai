@@ -711,6 +711,32 @@ describe('exportPptx', () => {
     expect(source).toEqual(expectedSource)
   })
 
+  it('writes a table rotation onto the graphic frame transform', async () => {
+    const source = sourcePackage()
+    const document = await importPptx(source)
+    const table = document.elements.el_1
+    if (!table || table.kind !== 'table') throw new Error('fixture table was not imported')
+    table.rotation = 900000
+
+    const exported = await exportPptx(document, source)
+    const entries = await readZipEntries(exported)
+    const outputSlide = new TextDecoder().decode(entries[2]!.data)
+
+    expect(outputSlide).toContain('rot="900000"')
+    expect(outputSlide).toContain('<a:t>Before</a:t>')
+  })
+
+  it('leaves the graphic frame transform untouched when table rotation is unchanged', async () => {
+    const source = sourcePackage()
+    const document = await importPptx(source)
+
+    const exported = await exportPptx(document, source)
+    const entries = await readZipEntries(exported)
+    const outputSlide = new TextDecoder().decode(entries[2]!.data)
+
+    expect(outputSlide).not.toContain('rot=')
+  })
+
   it('replaces imported table XML while preserving the package', async () => {
     const source = sourcePackage()
     const document = await importPptx(source)

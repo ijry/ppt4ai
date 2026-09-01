@@ -247,6 +247,32 @@ describe('table painting', () => {
     expect(emptyTextContext.events.at(-1)).toEqual(['restore'])
   })
 
+  it('rotates the whole table about its mapped centre', () => {
+    const drawingContext = context()
+    const rotated: SceneTableNode = { ...table(), transform: { rotation: 5400000 } }
+
+    paintTableNode(drawingContext, rotated, { scale: 2, offsetX: 100, offsetY: 200 })
+
+    const centreX = 100 + (10 + 60 / 2) * 2
+    const centreY = 200 + (20 + 40 / 2) * 2
+    expect(drawingContext.events.slice(0, 5)).toEqual([
+      ['save'],
+      ['save'],
+      ['translate', centreX, centreY],
+      ['rotate', Math.PI / 2],
+      ['translate', -centreX, -centreY],
+    ])
+    expect(drawingContext.events.at(-1)).toEqual(['restore'])
+  })
+
+  it('leaves an unrotated table free of transform calls', () => {
+    const drawingContext = context()
+
+    paintTableNode(drawingContext, table(), { scale: 1, offsetX: 0, offsetY: 0 })
+
+    expect(drawingContext.events.filter(([type]) => type === 'rotate' || type === 'translate')).toEqual([])
+  })
+
   it.each<Array<string | ((drawingContext: CanvasRenderingContext2D) => void)>>([
     ['non-positive mapping', (drawingContext) => paintTableNode(drawingContext, table(), { scale: 0, offsetX: 0, offsetY: 0 })],
     ['non-finite mapping offset', (drawingContext) => paintTableNode(drawingContext, table(), { scale: 1, offsetX: Number.NaN, offsetY: 0 })],

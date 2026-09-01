@@ -454,12 +454,14 @@ function parseTable(frame: XmlNode, id: string): TableElement | undefined {
   const tableProperties = child(table, 'tblPr')
   const tableFill = parseFill(tableProperties ?? table)
   const style = parseTableStyleReference(tableProperties)
+  const rotation = parseRotation(frame)
   return {
     id,
     kind: 'table',
     bounds,
     columns,
     rows: parsedRows,
+    ...(rotation === undefined ? {} : { rotation }),
     ...(tableFill ? { fill: tableFill } : {}),
     ...(style ? { style } : {}),
   }

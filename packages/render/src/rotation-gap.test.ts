@@ -38,6 +38,26 @@ describe('scene graph rotation', () => {
     expect(scene.nodes.find((node) => node.id === 'text_r')).not.toHaveProperty('transform')
   })
 
+  it('carries table rotation as a transform, and omits it when unrotated', () => {
+    const document = rotatedDocument()
+    document.slides.sld_1!.elementIds = ['table_r', 'table_flat']
+    const grid = {
+      kind: 'table' as const,
+      bounds: { x: 0, y: 0, w: 1000, h: 500 },
+      columns: [1000],
+      rows: [{ height: 500, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Cell' }] }] } }] }],
+    }
+    document.elements = {
+      table_r: { ...grid, id: 'table_r', rotation: 1200000 },
+      table_flat: { ...grid, id: 'table_flat' },
+    }
+
+    const scene = documentToSceneGraph(document)
+
+    expect(scene.nodes.find((node) => node.id === 'table_r')).toMatchObject({ transform: { rotation: 1200000 } })
+    expect(scene.nodes.find((node) => node.id === 'table_flat')).not.toHaveProperty('transform')
+  })
+
   it('carries image transform through unchanged', () => {
     const document = rotatedDocument()
     document.slides.sld_1!.elementIds = ['image_r']

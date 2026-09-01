@@ -624,6 +624,39 @@ describe('ppt4ai file model', () => {
     expect(structuredClone(document)).toEqual(document)
   })
 
+  it('accepts an OOXML rotation on a table element', () => {
+    const document = structuredClone(minimalDocument)
+    document.elements.el_table = {
+      id: 'el_table',
+      kind: 'table',
+      bounds: { x: 100, y: 200, w: 900, h: 400 },
+      columns: [900],
+      rows: [{ height: 400, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Cell' }] }] } }] }],
+      rotation: 1200000,
+    }
+    document.slides.sld_1!.elementIds = ['el_shape', 'el_table']
+
+    expect(validateDocument(document)).toEqual({ valid: true })
+  })
+
+  it('reports a stable path for an invalid table rotation', () => {
+    const document = structuredClone(minimalDocument)
+    document.elements.el_table = {
+      id: 'el_table',
+      kind: 'table',
+      bounds: { x: 100, y: 200, w: 900, h: 400 },
+      columns: [900],
+      rows: [{ height: 400, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: 'Cell' }] }] } }] }],
+      rotation: 0.5,
+    }
+    document.slides.sld_1!.elementIds = ['el_shape', 'el_table']
+
+    expect(validateDocument(document)).toEqual({
+      valid: false,
+      errors: ['elements.el_table.rotation must be an integer'],
+    })
+  })
+
   it('reports stable paths for invalid shape and text rotations', () => {
     const document = structuredClone(minimalDocument) as Ppt4aiDocument & {
       elements: Record<string, Ppt4aiDocument['elements'][string] & { rotation?: unknown }>

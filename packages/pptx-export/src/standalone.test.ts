@@ -355,6 +355,33 @@ describe('createPptx', () => {
     expect(rotatedDocument).toEqual(before)
   })
 
+  it('round-trips a table rotation through the graphic frame transform', async () => {
+    const rotatedTable: TableElement = { ...table, rotation: 1200000 }
+    const document: Ppt4aiDocument = {
+      ...emptyDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: [rotatedTable.id] } },
+      elements: { [rotatedTable.id]: rotatedTable },
+    }
+    const before = structuredClone(document)
+
+    const output = await createPptx(document)
+    const xml = await slideXml(output)
+    const imported = await importPptx(output)
+    const importedTableId = imported.slides.sld_1?.elementIds[0] ?? ''
+
+    expect(xml).toContain('<p:xfrm rot="1200000">')
+    expect(imported.elements[importedTableId]).toMatchObject({ kind: 'table', rotation: 1200000 })
+    expect(document).toEqual(before)
+  })
+
+  it('omits the graphic frame rot attribute for an unrotated table', async () => {
+    const output = await createPptx(tableDocument)
+    const xml = await slideXml(output)
+
+    expect(xml).toContain('<p:xfrm>')
+    expect(xml).not.toContain('rot=')
+  })
+
   it('serializes table elements as graphic frames and round-trips their grid', async () => {
     const before = structuredClone(tableDocument)
     const output = await createPptx(tableDocument)

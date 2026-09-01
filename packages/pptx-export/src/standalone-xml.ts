@@ -345,7 +345,7 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
 export function serializeTableFrameXml(table: TableElement, shapeId: number): string {
   const placeholder = serializePlaceholder(table.placeholder)
   const nonVisualProperties = `<p:nvGraphicFramePr><p:cNvPr id="${shapeId}" name="${escapeXml(table.id)}"/><p:cNvGraphicFramePr/><p:nvPr>${placeholder}</p:nvPr></p:nvGraphicFramePr>`
-  const transform = `<p:xfrm>${serializeTransformContents(table.bounds)}</p:xfrm>`
+  const transform = `<p:xfrm${attrs([['rot', table.rotation]])}>${serializeTransformContents(table.bounds)}</p:xfrm>`
   const graphic = `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">${serializeTableXml(table)}</a:graphicData></a:graphic>`
   return `<p:graphicFrame>${nonVisualProperties}${transform}${graphic}</p:graphicFrame>`
 }

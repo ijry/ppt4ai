@@ -39,6 +39,19 @@ describe('hit testing respects rotation', () => {
     expect(hitTestScene(scene, { x: 590, y: 500 })).toBeUndefined()
   })
 
+  it('respects rotation for tables, which were previously always axis-aligned', () => {
+    const scene = rotatedImageScene()
+    scene.nodes = [{
+      id: 'table_1',
+      kind: 'table',
+      bounds: { x: 400, y: 450, w: 200, h: 100 },
+      transform: { rotation: 5400000 },
+    }] as unknown as SceneGraph['nodes']
+
+    expect(hitTestScene(scene, { x: 500, y: 560 })).toBe('table_1')
+    expect(hitTestScene(scene, { x: 590, y: 500 })).toBeUndefined()
+  })
+
   it('leaves unrotated nodes on the axis-aligned path', () => {
     const scene = rotatedImageScene()
     const node = scene.nodes[0]!

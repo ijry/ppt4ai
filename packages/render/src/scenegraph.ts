@@ -65,6 +65,7 @@ export interface SceneTableNode {
   layout: SceneTableLayout
   fill?: Fill
   stroke?: Fill
+  transform?: ElementTransform
 }
 
 export interface SceneImageNode {
@@ -225,6 +226,7 @@ function createTableNode(element: Extract<Element, { kind: 'table' }>, context: 
   }
   if (element.fill) node.fill = structuredClone(element.fill)
   if (element.stroke) node.stroke = structuredClone(element.stroke)
+  if (element.rotation) node.transform = { rotation: element.rotation }
   return node
 }
 

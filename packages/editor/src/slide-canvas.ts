@@ -42,7 +42,7 @@ export function hitTestScene(scene: SceneGraph, point: CanvasPoint, groupPath: s
       .map((group, sourceIndex) => ({ id: group.id, bounds: group.bounds, rotation: undefined as number | undefined, paintOrder: group.paintOrder, sourceIndex }))
     const directNodes = scene.nodes.flatMap((node, sourceIndex) => {
       if (!node || !directChildIds.has(node.id)) return []
-      const rotation = node.kind === 'table' ? undefined : node.transform?.rotation
+      const rotation = node.transform?.rotation
       return [{ id: node.id, bounds: node.bounds, rotation, paintOrder: sourceIndex, sourceIndex }]
     })
     const targets = [...directGroups, ...directNodes].sort((left, right) => left.paintOrder - right.paintOrder || left.sourceIndex - right.sourceIndex)
@@ -66,7 +66,7 @@ export function hitTestScene(scene: SceneGraph, point: CanvasPoint, groupPath: s
     })),
     ...scene.nodes.flatMap((node, sourceIndex) => {
       if (!node || groupedElementIds.has(node.id)) return []
-      const rotation = node.kind === 'table' ? undefined : node.transform?.rotation
+      const rotation = node.transform?.rotation
       return [{ id: node.id, bounds: node.bounds, rotation, paintOrder: sourceIndex, sourceIndex }]
     }),
   ].sort((left, right) => left.paintOrder - right.paintOrder || left.sourceIndex - right.sourceIndex)

@@ -1,5 +1,6 @@
 import type { Rect, ResolvedColor, TableBorder, TableCellBorders } from '@ppt4ai/model'
 import type { SceneTableLayoutCell, SceneTableNode } from '@ppt4ai/render'
+import { withRotation } from './rotation-transform'
 import { paintTextLayout, type TextPageMapping } from './text-painting'
 
 export interface TablePageMapping extends TextPageMapping {}
@@ -123,11 +124,13 @@ export function paintTableNode(context: TableContext, node: SceneTableNode, mapp
     validateRect(node.bounds, 'table bounds')
     validateRect(node.layout.bounds, 'table layout bounds')
     for (const cell of node.layout.cells) validateRect(cell.bounds, 'table cell bounds')
-    for (const cell of node.layout.cells) paintCellFill(context, cell, mapping)
-    for (const cell of node.layout.cells) {
-      for (const side of borderSides) paintCellBorder(context, cell, side, mapping)
-    }
-    for (const cell of node.layout.cells) paintTextLayout(context, cell.textLayout, mapping)
+    withRotation(context, mappedRect(node.bounds, mapping), node.transform, () => {
+      for (const cell of node.layout.cells) paintCellFill(context, cell, mapping)
+      for (const cell of node.layout.cells) {
+        for (const side of borderSides) paintCellBorder(context, cell, side, mapping)
+      }
+      for (const cell of node.layout.cells) paintTextLayout(context, cell.textLayout, mapping)
+    })
   } finally {
     context.restore()
   }

@@ -856,6 +856,7 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
     if (element.kind !== 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
     const table = firstDescendant(sourceElement, 'tbl')
     if (!table) throw new Error(`PPTX export table source missing for element ${element.id}`)
+    replacements.push(...rotationReplacements(xml, sourceElement, element.rotation))
     replacements.push({ start: table.start, end: table.end, value: serializeTableXml(element) })
   }
 

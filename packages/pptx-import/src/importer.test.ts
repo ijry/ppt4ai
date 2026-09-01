@@ -506,6 +506,26 @@ describe('importPptx', () => {
     expect(element.body?.bodyPr).toBeUndefined()
   })
 
+  it('imports a graphic frame rotation onto the table element', async () => {
+    const rotated = {
+      ...tableFiles,
+      'ppt/slides/slide1.xml': tableFiles['ppt/slides/slide1.xml']!.replace('<p:xfrm>', '<p:xfrm rot="1200000">'),
+    }
+    const imported = await importPptx(createStoredZip(rotated))
+    const element = imported.elements.el_1
+    if (!element || element.kind !== 'table') throw new Error('expected table element')
+
+    expect(element.rotation).toBe(1200000)
+  })
+
+  it('omits table rotation when the graphic frame has no rot attribute', async () => {
+    const imported = await importPptx(createStoredZip(tableFiles))
+    const element = imported.elements.el_1
+    if (!element || element.kind !== 'table') throw new Error('expected table element')
+
+    expect(element.rotation).toBeUndefined()
+  })
+
   it('imports table grids, normalized merges, cell styling, and borders', async () => {
     const imported = await importPptx(createStoredZip(tableFiles))
     expect(imported.slideOrder).toEqual(['sld_1'])
