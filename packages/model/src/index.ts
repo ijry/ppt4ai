@@ -239,6 +239,12 @@ export interface GroupElement {
   bounds: Rect
   childIds: string[]
   rotation?: number
+  /**
+   * OOXML `a:chOff`/`a:chExt`: the coordinate space descendants are authored in. Descendant
+   * bounds stay as authored so writeback compares like with like; the scene graph maps this
+   * space onto `bounds` when flattening.
+   */
+  childSpace?: Rect
 }
 
 export type ImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/bmp' | 'image/webp'
@@ -1102,6 +1108,14 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       validateFiniteNumber(element.rotation, `elements.${elementId}.rotation`, errors, Number.isInteger, 'must be an integer')
     }
     if (element.kind === 'group') {
+      if (element.childSpace !== undefined) {
+        const space = element.childSpace
+        const path = `elements.${elementId}.childSpace`
+        validateFiniteNumber(space.x, `${path}.x`, errors, Number.isFinite, 'must be a finite number')
+        validateFiniteNumber(space.y, `${path}.y`, errors, Number.isFinite, 'must be a finite number')
+        validateFiniteNumber(space.w, `${path}.w`, errors, (value) => value > 0, 'must be positive')
+        validateFiniteNumber(space.h, `${path}.h`, errors, (value) => value > 0, 'must be positive')
+      }
       const childIds = new Set<string>()
       for (const childId of element.childIds) {
         if (childIds.has(childId)) errors.push(`group ${elementId} references duplicate child: ${childId}`)

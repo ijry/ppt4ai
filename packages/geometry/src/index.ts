@@ -62,6 +62,21 @@ export interface RotationPivot {
 }
 
 /**
+ * Map a rectangle from a declared child coordinate space onto the box that space is drawn into.
+ * OOXML groups author descendants in `a:chOff`/`a:chExt` and stretch that onto `a:off`/`a:ext`.
+ */
+export function mapChildSpace(bounds: GeometryBounds, childSpace: GeometryBounds, target: GeometryBounds): GeometryBounds {
+  const scaleX = target.w / childSpace.w
+  const scaleY = target.h / childSpace.h
+  return {
+    x: target.x + (bounds.x - childSpace.x) * scaleX,
+    y: target.y + (bounds.y - childSpace.y) * scaleY,
+    w: bounds.w * scaleX,
+    h: bounds.h * scaleY,
+  }
+}
+
+/**
  * Fold a chain of ancestor rotations into one axis-aligned box plus a single angle.
  *
  * `ancestors` is ordered outermost first, matching a top-down tree walk, but the innermost

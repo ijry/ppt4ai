@@ -516,6 +516,26 @@ function parseGroupRotation(group: XmlNode): number | undefined {
   return parseIntegerAttribute(transform ? attribute(transform, 'rot') : undefined)
 }
 
+/**
+ * `a:chOff`/`a:chExt` declare the coordinate space children are authored in, which PowerPoint
+ * rescales onto `a:off`/`a:ext` when the group is resized. Stored exactly as authored so bounds
+ * writeback keeps comparing like with like; the scene graph composes it when flattening.
+ */
+function parseChildSpace(group: XmlNode): Rect | undefined {
+  const properties = child(group, 'grpSpPr')
+  const transform = properties && child(properties, 'xfrm')
+  if (!transform) return undefined
+  const childOff = child(transform, 'chOff')
+  const childExt = child(transform, 'chExt')
+  const x = parseNumber(childOff && attribute(childOff, 'x'))
+  const y = parseNumber(childOff && attribute(childOff, 'y'))
+  const w = parseNumber(childExt && attribute(childExt, 'cx'))
+  const h = parseNumber(childExt && attribute(childExt, 'cy'))
+  if (x === undefined || y === undefined || w === undefined || h === undefined) return undefined
+  if (w <= 0 || h <= 0) return undefined
+  return { x, y, w, h }
+}
+
 function parseBitmapMetadata(path: string, bytes: Uint8Array, assetId: string): AssetMetadata | undefined {
   const metadata = parseSharedBitmapMetadata(bytes)
   if (!metadata) return undefined
@@ -908,9 +928,17 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
         if (!bounds) continue
         const groupId = `grp_${groupCounter++}`
         const rotation = parseGroupRotation(shape.node)
+        const childSpace = parseChildSpace(shape.node)
         groupIds.set(shapeIndex, groupId)
         groupChildIds.set(shapeIndex, [])
-        elements[groupId] = { id: groupId, kind: 'group', bounds, childIds: [], ...(rotation === undefined ? {} : { rotation }) }
+        elements[groupId] = {
+          id: groupId,
+          kind: 'group',
+          bounds,
+          childIds: [],
+          ...(rotation === undefined ? {} : { rotation }),
+          ...(childSpace === undefined ? {} : { childSpace }),
+        }
         registerChild(shape, groupId)
         continue
       }
