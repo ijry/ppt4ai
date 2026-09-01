@@ -17,6 +17,19 @@ function contains(bounds: Rect, point: CanvasPoint): boolean {
   return point.x >= bounds.x && point.x <= bounds.x + bounds.w && point.y >= bounds.y && point.y <= bounds.y + bounds.h
 }
 
+function containsRotated(bounds: Rect, point: CanvasPoint, rotation: number | undefined): boolean {
+  if (!rotation) return contains(bounds, point)
+  const centreX = bounds.x + bounds.w / 2
+  const centreY = bounds.y + bounds.h / 2
+  const angle = -rotation * Math.PI / 10800000
+  const dx = point.x - centreX
+  const dy = point.y - centreY
+  return contains(bounds, {
+    x: centreX + dx * Math.cos(angle) - dy * Math.sin(angle),
+    y: centreY + dx * Math.sin(angle) + dy * Math.cos(angle),
+  })
+}
+
 export function hitTestScene(scene: SceneGraph, point: CanvasPoint, groupPath: string[] = []): string | undefined {
   const groups = scene.groups ?? []
   if (groupPath.length > 0) {
@@ -26,14 +39,16 @@ export function hitTestScene(scene: SceneGraph, point: CanvasPoint, groupPath: s
     const directChildIds = new Set(currentGroup.childIds)
     const directGroups = groups
       .filter((group) => directChildIds.has(group.id) && group.ancestorIds.length === groupPath.length)
-      .map((group, sourceIndex) => ({ id: group.id, bounds: group.bounds, paintOrder: group.paintOrder, sourceIndex }))
-    const directNodes = scene.nodes.flatMap((node, sourceIndex) => node && directChildIds.has(node.id)
-      ? [{ id: node.id, bounds: node.bounds, paintOrder: sourceIndex, sourceIndex }]
-      : [])
+      .map((group, sourceIndex) => ({ id: group.id, bounds: group.bounds, rotation: undefined as number | undefined, paintOrder: group.paintOrder, sourceIndex }))
+    const directNodes = scene.nodes.flatMap((node, sourceIndex) => {
+      if (!node || !directChildIds.has(node.id)) return []
+      const rotation = node.kind === 'table' ? undefined : node.transform?.rotation
+      return [{ id: node.id, bounds: node.bounds, rotation, paintOrder: sourceIndex, sourceIndex }]
+    })
     const targets = [...directGroups, ...directNodes].sort((left, right) => left.paintOrder - right.paintOrder || left.sourceIndex - right.sourceIndex)
     for (let index = targets.length - 1; index >= 0; index -= 1) {
       const target = targets[index]
-      if (target && contains(target.bounds, point)) return target.id
+      if (target && containsRotated(target.bounds, point, target.rotation)) return target.id
     }
     return undefined
   }
@@ -45,17 +60,20 @@ export function hitTestScene(scene: SceneGraph, point: CanvasPoint, groupPath: s
     ...topLevelGroups.map(({ group, sourceIndex }) => ({
       id: group.id,
       bounds: group.bounds,
+      rotation: undefined as number | undefined,
       paintOrder: group.paintOrder,
       sourceIndex,
     })),
-    ...scene.nodes.flatMap((node, sourceIndex) => node && !groupedElementIds.has(node.id)
-      ? [{ id: node.id, bounds: node.bounds, paintOrder: sourceIndex, sourceIndex }]
-      : []),
+    ...scene.nodes.flatMap((node, sourceIndex) => {
+      if (!node || groupedElementIds.has(node.id)) return []
+      const rotation = node.kind === 'table' ? undefined : node.transform?.rotation
+      return [{ id: node.id, bounds: node.bounds, rotation, paintOrder: sourceIndex, sourceIndex }]
+    }),
   ].sort((left, right) => left.paintOrder - right.paintOrder || left.sourceIndex - right.sourceIndex)
 
   for (let index = targets.length - 1; index >= 0; index -= 1) {
     const target = targets[index]
-    if (target && contains(target.bounds, point)) return target.id
+    if (target && containsRotated(target.bounds, point, target.rotation)) return target.id
   }
   return undefined
 }

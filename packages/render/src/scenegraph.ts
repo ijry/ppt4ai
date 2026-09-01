@@ -30,6 +30,7 @@ export interface SceneShapeNode {
   stroke?: Fill
   resolvedFillColor?: ResolvedColor
   resolvedStrokeColor?: ResolvedColor
+  transform?: ElementTransform
 }
 
 export interface SceneTextLayoutRun extends TextLayoutRun {
@@ -54,6 +55,7 @@ export interface SceneTextNode {
   stroke?: Fill
   resolvedFillColor?: ResolvedColor
   resolvedStrokeColor?: ResolvedColor
+  transform?: ElementTransform
 }
 
 export interface SceneTableNode {
@@ -171,6 +173,7 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   const strokeColor = resolvedFillColor(element.stroke, context)
   if (fillColor) node.resolvedFillColor = fillColor
   if (strokeColor) node.resolvedStrokeColor = strokeColor
+  if (element.rotation) node.transform = { rotation: element.rotation }
   return node
 }
 
@@ -189,6 +192,7 @@ function createTextNode(element: Extract<Element, { kind: 'text' }>, context: Sc
   const strokeColor = resolvedFillColor(element.stroke, context)
   if (fillColor) node.resolvedFillColor = fillColor
   if (strokeColor) node.resolvedStrokeColor = strokeColor
+  if (element.rotation) node.transform = { rotation: element.rotation }
   return node
 }
 

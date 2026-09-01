@@ -83,6 +83,32 @@ function withoutMarker(line: SceneTextNode['layout']['lines'][number]): SceneTex
   return lineWithoutMarker
 }
 
+describe('text rotation', () => {
+  const mapping = { scale: 0.001, offsetX: 5, offsetY: 7 }
+
+  it('rotates about the mapped bounds centre when the node carries a rotation', () => {
+    const drawingContext = context()
+
+    paintTextNode(drawingContext, node({ transform: { rotation: 5400000 } }), mapping)
+
+    const transformEvents = drawingContext.events.filter(([type]) => type === 'translate' || type === 'rotate')
+    expect(transformEvents).toEqual([
+      ['translate', 5.5, 7.25],
+      ['rotate', Math.PI / 2],
+      ['translate', -5.5, -7.25],
+    ])
+    expect(drawingContext.events.at(-1)).toEqual(['restore'])
+  })
+
+  it('does not emit rotation transforms when the node has no rotation', () => {
+    const drawingContext = context()
+
+    paintTextNode(drawingContext, node(), mapping)
+
+    expect(drawingContext.events.filter(([type]) => type === 'rotate')).toEqual([])
+  })
+})
+
 describe('text painting', () => {
   it('paints a precomputed layout without a scene text node', () => {
     const drawingContext = context()

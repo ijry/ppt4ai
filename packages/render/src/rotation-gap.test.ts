@@ -17,21 +17,28 @@ function rotatedDocument(): Ppt4aiDocument {
   }
 }
 
-describe('scene graph rotation gap', () => {
-  it('drops shape and text rotation, so the canvas cannot render it', () => {
+describe('scene graph rotation', () => {
+  it('carries shape and text rotation as a transform the canvas can apply', () => {
     const scene = documentToSceneGraph(rotatedDocument())
     const shape = scene.nodes.find((node) => node.id === 'shape_r')
     const text = scene.nodes.find((node) => node.id === 'text_r')
 
-    expect(shape).toBeDefined()
-    expect(text).toBeDefined()
-    expect(shape).not.toHaveProperty('rotation')
-    expect(text).not.toHaveProperty('rotation')
-    expect(shape).not.toHaveProperty('transform')
-    expect(text).not.toHaveProperty('transform')
+    expect(shape).toMatchObject({ transform: { rotation: 2700000 } })
+    expect(text).toMatchObject({ transform: { rotation: 5400000 } })
   })
 
-  it('still carries image transform through, showing the inconsistency', () => {
+  it('omits the transform when rotation is zero or absent, keeping existing scenes unchanged', () => {
+    const document = rotatedDocument()
+    document.elements.shape_r = { id: 'shape_r', kind: 'shape', preset: 'rect', bounds: { x: 0, y: 0, w: 1000, h: 500 }, rotation: 0 }
+    document.elements.text_r = { id: 'text_r', kind: 'text', bounds: { x: 0, y: 0, w: 1000, h: 500 }, text: 'Flat' }
+
+    const scene = documentToSceneGraph(document)
+
+    expect(scene.nodes.find((node) => node.id === 'shape_r')).not.toHaveProperty('transform')
+    expect(scene.nodes.find((node) => node.id === 'text_r')).not.toHaveProperty('transform')
+  })
+
+  it('carries image transform through unchanged', () => {
     const document = rotatedDocument()
     document.slides.sld_1!.elementIds = ['image_r']
     document.elements = {

@@ -1,5 +1,6 @@
-import type { ResolvedColor } from '@ppt4ai/model'
+import type { Rect, ResolvedColor } from '@ppt4ai/model'
 import type { SceneShapeNode } from '@ppt4ai/render'
+import { withRotation } from './rotation-transform'
 
 export interface ShapePageMapping {
   scale: number
@@ -27,6 +28,15 @@ function validateMapping(mapping: ShapePageMapping): void {
   if (mapping.scale <= 0) throw new Error('shape mapping scale must be positive')
   finite(mapping.offsetX, 'shape mapping offsetX')
   finite(mapping.offsetY, 'shape mapping offsetY')
+}
+
+function mapRect(bounds: Rect, mapping: ShapePageMapping): Rect {
+  return {
+    x: mapping.offsetX + finite(bounds.x, 'shape bounds x') * mapping.scale,
+    y: mapping.offsetY + finite(bounds.y, 'shape bounds y') * mapping.scale,
+    w: finite(bounds.w, 'shape bounds w') * mapping.scale,
+    h: finite(bounds.h, 'shape bounds h') * mapping.scale,
+  }
 }
 
 function createPath(context: ShapeContext, node: SceneShapeNode, mapping: ShapePageMapping): void {
@@ -65,19 +75,21 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
     const fill = node.resolvedFillColor ? colorStyle(node.resolvedFillColor) : undefined
     const stroke = node.resolvedStrokeColor ? colorStyle(node.resolvedStrokeColor) : undefined
 
-    createPath(context, node, mapping)
-    if (fill) {
+    withRotation(context, mapRect(node.bounds, mapping), node.transform, () => {
       createPath(context, node, mapping)
-      context.fillStyle = fill.style
-      context.globalAlpha = fill.alpha
-      context.fill()
-    }
-    if (stroke) {
-      createPath(context, node, mapping)
-      context.strokeStyle = stroke.style
-      context.globalAlpha = stroke.alpha
-      context.stroke()
-    }
+      if (fill) {
+        createPath(context, node, mapping)
+        context.fillStyle = fill.style
+        context.globalAlpha = fill.alpha
+        context.fill()
+      }
+      if (stroke) {
+        createPath(context, node, mapping)
+        context.strokeStyle = stroke.style
+        context.globalAlpha = stroke.alpha
+        context.stroke()
+      }
+    })
   } finally {
     context.restore()
   }

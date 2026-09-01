@@ -1,6 +1,7 @@
 import type { ResolvedColor, TextMarks } from '@ppt4ai/model'
 import type { SceneTextLayout, SceneTextLayoutLine, SceneTextLayoutRun, SceneTextNode } from '@ppt4ai/render'
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, type TextLayoutMarker } from '@ppt4ai/text'
+import { withRotation } from './rotation-transform'
 
 export interface TextPageMapping {
   scale: number
@@ -174,5 +175,11 @@ export function paintTextLayout(context: TextContext, layout: SceneTextLayout, m
 }
 
 export function paintTextNode(context: TextContext, node: SceneTextNode, mapping: TextPageMapping): void {
-  paintTextLayout(context, node.layout, mapping)
+  const bounds = {
+    x: mapping.offsetX + finite(node.bounds.x, 'text bounds x') * mapping.scale,
+    y: mapping.offsetY + finite(node.bounds.y, 'text bounds y') * mapping.scale,
+    w: finite(node.bounds.w, 'text bounds w') * mapping.scale,
+    h: finite(node.bounds.h, 'text bounds h') * mapping.scale,
+  }
+  withRotation(context, bounds, node.transform, () => paintTextLayout(context, node.layout, mapping))
 }
