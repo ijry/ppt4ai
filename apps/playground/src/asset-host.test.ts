@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AssetAdapter } from '@ppt4ai/model'
+import { documentToSceneGraph } from '@ppt4ai/render'
 import { createPlaygroundAssetHost } from './asset-host'
 
 const uploadPng = new Uint8Array([
@@ -305,5 +306,49 @@ describe('createPlaygroundAssetHost', () => {
     expect(result.status).toEqual({ kind: 'error', message: 'image-upload-failed' })
     expect(result.engineState.history).toEqual({ undoDepth: 0, redoDepth: 0 })
     expect(result.status.message).not.toContain('secret')
+  })
+
+  it('seeds a master, layout, and theme with scheme-coloured demo elements', () => {
+    const document = createPlaygroundAssetHost().getSnapshot().engineState.document
+
+    expect(document.themes?.thm_playground).toEqual({ id: 'thm_playground', colors: {} })
+    expect(document.masters?.mst_playground).toMatchObject({ id: 'mst_playground', themeId: 'thm_playground' })
+    expect(document.layouts?.lay_playground).toMatchObject({ id: 'lay_playground', masterId: 'mst_playground' })
+    expect(document.slides.sld_playground?.layoutId).toBe('lay_playground')
+
+    const shape = document.elements.shape_demo
+    expect(shape?.kind === 'shape' && shape.fill?.color).toEqual({ type: 'scheme', v: 'accent1' })
+  })
+
+  it('resolves seeded scheme colors through the theme so edits are visible', () => {
+    const host = createPlaygroundAssetHost()
+
+    const before = documentToSceneGraph(host.getSnapshot().engineState.document)
+    const after = documentToSceneGraph(host.setThemeColor('thm_playground', 'accent1', { type: 'srgb', v: 'FF0000' }).engineState.document)
+
+    expect(JSON.stringify(before)).not.toEqual(JSON.stringify(after))
+    expect(JSON.stringify(after)).toContain('FF0000')
+  })
+
+  it('writes and resets theme colors through engine history', () => {
+    const host = createPlaygroundAssetHost()
+
+    const edited = host.setThemeColor('thm_playground', 'accent1', { type: 'srgb', v: '123456' })
+    expect(edited.engineState.document.themes?.thm_playground?.colors.accent1).toEqual({ type: 'srgb', v: '123456' })
+    expect(edited.engineState.history.undoDepth).toBe(1)
+
+    const reset = host.setThemeColor('thm_playground', 'accent1', null)
+    expect(reset.engineState.document.themes?.thm_playground?.colors.accent1).toBeNull()
+
+    expect(host.undo().engineState.document.themes?.thm_playground?.colors.accent1).toEqual({ type: 'srgb', v: '123456' })
+  })
+
+  it('reports a stable error status when the theme is missing', () => {
+    const host = createPlaygroundAssetHost()
+
+    const result = host.setThemeColor('thm_absent', 'accent1', null)
+
+    expect(result.status).toEqual({ kind: 'error', message: 'theme-missing' })
+    expect(result.engineState.history.undoDepth).toBe(0)
   })
 })

@@ -1,6 +1,6 @@
 import { EditorEngine, type EngineState, type ImageFlipAxis, type SnapOptions } from '@ppt4ai/engine'
 import { createImageAssetController, ImageAssetControllerError } from '@ppt4ai/editor'
-import type { AssetAdapter, AssetMetadata, Element, ImageElement, Ppt4aiDocument, Rect, TextBody } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Color, Element, ImageElement, Ppt4aiDocument, Rect, TextBody, ThemeColorSlot } from '@ppt4ai/model'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
 export interface PlaygroundAssetHostSnapshot {
@@ -29,6 +29,7 @@ export interface PlaygroundAssetHost {
   rotateSelectedImage(elementId: string, rotation: number): PlaygroundAssetHostSnapshot
   toggleSelectedImageFlip(elementId: string, axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
+  setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): PlaygroundAssetHostSnapshot
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
   insertAsset(assetId: string): PlaygroundAssetHostSnapshot
   replaceSelectedImage(assetId: string): PlaygroundAssetHostSnapshot
@@ -89,9 +90,12 @@ function createDocument(): Ppt4aiDocument {
     version: 1,
     id: 'dck_playground',
     page: { w: 12192000, h: 6858000 },
-    slides: { sld_playground: { id: 'sld_playground', elementIds: ['group_demo', 'table_demo'] } },
+    slides: { sld_playground: { id: 'sld_playground', elementIds: ['group_demo', 'table_demo'], layoutId: 'lay_playground' } },
+    themes: { thm_playground: { id: 'thm_playground', colors: {} } },
+    masters: { mst_playground: { id: 'mst_playground', themeId: 'thm_playground' } },
+    layouts: { lay_playground: { id: 'lay_playground', masterId: 'mst_playground' } },
     elements: {
-      shape_demo: { id: 'shape_demo', kind: 'shape', bounds: { x: 914400, y: 685800, w: 2743200, h: 1371600 }, preset: 'roundRect', fill: { color: { type: 'srgb', v: 'DDEBFF' } } },
+      shape_demo: { id: 'shape_demo', kind: 'shape', bounds: { x: 914400, y: 685800, w: 2743200, h: 1371600 }, preset: 'roundRect', fill: { color: { type: 'scheme', v: 'accent1' } } },
       text_demo: { id: 'text_demo', kind: 'text', bounds: { x: 914400, y: 914400, w: 2743200, h: 457200 }, body: { paragraphs: [{ runs: [{ text: 'PPT4AI 编辑画布', marks: { fontSize: 280000 } }] }] } },
       group_demo: { id: 'group_demo', kind: 'group', bounds: { x: 914400, y: 685800, w: 2743200, h: 1600200 }, childIds: ['shape_demo', 'text_demo'] },
       table_demo: {
@@ -100,7 +104,7 @@ function createDocument(): Ppt4aiDocument {
         bounds: { x: 914400, y: 2514600, w: 2743200, h: 1143000 },
         columns: [1371600, 1371600],
         rows: [
-          { height: 571500, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: '标题' }] }] } }, { column: 1, body: { paragraphs: [{ runs: [{ text: '内容' }] }] } }] },
+          { height: 571500, cells: [{ column: 0, fill: { color: { type: 'scheme', v: 'accent2' } }, body: { paragraphs: [{ runs: [{ text: '标题' }] }] } }, { column: 1, fill: { color: { type: 'scheme', v: 'accent2' } }, body: { paragraphs: [{ runs: [{ text: '内容' }] }] } }] },
           { height: 571500, cells: [{ column: 0, body: { paragraphs: [{ runs: [{ text: '形状' }] }] } }, { column: 1, body: { paragraphs: [{ runs: [{ text: '文本' }] }] } }] },
         ],
       },
@@ -264,6 +268,16 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
         status = { kind: 'success', message: 'text-updated' }
       } catch {
         return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    setThemeColor(themeId, slot, color) {
+      if (!engine.getState().document.themes?.[themeId]) return fail('theme-missing')
+      try {
+        engine.dispatch({ type: 'setThemeColor', themeId, slot, color })
+        status = { kind: 'success', message: 'theme-color-updated' }
+      } catch {
+        return fail('theme-color-failed')
       }
       return snapshot()
     },
