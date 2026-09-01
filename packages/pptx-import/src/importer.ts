@@ -13,8 +13,18 @@ interface ImportedPart {
   xml: XmlNode
 }
 
+export type ImportIssueCode = 'unsupported-media'
+
+export interface ImportIssue {
+  code: ImportIssueCode
+  slideId: string
+  partPath: string
+  message: string
+}
+
 export interface ImportPptxOptions {
   assetAdapter?: AssetAdapter
+  onIssue?: (issue: ImportIssue) => void
 }
 
 function pathDirectory(path: string): string {
@@ -539,6 +549,7 @@ function parsePicture(
   slidePath: string,
   slideRelations: Relationship[],
   entries: Record<string, Uint8Array>,
+  reportUnsupportedMedia?: (partPath: string) => void,
 ): { element: Extract<Element, { kind: 'image' }>; metadata: AssetMetadata; bytes: Uint8Array } | undefined {
   const bounds = parseBounds(picture)
   const blip = findDescendants(picture, 'blip')[0]
@@ -548,7 +559,10 @@ function parsePicture(
   if (!bounds || !mediaPath || !bytes) return undefined
   const assetId = stableAssetId(mediaPath)
   const metadata = parseBitmapMetadata(mediaPath, bytes, assetId)
-  if (!metadata) return undefined
+  if (!metadata) {
+    reportUnsupportedMedia?.(mediaPath)
+    return undefined
+  }
   const transform = parsePictureTransform(picture)
   const sourceCrop = parseImageCrop(picture)
   const maskPreset = parseImageMaskPreset(picture)
@@ -832,7 +846,14 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
     for (const shape of findSlideElements(slidePart.xml)) {
       const id = `el_${elementCounter++}`
       if (localName(shape.name) === 'pic') {
-        const picture = parsePicture(shape, id, slidePath, slideRelations, entries)
+        const picture = parsePicture(shape, id, slidePath, slideRelations, entries, (partPath) => {
+          options.onIssue?.({
+            code: 'unsupported-media',
+            slideId,
+            partPath,
+            message: `picture skipped because ${partPath} is not a supported bitmap format`,
+          })
+        })
         if (!picture) continue
         elements[id] = picture.element
         elementIds.push(id)

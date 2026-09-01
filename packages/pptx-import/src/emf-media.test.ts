@@ -98,4 +98,22 @@ describe('EMF media import', () => {
     expect(document.assets).toBeUndefined()
   })
 
+  it('reports the skipped picture as an issue so the omission is visible', async () => {
+    const issues: unknown[] = []
+
+    await importPptx(packageWithEmfPicture(), { onIssue: (issue) => issues.push(issue) })
+
+    expect(issues).toEqual([{
+      code: 'unsupported-media',
+      slideId: 'sld_1',
+      partPath: 'ppt/media/image1.emf',
+      message: 'picture skipped because ppt/media/image1.emf is not a supported bitmap format',
+    }])
+  })
+
+  it('imports without an issue callback and still omits the picture', async () => {
+    const document = await importPptx(packageWithEmfPicture())
+
+    expect(Object.keys(document.elements)).toHaveLength(1)
+  })
 })

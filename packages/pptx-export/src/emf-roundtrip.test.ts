@@ -34,6 +34,16 @@ describe('EMF source package round-trip', () => {
     expect(exported).toEqual(source)
   })
 
+  it('rejects export when a model element occupies the skipped picture id', async () => {
+    const source = packageWithEmfPicture()
+    const document = await importPptx(source)
+    const slide = document.slides[document.slideOrder[0]!]!
+    document.elements.el_1 = { id: 'el_1', kind: 'shape', bounds: { x: 0, y: 0, w: 100, h: 100 }, preset: 'rect' }
+    slide.elementIds = ['el_1', ...slide.elementIds]
+
+    await expect(exportPptx(document, source)).rejects.toThrow()
+  })
+
   it('preserves the unmodelled EMF picture and its media bytes when other elements are edited', async () => {
     const source = packageWithEmfPicture()
     const document = await importPptx(source)
