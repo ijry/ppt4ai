@@ -158,7 +158,7 @@ describe('PptEditor', () => {
     textMounted.app.unmount()
   })
 
-  it('hides the rotation handle for multi-selection and for a selected group', async () => {
+  it('hides the rotation handle for multi-selection but shows it for a selected group', async () => {
     const multiMounted = mountEditor({ scene: multiSelectionScene, selectedElementIds: ['shape-1', 'shape-2'] })
     await nextTick()
     expect(multiMounted.host.querySelector('[data-selection-rotation-handle]')).toBeNull()
@@ -166,8 +166,23 @@ describe('PptEditor', () => {
 
     const groupMounted = mountEditor({ scene: groupedScene, selectedElementId: 'group-1' })
     await nextTick()
-    expect(groupMounted.host.querySelector('[data-selection-rotation-handle]')).toBeNull()
+    expect(groupMounted.host.querySelectorAll('[data-selection-rotation-handle]')).toHaveLength(1)
     groupMounted.app.unmount()
+  })
+
+  it('emits rotate-element when a selected group is rotated by the toolbar', async () => {
+    const rotateEvents: Array<{ elementId: string; rotation: number }> = []
+    const mounted = mountEditor({
+      scene: groupedScene,
+      selectedElementId: 'group-1',
+      onRotateElement: (payload: { elementId: string; rotation: number }) => rotateEvents.push(payload),
+    })
+    await nextTick()
+
+    ;(mounted.host.querySelector('[data-image-transform-button="rotate-right"]') as HTMLButtonElement).click()
+
+    expect(rotateEvents).toEqual([{ elementId: 'group-1', rotation: 5400000 }])
+    mounted.app.unmount()
   })
 
   it('emits rotate-element for a shape gesture and snaps Shift to fifteen degrees', async () => {

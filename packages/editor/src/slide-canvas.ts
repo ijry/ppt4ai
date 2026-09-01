@@ -1,5 +1,4 @@
 import { containsRotatedPoint } from '@ppt4ai/geometry'
-import type { Rect } from '@ppt4ai/model'
 import type { SceneGraph } from '@ppt4ai/render'
 
 export type CanvasSelectionIntent = {
@@ -14,20 +13,16 @@ export interface CanvasPoint {
   y: number
 }
 
-function contains(bounds: Rect, point: CanvasPoint): boolean {
-  return point.x >= bounds.x && point.x <= bounds.x + bounds.w && point.y >= bounds.y && point.y <= bounds.y + bounds.h
-}
-
 export function hitTestScene(scene: SceneGraph, point: CanvasPoint, groupPath: string[] = []): string | undefined {
   const groups = scene.groups ?? []
   if (groupPath.length > 0) {
     const currentGroup = groups.find((group) => group.id === groupPath[groupPath.length - 1])
     if (!currentGroup) return hitTestScene(scene, point)
-    if (!contains(currentGroup.bounds, point)) return hitTestScene(scene, point)
+    if (!containsRotatedPoint(currentGroup.bounds, point, currentGroup.rotation)) return hitTestScene(scene, point)
     const directChildIds = new Set(currentGroup.childIds)
     const directGroups = groups
       .filter((group) => directChildIds.has(group.id) && group.ancestorIds.length === groupPath.length)
-      .map((group, sourceIndex) => ({ id: group.id, bounds: group.bounds, rotation: undefined as number | undefined, paintOrder: group.paintOrder, sourceIndex }))
+      .map((group, sourceIndex) => ({ id: group.id, bounds: group.bounds, rotation: group.rotation, paintOrder: group.paintOrder, sourceIndex }))
     const directNodes = scene.nodes.flatMap((node, sourceIndex) => {
       if (!node || !directChildIds.has(node.id)) return []
       const rotation = node.transform?.rotation
@@ -48,7 +43,7 @@ export function hitTestScene(scene: SceneGraph, point: CanvasPoint, groupPath: s
     ...topLevelGroups.map(({ group, sourceIndex }) => ({
       id: group.id,
       bounds: group.bounds,
-      rotation: undefined as number | undefined,
+      rotation: group.rotation,
       paintOrder: group.paintOrder,
       sourceIndex,
     })),

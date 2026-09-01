@@ -62,3 +62,42 @@ describe('hit testing respects rotation', () => {
     expect(hitTestScene(scene, { x: 500, y: 560 })).toBeUndefined()
   })
 })
+
+function rotatedGroupScene(): SceneGraph {
+  return {
+    slideId: 'sld_1',
+    page: { w: 1000, h: 1000 },
+    nodes: [{ id: 'leaf', kind: 'shape', bounds: { x: 400, y: 450, w: 200, h: 100 }, path: [] }],
+    groups: [{
+      id: 'grp_1',
+      bounds: { x: 400, y: 450, w: 200, h: 100 },
+      childIds: ['leaf'],
+      ancestorIds: [],
+      paintOrder: 0,
+      rotation: 5400000,
+    }],
+  } as unknown as SceneGraph
+}
+
+describe('hit testing respects group rotation', () => {
+  it('selects a rotated group by the region it actually covers', () => {
+    const scene = rotatedGroupScene()
+
+    expect(hitTestScene(scene, { x: 500, y: 560 })).toBe('grp_1')
+    expect(hitTestScene(scene, { x: 590, y: 500 })).toBeUndefined()
+  })
+
+  it('requires the rotated group bounds before descending into it', () => {
+    const scene = rotatedGroupScene()
+
+    expect(hitTestScene(scene, { x: 590, y: 500 }, ['grp_1'])).toBeUndefined()
+  })
+
+  it('still hit-tests a group without rotation as an axis-aligned box', () => {
+    const scene = rotatedGroupScene()
+    delete scene.groups![0]!.rotation
+
+    expect(hitTestScene(scene, { x: 590, y: 500 })).toBe('grp_1')
+    expect(hitTestScene(scene, { x: 500, y: 560 })).toBeUndefined()
+  })
+})

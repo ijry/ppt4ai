@@ -56,6 +56,43 @@ export function containsRotatedPoint(bounds: GeometryBounds, point: GeometryPoin
   return containsPoint(bounds, rotatePointAround(point, boundsCentre(bounds), -rotation))
 }
 
+export interface RotationPivot {
+  pivot: GeometryPoint
+  rotation: number
+}
+
+/**
+ * Fold a chain of ancestor rotations into one axis-aligned box plus a single angle.
+ *
+ * `ancestors` is ordered outermost first, matching a top-down tree walk, but the innermost
+ * ancestor acts first: it rotates its own contents before any outer ancestor moves it. Each
+ * pivot must therefore be the ancestor's own untransformed centre.
+ *
+ * Rotating an already-rotated rectangle about an outside point yields a congruent rectangle,
+ * so width and height are exact and only the centre moves.
+ */
+export function cascadeRotation(
+  bounds: GeometryBounds,
+  rotation: number | undefined,
+  ancestors: readonly RotationPivot[],
+): { bounds: GeometryBounds; rotation: number } {
+  let total = rotation ?? 0
+  let centre = boundsCentre(bounds)
+  for (let index = ancestors.length - 1; index >= 0; index -= 1) {
+    const ancestor = ancestors[index]!
+    if (!ancestor.rotation) continue
+    centre = rotatePointAround(centre, ancestor.pivot, ancestor.rotation)
+    total += ancestor.rotation
+  }
+  if (centre.x === bounds.x + bounds.w / 2 && centre.y === bounds.y + bounds.h / 2) {
+    return { bounds, rotation: total }
+  }
+  return {
+    bounds: { x: centre.x - bounds.w / 2, y: centre.y - bounds.h / 2, w: bounds.w, h: bounds.h },
+    rotation: total,
+  }
+}
+
 function rectanglePath({ x, y, w, h }: GeometryBounds): PathCommand[] {
   return [
     { type: 'move', x, y },

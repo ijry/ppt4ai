@@ -252,7 +252,7 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
     },
     rotateSelectedElement(elementId, rotation) {
       const element = engine.getState().document.elements[elementId]
-      if (!element || (element.kind !== 'shape' && element.kind !== 'text' && element.kind !== 'table')) return fail('element-operation-failed')
+      if (!element || element.kind === 'image') return fail('element-operation-failed')
       try {
         engine.dispatch({ type: 'setElementRotation', elementId, rotation })
         status = { kind: 'success', message: 'element-rotated' }

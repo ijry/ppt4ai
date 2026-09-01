@@ -122,9 +122,13 @@ const selectedImageNode = computed<SceneImageNode | undefined>(() => {
 const imageTransformEnabled = computed(() => Boolean(selectedImageNode.value))
 const selectedRotatableNode = computed(() => {
   if (selectedElementIds.value.length !== 1) return undefined
-  const node = props.scene?.nodes.find((entry) => entry.id === selectedElementIds.value[0])
+  const elementId = selectedElementIds.value[0]!
+  const group = props.scene?.groups?.find((entry) => entry.id === elementId)
+  if (group) return { id: group.id, bounds: group.bounds, rotation: group.rotation }
+  const node = props.scene?.nodes.find((entry) => entry.id === elementId)
   if (!node) return undefined
-  return node.kind === 'image' || node.kind === 'shape' || node.kind === 'text' || node.kind === 'table' ? node : undefined
+  if (node.kind !== 'image' && node.kind !== 'shape' && node.kind !== 'text' && node.kind !== 'table') return undefined
+  return { id: node.id, bounds: node.bounds, rotation: node.transform?.rotation, kind: node.kind }
 })
 
 function ungroupSelected(): void {
@@ -134,7 +138,7 @@ function ungroupSelected(): void {
 function rotateSelectedNode(delta: number): void {
   const node = selectedRotatableNode.value
   if (!node) return
-  const rotation = (node.transform?.rotation ?? 0) + delta
+  const rotation = (node.rotation ?? 0) + delta
   if (node.kind === 'image') emit('rotate-image', { elementId: node.id, rotation })
   else emit('rotate-element', { elementId: node.id, rotation })
 }
@@ -327,7 +331,7 @@ function overlayRotation(): number {
   if (!node) return 0
   return rotationPreview.value?.elementId === node.id
     ? rotationPreview.value.rotation
-    : node.transform?.rotation ?? 0
+    : node.rotation ?? 0
 }
 
 function sameIds(left: readonly string[], right: readonly string[]): boolean {
@@ -448,7 +452,7 @@ function rotationStart(payload: RotatePointerPayload): void {
   const node = selectedRotatableNode.value
   if (!node) return
   const bounds = toScreenBounds(node.bounds)
-  const startRotation = node.transform?.rotation ?? 0
+  const startRotation = node.rotation ?? 0
   rotationGesture.value = {
     elementId: node.id,
     startRotation,

@@ -398,11 +398,40 @@ describe('EditorEngine', () => {
     expect(engine.getState().document.elements.el_table).toMatchObject({ rotation: 450000 })
   })
 
+  it('rotates a group on its own bare field without touching descendants', () => {
+    const engine = new EditorEngine(makeNestedGroupDocument())
+    const before = engine.getState().document
+
+    const state = engine.dispatch({ type: 'setElementRotation', elementId: 'grp_outer', rotation: 2700000 })
+
+    expect(state.document.elements.grp_outer).toMatchObject({ rotation: 2700000, childIds: ['el_a', 'grp_inner'] })
+    expect(state.document.elements.el_a).toEqual(before.elements.el_a)
+    expect(state.document.elements.grp_inner).toEqual(before.elements.grp_inner)
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('rotates a nested group independently of its parent', () => {
+    const engine = new EditorEngine(makeNestedGroupDocument())
+    engine.dispatch({ type: 'setElementRotation', elementId: 'grp_outer', rotation: 900000 })
+    const state = engine.dispatch({ type: 'setElementRotation', elementId: 'grp_inner', rotation: 1800000 })
+
+    expect(state.document.elements.grp_outer).toMatchObject({ rotation: 900000 })
+    expect(state.document.elements.grp_inner).toMatchObject({ rotation: 1800000 })
+  })
+
+  it('removes a zero group rotation and restores it with undo', () => {
+    const engine = new EditorEngine(makeNestedGroupDocument())
+    engine.dispatch({ type: 'setElementRotation', elementId: 'grp_outer', rotation: 600000 })
+    const cleared = engine.dispatch({ type: 'setElementRotation', elementId: 'grp_outer', rotation: 0 })
+    expect(cleared.document.elements.grp_outer).not.toHaveProperty('rotation')
+
+    expect(engine.dispatch({ type: 'undo' }).document.elements.grp_outer).toMatchObject({ rotation: 600000 })
+  })
+
   it('rejects unsupported rotation targets atomically and restores shape rotation with undo/redo', () => {
     const engine = new EditorEngine(makeNestedGroupDocument())
     const before = engine.getState()
     expect(() => engine.dispatch({ type: 'setElementRotation', elementId: 'missing', rotation: 1 })).toThrow('element does not exist: missing')
-    expect(() => engine.dispatch({ type: 'setElementRotation', elementId: 'grp_outer', rotation: 1 })).toThrow('element cannot be rotated: grp_outer')
     expect(() => engine.dispatch({ type: 'setElementRotation', elementId: 'el_a', rotation: 1.5 })).toThrow('rotation must be an integer')
     expect(engine.getState()).toEqual(before)
 

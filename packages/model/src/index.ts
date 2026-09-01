@@ -238,6 +238,7 @@ export interface GroupElement {
   kind: 'group'
   bounds: Rect
   childIds: string[]
+  rotation?: number
 }
 
 export type ImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/bmp' | 'image/webp'
@@ -1097,7 +1098,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
   for (const [elementId, element] of Object.entries(value.elements)) {
     if (element.id !== elementId) errors.push(`element key does not match id: ${elementId}`)
     if (element.bounds.w <= 0 || element.bounds.h <= 0) errors.push(`element ${elementId} bounds must be positive`)
-    if ((element.kind === 'shape' || element.kind === 'text' || element.kind === 'table') && element.rotation !== undefined) {
+    if (element.kind !== 'image' && element.rotation !== undefined) {
       validateFiniteNumber(element.rotation, `elements.${elementId}.rotation`, errors, Number.isInteger, 'must be an integer')
     }
     if (element.kind === 'group') {

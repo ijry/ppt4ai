@@ -923,6 +923,37 @@ describe('ppt4ai file model', () => {
     })
   })
 
+  it('accepts an OOXML rotation on a group element', () => {
+    const document = structuredClone(minimalDocument)
+    document.slides.sld_1!.elementIds = ['grp_1']
+    document.elements.grp_1 = {
+      id: 'grp_1',
+      kind: 'group',
+      bounds: { x: 1000000, y: 1000000, w: 6000000, h: 2000000 },
+      childIds: ['el_shape'],
+      rotation: 2700000,
+    }
+
+    expect(validateDocument(document)).toEqual({ valid: true })
+  })
+
+  it('reports a stable path for an invalid group rotation', () => {
+    const document = structuredClone(minimalDocument)
+    document.slides.sld_1!.elementIds = ['grp_1']
+    document.elements.grp_1 = {
+      id: 'grp_1',
+      kind: 'group',
+      bounds: { x: 1000000, y: 1000000, w: 6000000, h: 2000000 },
+      childIds: ['el_shape'],
+      rotation: 2.5,
+    }
+
+    expect(validateDocument(document)).toEqual({
+      valid: false,
+      errors: ['elements.grp_1.rotation must be an integer'],
+    })
+  })
+
   it('rejects cyclic group references', () => {
     const cyclic = {
       ...minimalDocument,
