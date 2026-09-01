@@ -480,4 +480,45 @@ describe('Playground asset host wiring', () => {
     app.unmount()
     mountedApps.splice(mountedApps.indexOf(app), 1)
   })
+
+  it('renders an enabled theme panel with every slot for the seeded theme', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+
+    const panel = host.querySelector('[data-theme-panel]')
+    expect(panel).not.toBeNull()
+    expect(panel!.querySelectorAll('input[type="color"]')).toHaveLength(12)
+    expect(panel!.querySelectorAll('input:disabled')).toHaveLength(0)
+
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
+  it('applies a theme colour edit to the active page and records history', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+
+    const input = host.querySelector('[data-theme-panel] input[data-slot="accent1"]') as HTMLInputElement
+    input.value = '#123456'
+    input.dispatchEvent(new Event('change'))
+    await nextTick()
+
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
+
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
+  it('resets a theme colour slot to the Office default', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+
+    ;(host.querySelector('[data-theme-panel] button[data-slot="accent2"]') as HTMLButtonElement).click()
+    await nextTick()
+
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
+
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
 })

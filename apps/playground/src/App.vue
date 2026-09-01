@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import type { TextBody } from '@ppt4ai/model'
+import type { Color, TextBody, ThemeColorSlot } from '@ppt4ai/model'
+import { DEFAULT_THEME_COLORS } from '@ppt4ai/model'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
-import { AssetLibrary, PptEditor, ThumbnailCanvas } from '@ppt4ai/editor'
+import { AssetLibrary, hexFromColor, PptEditor, THEME_SLOT_GROUPS, ThemePanel, themeSlotGroup, ThumbnailCanvas, type ThemePanelSlotModel } from '@ppt4ai/editor'
 import { normalizeTextElement } from '@ppt4ai/text'
 import { useI18n } from 'vue-i18n'
 import { ImageFileReadError, readImageUploadFile, type PlaygroundImageUploadInput } from './image-file-upload'
@@ -39,6 +40,38 @@ const selectedElementText = computed(() => {
   const element = activeSlideSnapshot.value.engineState.document.elements[elementId]
   return element?.kind === 'image' ? `${element.id} → ${element.assetId}` : elementId
 })
+
+const activeThemeId = computed(() => {
+  const document = activeSlideSnapshot.value.engineState.document
+  const slide = document.slides[assetSnapshot.value.activeSlideId]
+  const layout = slide?.layoutId ? document.layouts?.[slide.layoutId] : undefined
+  const masterId = slide?.masterId ?? layout?.masterId
+  const themeId = masterId ? document.masters?.[masterId]?.themeId : undefined
+  return themeId && document.themes?.[themeId] ? themeId : undefined
+})
+const themeSlots = computed<ThemePanelSlotModel[]>(() => {
+  const themeId = activeThemeId.value
+  const colors = themeId ? activeSlideSnapshot.value.engineState.document.themes?.[themeId]?.colors : undefined
+  if (!colors) return []
+  return THEME_SLOT_GROUPS.flatMap((group) => group.slots).map((slot) => {
+    const value = colors[slot]
+    return {
+      slot,
+      group: themeSlotGroup(slot),
+      color: hexFromColor(value ?? DEFAULT_THEME_COLORS[slot], slot),
+      isDefault: value === null,
+      inherited: value === undefined,
+    }
+  })
+})
+
+function setThemeColor(slot: ThemeColorSlot, color: Color): void {
+  assetSnapshot.value = assetHost.setThemeColor(slot, color)
+}
+
+function resetThemeColor(slot: ThemeColorSlot): void {
+  assetSnapshot.value = assetHost.setThemeColor(slot, null)
+}
 
 function selectAsset(assetId: string): void {
   assetSnapshot.value = assetHost.selectAsset(assetId)
@@ -320,6 +353,12 @@ async function uploadFile(event: Event): Promise<void> {
           @select="selectAsset"
           @insert="insertAsset"
           @replace="replaceAsset"
+        />
+        <ThemePanel
+          :active="activeThemeId !== undefined"
+          :slots="themeSlots"
+          @set-color="setThemeColor"
+          @reset-color="resetThemeColor"
         />
         <section class="border border-slate-200 bg-white p-4 text-sm" :aria-label="t('playground.assetHost.title')">
           <h2 class="font-semibold">{{ t('playground.assetHost.title') }}</h2>
