@@ -1,4 +1,4 @@
-import { validateDocument, validateTextBody, type AssetMetadata, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody } from '@ppt4ai/model'
+import { validateDocument, validateTextBody, type AssetMetadata, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -70,6 +70,7 @@ export type EngineCommand =
   | { type: 'setTextBody'; elementId: string; body: TextBody }
   | { type: 'setTableCellFill'; fill: Fill | null }
   | { type: 'setTableCellBorders'; borders: Partial<Record<TableBorderSide, TableBorder | null>> }
+  | { type: 'setThemeColor'; themeId: string; slot: ThemeColorSlot; color: Color | null }
   | { type: 'mergeTableCells' }
   | { type: 'splitTableCell' }
   | { type: 'insertTableRow'; elementId: string; index: number; count?: number }
@@ -193,6 +194,8 @@ interface TableStructureResult {
 type TableBorderSide = 'left' | 'right' | 'top' | 'bottom'
 
 const tableBorderSides: TableBorderSide[] = ['left', 'right', 'top', 'bottom']
+
+const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 
 function sourceCellAt(table: TableElement, row: number, column: number): TableSourceCell | undefined {
   for (let sourceRow = 0; sourceRow < table.rows.length; sourceRow += 1) {
@@ -642,6 +645,10 @@ export class EditorEngine {
         this.setTableCellBorders(command.borders)
         break
       }
+      case 'setThemeColor': {
+        this.setThemeColor(command.themeId, command.slot, command.color)
+        break
+      }
       case 'mergeTableCells': {
         this.mergeTableCells()
         break
@@ -773,6 +780,17 @@ export class EditorEngine {
       }
     })
     this.commitValidatedTableStyles(changes)
+  }
+
+  private setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): void {
+    if (!themeColorSlots.has(slot)) throw new Error(`unsupported theme color slot: ${slot}`)
+    const nextDocument = clone(this.document)
+    const theme = nextDocument.themes?.[themeId]
+    if (!theme) throw new Error(`theme not found: ${themeId}`)
+    theme.colors[slot] = color
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`theme color is invalid: ${themeId}.${slot}: ${validation.errors.join('; ')}`)
+    this.commit([{ path: ['themes', themeId, 'colors', slot], value: color }])
   }
 
   private mergeTableCells(): void {

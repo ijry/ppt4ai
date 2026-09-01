@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EditorEngine } from './index'
-import type { AssetMetadata, Element, ImageElement, Ppt4aiDocument, TextBody } from '@ppt4ai/model'
+import type { AssetMetadata, Element, ImageElement, Ppt4aiDocument, TextBody, ThemeColorSlot } from '@ppt4ai/model'
 
 function makeDocument(): Ppt4aiDocument {
   return {
@@ -27,6 +27,14 @@ function makeDocument(): Ppt4aiDocument {
     },
     slideOrder: ['sld_1'],
   }
+}
+
+function themedDocument(): Ppt4aiDocument {
+  const document = makeDocument()
+  document.themes = { thm_1: { id: 'thm_1', colors: {} } }
+  document.masters = { mst_1: { id: 'mst_1', themeId: 'thm_1' } }
+  document.slides.sld_1!.masterId = 'mst_1'
+  return document
 }
 
 function imageAsset(id: string, mimeType: AssetMetadata['mimeType'] = 'image/png'): AssetMetadata {
@@ -963,5 +971,49 @@ describe('EditorEngine', () => {
     expect(engine.dispatch({ type: 'move', dx: 0, dy: 0 }).history).toEqual({ undoDepth: 0, redoDepth: 0 })
     expect(engine.dispatch({ type: 'zOrder', action: 'front' }).history).toEqual({ undoDepth: 1, redoDepth: 0 })
     expect(engine.dispatch({ type: 'zOrder', action: 'front' }).history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('sets a theme color slot and undoes back to inheritance', () => {
+    const engine = new EditorEngine(themedDocument())
+
+    const after = engine.dispatch({ type: 'setThemeColor', themeId: 'thm_1', slot: 'accent1', color: { type: 'srgb', v: 'FF0000' } })
+    expect(after.document.themes?.thm_1?.colors.accent1).toEqual({ type: 'srgb', v: 'FF0000' })
+    expect(after.history.undoDepth).toBe(1)
+
+    const undone = engine.dispatch({ type: 'undo' })
+    expect('accent1' in (undone.document.themes?.thm_1?.colors ?? {})).toBe(false)
+    expect(engine.dispatch({ type: 'redo' }).document.themes?.thm_1?.colors.accent1).toEqual({ type: 'srgb', v: 'FF0000' })
+  })
+
+  it('resets a theme color slot to the Office default by writing null', () => {
+    const document = themedDocument()
+    document.themes!.thm_1!.colors.accent1 = { type: 'srgb', v: 'FF0000' }
+    const engine = new EditorEngine(document)
+
+    const after = engine.dispatch({ type: 'setThemeColor', themeId: 'thm_1', slot: 'accent1', color: null })
+
+    expect(after.document.themes?.thm_1?.colors.accent1).toBeNull()
+    expect(engine.dispatch({ type: 'undo' }).document.themes?.thm_1?.colors.accent1).toEqual({ type: 'srgb', v: 'FF0000' })
+  })
+
+  it('rejects unknown themes, unsupported slots, and invalid theme colors', () => {
+    const document = themedDocument()
+    document.themes!.thm_1!.colors.accent1 = { type: 'srgb', v: 'FF0000' }
+    const engine = new EditorEngine(document)
+    const before = engine.getState().document
+
+    expect(() => engine.dispatch({ type: 'setThemeColor', themeId: 'missing', slot: 'accent1', color: null })).toThrow(/theme not found: missing/)
+    expect(() => engine.dispatch({ type: 'setThemeColor', themeId: 'thm_1', slot: 'nope' as ThemeColorSlot, color: null })).toThrow(/unsupported theme color slot: nope/)
+    expect(() => engine.dispatch({ type: 'setThemeColor', themeId: 'thm_1', slot: 'accent1', color: { type: 'srgb', v: '' } })).toThrow(/theme color is invalid/)
+    expect(engine.getState().document).toEqual(before)
+    expect(engine.getState().history.undoDepth).toBe(0)
+  })
+
+  it('ignores a theme color write that changes nothing', () => {
+    const document = themedDocument()
+    document.themes!.thm_1!.colors.accent1 = { type: 'srgb', v: 'FF0000' }
+    const engine = new EditorEngine(document)
+
+    expect(engine.dispatch({ type: 'setThemeColor', themeId: 'thm_1', slot: 'accent1', color: { type: 'srgb', v: 'FF0000' } }).history.undoDepth).toBe(0)
   })
 })
