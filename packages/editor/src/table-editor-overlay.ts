@@ -12,6 +12,7 @@ export interface TableEditorCell {
 export interface TableEditorOverlayModel {
   bounds: { x: number; y: number; width: number; height: number }
   cells: TableEditorCell[]
+  rotation: number
 }
 
 function assertFinitePositiveRect(rect: { x: number; y: number; w: number; h: number }, name: string): void {
@@ -45,6 +46,7 @@ function pointInRect(
 export function createTableEditorOverlay(table: SceneTableNode, transform: TextViewportTransform): TableEditorOverlayModel {
   assertFinitePositiveRect(table.bounds, 'table bounds')
   return {
+    rotation: table.transform?.rotation ?? 0,
     bounds: layoutRectToScreen({ x: table.bounds.x, y: table.bounds.y, width: table.bounds.w, height: table.bounds.h }, transform),
     cells: table.layout.cells.map((cell) => {
       assertCell(cell)
@@ -58,9 +60,28 @@ export function createTableEditorOverlay(table: SceneTableNode, transform: TextV
   }
 }
 
+// Screen-space counterpart of containsRotated in slide-canvas.ts, which rotates in EMU space.
+function unrotatePoint(
+  point: { x: number; y: number },
+  bounds: TableEditorOverlayModel['bounds'],
+  rotation: number,
+): { x: number; y: number } {
+  if (!rotation) return point
+  const centreX = bounds.x + bounds.width / 2
+  const centreY = bounds.y + bounds.height / 2
+  const angle = -rotation * Math.PI / 10800000
+  const dx = point.x - centreX
+  const dy = point.y - centreY
+  return {
+    x: centreX + dx * Math.cos(angle) - dy * Math.sin(angle),
+    y: centreY + dx * Math.sin(angle) + dy * Math.cos(angle),
+  }
+}
+
 export function tableCellAtPoint(model: TableEditorOverlayModel, point: { x: number; y: number }): TableEditorCell | undefined {
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) throw new Error('point must be finite')
-  return model.cells.find((cell) => pointInRect(point, cell.rect, model.bounds))
+  const local = unrotatePoint(point, model.bounds, model.rotation)
+  return model.cells.find((cell) => pointInRect(local, cell.rect, model.bounds))
 }
 
 export function selectedTableCells(cells: TableEditorCell[], selection: TableCellSelection): TableEditorCell[] {

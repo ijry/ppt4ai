@@ -73,6 +73,30 @@ describe('table editor overlay geometry', () => {
     expect(tableCellAtPoint(model, { x: 100, y: 25 })?.point).toEqual({ row: 0, column: 0 })
   })
 
+  it('reports zero rotation for an unrotated table and leaves hit testing unchanged', () => {
+    const model = createTableEditorOverlay(table, { originX: 0, originY: 0, scale: 1 })
+
+    expect(model.rotation).toBe(0)
+    expect(tableCellAtPoint(model, { x: 25, y: 60 })?.point).toEqual({ row: 1, column: 0 })
+  })
+
+  it('carries the table rotation into the overlay model', () => {
+    const rotated = { ...table, transform: { rotation: 2700000 } } as unknown as SceneTableNode
+    const model = createTableEditorOverlay(rotated, { originX: 0, originY: 0, scale: 1 })
+
+    expect(model.rotation).toBe(2700000)
+    expect(model.bounds).toEqual({ x: 0, y: 0, width: 100, height: 80 })
+  })
+
+  it('resolves cells in rotated screen space so clicks match the painted table', () => {
+    const rotated = { ...table, transform: { rotation: 10800000 } } as unknown as SceneTableNode
+    const model = createTableEditorOverlay(rotated, { originX: 0, originY: 0, scale: 1 })
+
+    // Half a turn about the centre (50, 40) maps the bottom-left cell to the top-right.
+    expect(tableCellAtPoint(model, { x: 75, y: 20 })?.point).toEqual({ row: 1, column: 0 })
+    expect(tableCellAtPoint(model, { x: 25, y: 60 })?.point).toEqual({ row: 0, column: 0 })
+  })
+
   it('selects source cells whose occupied spans intersect an inclusive reverse range', () => {
     const model = createTableEditorOverlay(table, { originX: 0, originY: 0, scale: 1 })
     const selected = selectedTableCells(model.cells, {

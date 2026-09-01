@@ -374,11 +374,35 @@ describe('EditorEngine', () => {
     expect(state.document.elements.el_text).toEqual({ ...before, rotation: 300000 })
   })
 
-  it('rejects unsupported rotation targets atomically and restores shape rotation with undo/redo', () => {
+  it('sets table rotation on the bare field and preserves layout and cell content', () => {
     const engine = new EditorEngine(makeTableDocument())
+    const before = engine.getState().document.elements.el_table
+    const state = engine.dispatch({ type: 'setElementRotation', elementId: 'el_table', rotation: 450000 })
+
+    expect(state.document.elements.el_table).toEqual({ ...before, rotation: 450000 })
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('removes a zero table rotation and restores it across undo and redo', () => {
+    const engine = new EditorEngine(makeTableDocument())
+    const before = engine.getState().document.elements.el_table
+    engine.dispatch({ type: 'setElementRotation', elementId: 'el_table', rotation: 450000 })
+
+    expect(engine.dispatch({ type: 'setElementRotation', elementId: 'el_table', rotation: 0 }).document.elements.el_table).not.toHaveProperty('rotation')
+
+    engine.dispatch({ type: 'undo' })
+    expect(engine.getState().document.elements.el_table).toMatchObject({ rotation: 450000 })
+    engine.dispatch({ type: 'undo' })
+    expect(engine.getState().document.elements.el_table).toEqual(before)
+    engine.dispatch({ type: 'redo' })
+    expect(engine.getState().document.elements.el_table).toMatchObject({ rotation: 450000 })
+  })
+
+  it('rejects unsupported rotation targets atomically and restores shape rotation with undo/redo', () => {
+    const engine = new EditorEngine(makeNestedGroupDocument())
     const before = engine.getState()
     expect(() => engine.dispatch({ type: 'setElementRotation', elementId: 'missing', rotation: 1 })).toThrow('element does not exist: missing')
-    expect(() => engine.dispatch({ type: 'setElementRotation', elementId: 'el_table', rotation: 1 })).toThrow('element cannot be rotated: el_table')
+    expect(() => engine.dispatch({ type: 'setElementRotation', elementId: 'grp_outer', rotation: 1 })).toThrow('element cannot be rotated: grp_outer')
     expect(() => engine.dispatch({ type: 'setElementRotation', elementId: 'el_a', rotation: 1.5 })).toThrow('rotation must be an integer')
     expect(engine.getState()).toEqual(before)
 

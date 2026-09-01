@@ -155,6 +155,7 @@ function cellLabel(cell: TableEditorCell): string {
       top: `${model.bounds.y}px`,
       width: `${model.bounds.width}px`,
       height: `${model.bounds.height}px`,
+      transform: model.rotation ? `rotate(${model.rotation / 60000}deg)` : undefined,
     }"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"

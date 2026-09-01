@@ -1180,7 +1180,7 @@ export class EditorEngine {
     }
     const nextDocument = clone(this.document)
     const next = nextDocument.elements[elementId]!
-    if (next.kind !== 'shape' && next.kind !== 'text') throw new Error(`element cannot be rotated: ${elementId}`)
+    if (next.kind !== 'shape' && next.kind !== 'text' && next.kind !== 'table') throw new Error(`element cannot be rotated: ${elementId}`)
     if (rotation === 0) delete next.rotation
     else next.rotation = rotation
     const validation = validateDocument(nextDocument)

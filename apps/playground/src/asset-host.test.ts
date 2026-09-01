@@ -235,10 +235,21 @@ describe('createPlaygroundAssetHost', () => {
     expect(cleared.engineState.document.elements.shape_demo).not.toHaveProperty('rotation')
   })
 
+  it('rotates a table through the same command, so the host does not gate the new kind', () => {
+    const host = createPlaygroundAssetHost()
+    const before = host.getSnapshot()
+
+    const table = host.rotateSelectedElement('table_demo', 1800000)
+
+    expect(table.status).toEqual({ kind: 'success', message: 'element-rotated' })
+    expect(table.engineState.document.elements.table_demo).toMatchObject({ rotation: 1800000 })
+    expect(table.engineState.history.undoDepth).toBe(before.engineState.history.undoDepth + 1)
+  })
+
   it('reports element rotation failures without changing document or history', () => {
     const host = createPlaygroundAssetHost()
 
-    for (const elementId of ['missing', 'group_demo', 'table_demo']) {
+    for (const elementId of ['missing', 'group_demo']) {
       const before = host.getSnapshot()
       const result = host.rotateSelectedElement(elementId, 900000)
       expect(result.status).toEqual({ kind: 'error', message: 'element-operation-failed' })
