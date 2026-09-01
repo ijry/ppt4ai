@@ -38,6 +38,8 @@ interface ScannedElement {
   expectedId: string
   image?: SourceImage
   sourceText?: string
+  /** Set for a `p:grpSp` placeholder, which advances the positional map but has no writable content. */
+  group?: true
 }
 
 interface ScannedSlide {
@@ -449,6 +451,15 @@ function isImportableTable(element: XmlElement): boolean {
     && rows.length > 0 && rows.every((row) => numericAttribute(row, 'h'))
 }
 
+function groupHasBounds(element: XmlElement): boolean {
+  const properties = element.children.find((child) => child.localName === 'grpSpPr')
+  const transform = properties?.children.find((child) => child.localName === 'xfrm')
+  const offset = transform?.children.find((child) => child.localName === 'off')
+  const extent = transform?.children.find((child) => child.localName === 'ext')
+  return numericAttribute(offset, 'x') && numericAttribute(offset, 'y')
+    && numericAttribute(extent, 'cx') && numericAttribute(extent, 'cy')
+}
+
 function slideElements(xml: string, slideId: string, slidePath: string, relationships: SlideRelationship[], entries: Map<string, ZipEntry>, elementNumberStart: number): ScannedSlide {
   const roots = scanXml(xml)
   const tree = descendants(roots, 'spTree')[0]
@@ -456,8 +467,15 @@ function slideElements(xml: string, slideId: string, slidePath: string, relation
   const result: ScannedElement[] = []
   const invalidPictures: Array<{ expectedId: string; error: Error }> = []
   let elementNumber = elementNumberStart
+  let groupNumber = 1
   const visit = (elements: XmlElement[]): void => {
     for (const element of elements) {
+      // Mirror the importer: a group takes a grp_N slot before its children, which keep el_N.
+      if (element.localName === 'grpSp') {
+        if (groupHasBounds(element)) result.push({ element, expectedId: `grp_${groupNumber++}`, group: true })
+        visit(element.children)
+        continue
+      }
       const candidate = element.localName === 'sp' || element.localName === 'graphicFrame' || element.localName === 'pic'
       const expectedId = candidate ? `el_${elementNumber}` : undefined
       if (candidate) elementNumber += 1
@@ -823,6 +841,11 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
     if (!source || !element) throw new Error(`PPTX export element mapping missing for slide ${slideId}`)
     const sourceElement = source.element
     if (strictIdentity && elementId !== source.expectedId) throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
+    if (source.group) {
+      if (element.kind !== 'group') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
+      replacements.push(...rotationReplacements(xml, sourceElement, element.rotation))
+      continue
+    }
     if (sourceElement.localName === 'pic') {
       if (element.kind !== 'image') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
       continue
@@ -1153,6 +1176,10 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       const sourceImage = source?.image
       if (!element) throw new Error(`PPTX export element mapping missing for slide ${slideId}`)
       if (source && plan.mode === 'reuse' && elementId !== source.expectedId) throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
+      if (source?.group) {
+        if (element.kind !== 'group') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
+        continue
+      }
       if (sourceElement?.localName === 'pic') {
         if (!sourceImage || element.kind !== 'image') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
         const pictureStart = sourceElement.start
