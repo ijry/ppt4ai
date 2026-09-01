@@ -1,3 +1,4 @@
+import { boundsCentre, rotationRadians } from '@ppt4ai/geometry'
 import type { ElementTransform, Rect } from '@ppt4ai/model'
 
 /** `bounds` must be in the coordinate space `draw` paints in: the pivot is translated out and back, so `draw` keeps its own coordinates. */
@@ -12,13 +13,12 @@ export function withRotation(
     return
   }
 
-  const centreX = bounds.x + bounds.w / 2
-  const centreY = bounds.y + bounds.h / 2
+  const centre = boundsCentre(bounds)
   context.save()
   try {
-    context.translate(centreX, centreY)
-    context.rotate(transform.rotation * Math.PI / 10800000)
-    context.translate(-centreX, -centreY)
+    context.translate(centre.x, centre.y)
+    context.rotate(rotationRadians(transform.rotation))
+    context.translate(-centre.x, -centre.y)
     draw()
   } finally {
     context.restore()

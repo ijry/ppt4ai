@@ -87,6 +87,9 @@ importers:
       '@ppt4ai/engine':
         specifier: workspace:*
         version: link:../engine
+      '@ppt4ai/geometry':
+        specifier: workspace:*
+        version: link:../geometry
       '@ppt4ai/model':
         specifier: workspace:*
         version: link:../model

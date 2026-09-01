@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { SnapGuide, SnapOptions } from '@ppt4ai/engine'
+import { rotatePointAround } from '@ppt4ai/geometry'
 import type { AssetAdapter, Rect, TextBody } from '@ppt4ai/model'
 import type { SceneGraph, SceneImageNode } from '@ppt4ai/render'
 import type { ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
@@ -426,17 +427,6 @@ function resizeEnd(payload: ResizePointerPayload): void {
 
 function resizeCancel(): void {
   clearResizeGesture()
-}
-
-function rotatePointAround(point: Point, center: Point, rotation: number): Point {
-  if (rotation === 0) return { ...point }
-  const radians = rotation * Math.PI / 10800000
-  const dx = point.x - center.x
-  const dy = point.y - center.y
-  return {
-    x: center.x + dx * Math.cos(radians) - dy * Math.sin(radians),
-    y: center.y + dx * Math.sin(radians) + dy * Math.cos(radians),
-  }
 }
 
 function resizeGestureBounds(gesture: NonNullable<typeof resizeGesture.value>, payload: ResizePointerPayload): ScreenBounds {

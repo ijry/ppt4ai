@@ -1,3 +1,4 @@
+import { rotatePointAround } from '@ppt4ai/geometry'
 import type { SceneTableLayoutCell, SceneTableNode } from '@ppt4ai/render'
 import { layoutRectToScreen, type TextViewportTransform } from './text-editor-interaction'
 
@@ -60,22 +61,14 @@ export function createTableEditorOverlay(table: SceneTableNode, transform: TextV
   }
 }
 
-// Screen-space counterpart of containsRotated in slide-canvas.ts, which rotates in EMU space.
+// Screen-space bounds are width/height named, so the centre is computed here rather than via boundsCentre.
 function unrotatePoint(
   point: { x: number; y: number },
   bounds: TableEditorOverlayModel['bounds'],
   rotation: number,
 ): { x: number; y: number } {
-  if (!rotation) return point
-  const centreX = bounds.x + bounds.width / 2
-  const centreY = bounds.y + bounds.height / 2
-  const angle = -rotation * Math.PI / 10800000
-  const dx = point.x - centreX
-  const dy = point.y - centreY
-  return {
-    x: centreX + dx * Math.cos(angle) - dy * Math.sin(angle),
-    y: centreY + dx * Math.sin(angle) + dy * Math.cos(angle),
-  }
+  const centre = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
+  return rotatePointAround(point, centre, -rotation)
 }
 
 export function tableCellAtPoint(model: TableEditorOverlayModel, point: { x: number; y: number }): TableEditorCell | undefined {

@@ -12,7 +12,49 @@ export type PathCommand =
   | { type: 'arc'; cx: number; cy: number; rx: number; ry: number; start: number; end: number }
   | { type: 'close' }
 
+export interface GeometryPoint {
+  x: number
+  y: number
+}
+
 const quarterTurn = Math.PI / 2
+
+/** OOXML states rotation in 60000ths of a degree; positive turns clockwise in a y-down space. */
+const EMU_ROTATION_TO_RADIANS = Math.PI / 10800000
+
+export function rotationRadians(rotation: number): number {
+  return rotation * EMU_ROTATION_TO_RADIANS
+}
+
+export function rotationUnitsFromRadians(radians: number): number {
+  return radians / EMU_ROTATION_TO_RADIANS
+}
+
+export function boundsCentre(bounds: GeometryBounds): GeometryPoint {
+  return { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 }
+}
+
+export function rotatePointAround(point: GeometryPoint, centre: GeometryPoint, rotation: number): GeometryPoint {
+  if (!rotation) return point
+  const angle = rotationRadians(rotation)
+  const dx = point.x - centre.x
+  const dy = point.y - centre.y
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  return {
+    x: centre.x + dx * cos - dy * sin,
+    y: centre.y + dx * sin + dy * cos,
+  }
+}
+
+function containsPoint(bounds: GeometryBounds, point: GeometryPoint): boolean {
+  return point.x >= bounds.x && point.x <= bounds.x + bounds.w && point.y >= bounds.y && point.y <= bounds.y + bounds.h
+}
+
+export function containsRotatedPoint(bounds: GeometryBounds, point: GeometryPoint, rotation: number | undefined): boolean {
+  if (!rotation) return containsPoint(bounds, point)
+  return containsPoint(bounds, rotatePointAround(point, boundsCentre(bounds), -rotation))
+}
 
 function rectanglePath({ x, y, w, h }: GeometryBounds): PathCommand[] {
   return [

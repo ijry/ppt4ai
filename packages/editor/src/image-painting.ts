@@ -1,3 +1,4 @@
+import { rotationRadians } from '@ppt4ai/geometry'
 import type { ImageCrop, ImageEffect, PresetGeometry, Rect } from '@ppt4ai/model'
 import type { SceneImageNode } from '@ppt4ai/render'
 import type { DecodedImage } from './image-canvas-renderer'
@@ -75,7 +76,7 @@ export function paintImageNode(
   try {
     context.translate(x + width / 2, y + height / 2)
     if (node.transform?.rotation) {
-      context.rotate(node.transform.rotation * Math.PI / 10800000)
+      context.rotate(rotationRadians(node.transform.rotation))
     }
     if (node.transform?.flipH || node.transform?.flipV) {
       context.scale(node.transform.flipH ? -1 : 1, node.transform.flipV ? -1 : 1)

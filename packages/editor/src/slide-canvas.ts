@@ -1,3 +1,4 @@
+import { containsRotatedPoint } from '@ppt4ai/geometry'
 import type { Rect } from '@ppt4ai/model'
 import type { SceneGraph } from '@ppt4ai/render'
 
@@ -15,19 +16,6 @@ export interface CanvasPoint {
 
 function contains(bounds: Rect, point: CanvasPoint): boolean {
   return point.x >= bounds.x && point.x <= bounds.x + bounds.w && point.y >= bounds.y && point.y <= bounds.y + bounds.h
-}
-
-function containsRotated(bounds: Rect, point: CanvasPoint, rotation: number | undefined): boolean {
-  if (!rotation) return contains(bounds, point)
-  const centreX = bounds.x + bounds.w / 2
-  const centreY = bounds.y + bounds.h / 2
-  const angle = -rotation * Math.PI / 10800000
-  const dx = point.x - centreX
-  const dy = point.y - centreY
-  return contains(bounds, {
-    x: centreX + dx * Math.cos(angle) - dy * Math.sin(angle),
-    y: centreY + dx * Math.sin(angle) + dy * Math.cos(angle),
-  })
 }
 
 export function hitTestScene(scene: SceneGraph, point: CanvasPoint, groupPath: string[] = []): string | undefined {
@@ -48,7 +36,7 @@ export function hitTestScene(scene: SceneGraph, point: CanvasPoint, groupPath: s
     const targets = [...directGroups, ...directNodes].sort((left, right) => left.paintOrder - right.paintOrder || left.sourceIndex - right.sourceIndex)
     for (let index = targets.length - 1; index >= 0; index -= 1) {
       const target = targets[index]
-      if (target && containsRotated(target.bounds, point, target.rotation)) return target.id
+      if (target && containsRotatedPoint(target.bounds, point, target.rotation)) return target.id
     }
     return undefined
   }
@@ -73,7 +61,7 @@ export function hitTestScene(scene: SceneGraph, point: CanvasPoint, groupPath: s
 
   for (let index = targets.length - 1; index >= 0; index -= 1) {
     const target = targets[index]
-    if (target && containsRotated(target.bounds, point, target.rotation)) return target.id
+    if (target && containsRotatedPoint(target.bounds, point, target.rotation)) return target.id
   }
   return undefined
 }
