@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
@@ -181,18 +181,24 @@ function updateXmlAttribute(source: string, name: string, value: string | number
     : addXmlAttribute(source, name, value)
 }
 
+function parseIntegerAttributeValue(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === '') return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && Number.isInteger(parsed) ? parsed : undefined
+}
+
 function sourceRotation(element: XmlElement): number | undefined {
   const transform = firstDescendant(element, 'xfrm')
-  const value = transform?.attributes.rot
-  if (value === undefined || value.trim() === '') return undefined
-  const rotation = Number(value)
-  return Number.isFinite(rotation) && Number.isInteger(rotation) ? rotation : undefined
+  return parseIntegerAttributeValue(transform?.attributes.rot)
 }
 
 function rotationReplacements(xml: string, sourceElement: XmlElement, rotation: number | undefined): Replacement[] {
-  const transform = firstDescendant(sourceElement, 'xfrm')
+  // A group's rotation lives on grpSpPr, so scope there rather than reaching into a child's xfrm.
+  const transform = sourceElement.localName === 'grpSp'
+    ? groupTransform(sourceElement)
+    : firstDescendant(sourceElement, 'xfrm')
   if (!transform) return []
-  const previous = sourceRotation(sourceElement)
+  const previous = parseIntegerAttributeValue(transform.attributes.rot)
   if (previous === rotation || (previous === undefined && rotation === undefined)) return []
   const openingEnd = tagEnd(xml, transform.start + 1)
   const openingXml = xml.slice(transform.start, openingEnd)
@@ -212,6 +218,54 @@ function boundsReplacements(xml: string, sourceElement: XmlElement, bounds: Rect
   return [
     { start: offset.start, end: offset.end, value: replaceXmlAttribute(replaceXmlAttribute(offsetXml, 'x', bounds.x), 'y', bounds.y) },
     { start: extent.start, end: extent.end, value: replaceXmlAttribute(replaceXmlAttribute(extentXml, 'cx', bounds.w), 'cy', bounds.h) },
+  ]
+}
+
+/**
+ * Group transforms live on `p:grpSpPr`, whose `a:xfrm` also carries `a:chOff`/`a:chExt`. Scoping
+ * to direct children avoids `firstDescendant` reaching into a nested child shape's own `a:xfrm`.
+ */
+function groupTransform(element: XmlElement): XmlElement | undefined {
+  const properties = element.children.find((child) => child.localName === 'grpSpPr')
+  return properties?.children.find((child) => child.localName === 'xfrm')
+}
+
+function rectFromPair(transform: XmlElement, offsetName: string, extentName: string): Rect | undefined {
+  const offset = transform.children.find((child) => child.localName === offsetName)
+  const extent = transform.children.find((child) => child.localName === extentName)
+  const values = [offset?.attributes.x, offset?.attributes.y, extent?.attributes.cx, extent?.attributes.cy].map((value) => Number(value))
+  if (values.some((value) => !Number.isFinite(value))) return undefined
+  const [x, y, w, h] = values
+  if (x === undefined || y === undefined || w === undefined || h === undefined) return undefined
+  return { x, y, w, h }
+}
+
+function pairReplacements(
+  xml: string,
+  transform: XmlElement,
+  offsetName: string,
+  extentName: string,
+  bounds: Rect,
+): Replacement[] {
+  const previous = rectFromPair(transform, offsetName, extentName)
+  if (!previous || previous.x === bounds.x && previous.y === bounds.y && previous.w === bounds.w && previous.h === bounds.h) return []
+  const offset = transform.children.find((child) => child.localName === offsetName)
+  const extent = transform.children.find((child) => child.localName === extentName)
+  if (!offset || !extent) return []
+  const offsetXml = xml.slice(offset.start, offset.end)
+  const extentXml = xml.slice(extent.start, extent.end)
+  return [
+    { start: offset.start, end: offset.end, value: replaceXmlAttribute(replaceXmlAttribute(offsetXml, 'x', bounds.x), 'y', bounds.y) },
+    { start: extent.start, end: extent.end, value: replaceXmlAttribute(replaceXmlAttribute(extentXml, 'cx', bounds.w), 'cy', bounds.h) },
+  ]
+}
+
+function groupBoundsReplacements(xml: string, sourceElement: XmlElement, element: GroupElement): Replacement[] {
+  const transform = groupTransform(sourceElement)
+  if (!transform) return []
+  return [
+    ...pairReplacements(xml, transform, 'off', 'ext', element.bounds),
+    ...(element.childSpace ? pairReplacements(xml, transform, 'chOff', 'chExt', element.childSpace) : []),
   ]
 }
 
@@ -844,6 +898,7 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
     if (source.group) {
       if (element.kind !== 'group') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
       replacements.push(...rotationReplacements(xml, sourceElement, element.rotation))
+      replacements.push(...groupBoundsReplacements(xml, sourceElement, element))
       continue
     }
     if (sourceElement.localName === 'pic') {
