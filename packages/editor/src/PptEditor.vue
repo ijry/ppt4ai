@@ -123,7 +123,7 @@ const selectedRotatableNode = computed(() => {
   if (selectedElementIds.value.length !== 1) return undefined
   const node = props.scene?.nodes.find((entry) => entry.id === selectedElementIds.value[0])
   if (!node) return undefined
-  return node.kind === 'image' || node.kind === 'shape' || node.kind === 'text' ? node : undefined
+  return node.kind === 'image' || node.kind === 'shape' || node.kind === 'text' || node.kind === 'table' ? node : undefined
 })
 
 function ungroupSelected(): void {
