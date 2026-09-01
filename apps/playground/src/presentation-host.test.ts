@@ -284,4 +284,34 @@ describe('createPlaygroundPresentationHost', () => {
     expect(state.selection).toEqual(['image_1'])
     expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
   })
+
+  it('routes theme colour edits to the active page and its engine history', () => {
+    const host = createPlaygroundPresentationHost()
+    host.selectSlide('sld_playground_blue')
+
+    const result = host.setThemeColor('accent1', { type: 'srgb', v: '123456' })
+    const active = result.slides.sld_playground_blue!.engineState
+    const other = result.slides.sld_playground!.engineState
+
+    expect(result.status).toEqual({ kind: 'success', message: 'theme-color-updated' })
+    expect(active.document.themes?.thm_playground?.colors.accent1).toEqual({ type: 'srgb', v: '123456' })
+    expect(active.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(other.document.themes?.thm_playground?.colors.accent1).toBeUndefined()
+  })
+
+  it('undoes and redoes a theme colour edit through the active page stack', () => {
+    const host = createPlaygroundPresentationHost()
+    host.setThemeColor('accent1', { type: 'srgb', v: '123456' })
+
+    expect(host.undo().slides.sld_playground?.engineState.document.themes?.thm_playground?.colors.accent1).toBeUndefined()
+    expect(host.redo().slides.sld_playground?.engineState.document.themes?.thm_playground?.colors.accent1).toEqual({ type: 'srgb', v: '123456' })
+  })
+
+  it('resets a theme colour to the Office default', () => {
+    const host = createPlaygroundPresentationHost()
+
+    const result = host.setThemeColor('accent1', null)
+
+    expect(result.slides.sld_playground?.engineState.document.themes?.thm_playground?.colors.accent1).toBeNull()
+  })
 })

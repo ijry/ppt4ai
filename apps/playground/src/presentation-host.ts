@@ -1,6 +1,6 @@
 import type { EngineState, ImageFlipAxis, SnapOptions } from '@ppt4ai/engine'
 import { documentToSceneGraph, type SceneGraph } from '@ppt4ai/render'
-import type { AssetAdapter, AssetMetadata, Element, Ppt4aiDocument, Rect, TextBody } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Color, Element, Ppt4aiDocument, Rect, TextBody, ThemeColorSlot } from '@ppt4ai/model'
 import { createPlaygroundAssetHost, type PlaygroundAssetHost, type PlaygroundAssetHostSnapshot } from './asset-host'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
@@ -51,6 +51,7 @@ export interface PlaygroundPresentationHost {
   rotateSelectedImage(elementId: string, rotation: number): PlaygroundPresentationSnapshot
   toggleSelectedImageFlip(elementId: string, axis: ImageFlipAxis): PlaygroundPresentationSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundPresentationSnapshot
+  setThemeColor(slot: ThemeColorSlot, color: Color | null): PlaygroundPresentationSnapshot
   selectAsset(assetId: string): PlaygroundPresentationSnapshot
   insertAsset(assetId: string): PlaygroundPresentationSnapshot
   replaceSelectedImage(assetId: string): PlaygroundPresentationSnapshot
@@ -453,6 +454,16 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     },
     updateTextElement(elementId, body) {
       return forward((host) => host.updateTextElement(elementId, body))
+    },
+    setThemeColor(slot, color) {
+      return forward((host) => {
+        const document = host.getSnapshot().engineState.document
+        const slide = document.slides[activeSlideId]
+        const layout = slide?.layoutId ? document.layouts?.[slide.layoutId] : undefined
+        const masterId = slide?.masterId ?? layout?.masterId
+        const themeId = masterId ? document.masters?.[masterId]?.themeId : undefined
+        return host.setThemeColor(themeId ?? '', slot, color)
+      })
     },
     selectAsset(assetId) {
       return forward((host) => host.selectAsset(assetId))
