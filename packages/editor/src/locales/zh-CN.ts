@@ -54,6 +54,32 @@ const zhCN = {
     unnamed: '未命名图片（{id}）',
     unknownDimensions: '尺寸未知',
   },
+  panel: {
+    theme: {
+      title: '主题颜色',
+      reset: '重置为 Office 默认值',
+      inherited: '继承源主题',
+      groups: {
+        neutral: '明暗色',
+        accent: '强调色',
+        hyperlink: '超链接',
+      },
+      slots: {
+        dk1: '深色 1',
+        lt1: '浅色 1',
+        dk2: '深色 2',
+        lt2: '浅色 2',
+        accent1: '强调色 1',
+        accent2: '强调色 2',
+        accent3: '强调色 3',
+        accent4: '强调色 4',
+        accent5: '强调色 5',
+        accent6: '强调色 6',
+        hlink: '超链接',
+        folHlink: '已访问超链接',
+      },
+    },
+  },
   status: {
     imageRotated: '图片已旋转',
     imageFlipped: '图片已翻转',

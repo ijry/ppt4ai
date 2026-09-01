@@ -54,6 +54,32 @@ const enUS = {
     unnamed: 'Unnamed image ({id})',
     unknownDimensions: 'Unknown dimensions',
   },
+  panel: {
+    theme: {
+      title: 'Theme colors',
+      reset: 'Reset to Office default',
+      inherited: 'Inherited from source theme',
+      groups: {
+        neutral: 'Dark and light',
+        accent: 'Accents',
+        hyperlink: 'Hyperlinks',
+      },
+      slots: {
+        dk1: 'Dark 1',
+        lt1: 'Light 1',
+        dk2: 'Dark 2',
+        lt2: 'Light 2',
+        accent1: 'Accent 1',
+        accent2: 'Accent 2',
+        accent3: 'Accent 3',
+        accent4: 'Accent 4',
+        accent5: 'Accent 5',
+        accent6: 'Accent 6',
+        hlink: 'Hyperlink',
+        folHlink: 'Followed hyperlink',
+      },
+    },
+  },
   status: {
     imageRotated: 'Image rotated',
     imageFlipped: 'Image flipped',
