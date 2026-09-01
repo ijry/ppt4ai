@@ -39,6 +39,7 @@ const emit = defineEmits<{
   resize: [payload: { elementId: string; bounds: { x: number; y: number; w: number; h: number } }]
   'resize-selection': [payload: { elementIds: string[]; bounds: Rect }]
   'rotate-image': [payload: { elementId: string; rotation: number }]
+  'rotate-element': [payload: { elementId: string; rotation: number }]
   'flip-image': [payload: { elementId: string; axis: ImageFlipAxis }]
   'text-edit': [payload: { elementId: string; body: TextBody }]
   group: []
@@ -118,15 +119,23 @@ const selectedImageNode = computed<SceneImageNode | undefined>(() => {
   return node?.kind === 'image' ? node : undefined
 })
 const imageTransformEnabled = computed(() => Boolean(selectedImageNode.value))
+const selectedRotatableNode = computed(() => {
+  if (selectedElementIds.value.length !== 1) return undefined
+  const node = props.scene?.nodes.find((entry) => entry.id === selectedElementIds.value[0])
+  if (!node) return undefined
+  return node.kind === 'image' || node.kind === 'shape' || node.kind === 'text' ? node : undefined
+})
 
 function ungroupSelected(): void {
   if (selectedGroupId.value) emit('ungroup', { groupId: selectedGroupId.value })
 }
 
-function rotateSelectedImage(delta: number): void {
-  const image = selectedImageNode.value
-  if (!image) return
-  emit('rotate-image', { elementId: image.id, rotation: (image.transform?.rotation ?? 0) + delta })
+function rotateSelectedNode(delta: number): void {
+  const node = selectedRotatableNode.value
+  if (!node) return
+  const rotation = (node.transform?.rotation ?? 0) + delta
+  if (node.kind === 'image') emit('rotate-image', { elementId: node.id, rotation })
+  else emit('rotate-element', { elementId: node.id, rotation })
 }
 
 function flipSelectedImage(axis: ImageFlipAxis): void {
@@ -313,11 +322,11 @@ function overlayBounds(): ScreenBounds | undefined {
 }
 
 function overlayRotation(): number {
-  const image = selectedImageNode.value
-  if (!image) return 0
-  return rotationPreview.value?.elementId === image.id
+  const node = selectedRotatableNode.value
+  if (!node) return 0
+  return rotationPreview.value?.elementId === node.id
     ? rotationPreview.value.rotation
-    : image.transform?.rotation ?? 0
+    : node.transform?.rotation ?? 0
 }
 
 function sameIds(left: readonly string[], right: readonly string[]): boolean {
@@ -446,18 +455,18 @@ function resizeGestureBounds(gesture: NonNullable<typeof resizeGesture.value>, p
 }
 
 function rotationStart(payload: RotatePointerPayload): void {
-  const image = selectedImageNode.value
-  if (!image) return
-  const bounds = toScreenBounds(image.bounds)
-  const startRotation = image.transform?.rotation ?? 0
+  const node = selectedRotatableNode.value
+  if (!node) return
+  const bounds = toScreenBounds(node.bounds)
+  const startRotation = node.transform?.rotation ?? 0
   rotationGesture.value = {
-    elementId: image.id,
+    elementId: node.id,
     startRotation,
     center: { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
     startPoint: toOverlayPoint(payload.point),
     shiftKey: payload.shiftKey,
   }
-  rotationPreview.value = { elementId: image.id, rotation: startRotation }
+  rotationPreview.value = { elementId: node.id, rotation: startRotation }
 }
 
 function currentRotation(gesture: NonNullable<typeof rotationGesture.value>, payload: RotatePointerPayload): number {
@@ -472,7 +481,7 @@ function currentRotation(gesture: NonNullable<typeof rotationGesture.value>, pay
 
 function rotationMove(payload: RotatePointerPayload): void {
   const gesture = rotationGesture.value
-  if (!gesture || selectedImageNode.value?.id !== gesture.elementId) {
+  if (!gesture || selectedRotatableNode.value?.id !== gesture.elementId) {
     if (gesture) clearRotationGesture()
     return
   }
@@ -482,11 +491,14 @@ function rotationMove(payload: RotatePointerPayload): void {
 
 function rotationEnd(payload: RotatePointerPayload): void {
   const gesture = rotationGesture.value
-  if (!gesture || selectedImageNode.value?.id !== gesture.elementId) {
+  const node = selectedRotatableNode.value
+  if (!gesture || node?.id !== gesture.elementId) {
     clearRotationGesture()
     return
   }
-  emit('rotate-image', { elementId: gesture.elementId, rotation: currentRotation(gesture, payload) })
+  const rotation = currentRotation(gesture, payload)
+  if (node.kind === 'image') emit('rotate-image', { elementId: gesture.elementId, rotation })
+  else emit('rotate-element', { elementId: gesture.elementId, rotation })
   clearRotationGesture()
 }
 
@@ -553,13 +565,13 @@ onBeforeUnmount(() => {
         >
           {{ t('toolbar.object.ungroup') }}
         </button>
-        <template v-if="imageTransformEnabled">
+        <template v-if="selectedRotatableNode">
           <button
             type="button"
             class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
             data-image-transform-button="rotate-left"
             :aria-label="t('toolbar.object.rotateLeft')"
-            @click="rotateSelectedImage(-5400000)"
+            @click="rotateSelectedNode(-5400000)"
           >
             {{ t('toolbar.object.rotateLeft') }}
           </button>
@@ -568,10 +580,12 @@ onBeforeUnmount(() => {
             class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
             data-image-transform-button="rotate-right"
             :aria-label="t('toolbar.object.rotateRight')"
-            @click="rotateSelectedImage(5400000)"
+            @click="rotateSelectedNode(5400000)"
           >
             {{ t('toolbar.object.rotateRight') }}
           </button>
+        </template>
+        <template v-if="imageTransformEnabled">
           <button
             type="button"
             class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
@@ -619,7 +633,7 @@ onBeforeUnmount(() => {
           :bounds="overlayBounds()!"
           :show-handles="selectedElementIds.length > 0"
           :rotation="overlayRotation()"
-          :show-rotation-handle="imageTransformEnabled"
+          :show-rotation-handle="Boolean(selectedRotatableNode)"
           @resize-start="resizeStart"
           @resize="resizePreviewMove"
           @resize-end="resizeEnd"

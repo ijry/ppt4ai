@@ -27,6 +27,7 @@ export interface PlaygroundAssetHost {
   resizeSelected(elementIds: string[], bounds: Rect): PlaygroundAssetHostSnapshot
   resizeElement(elementId: string, bounds: Rect): PlaygroundAssetHostSnapshot
   rotateSelectedImage(elementId: string, rotation: number): PlaygroundAssetHostSnapshot
+  rotateSelectedElement(elementId: string, rotation: number): PlaygroundAssetHostSnapshot
   toggleSelectedImageFlip(elementId: string, axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
   setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): PlaygroundAssetHostSnapshot
@@ -244,6 +245,17 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
       try {
         engine.dispatch({ type: 'setImageRotation', elementId, rotation })
         status = { kind: 'success', message: 'image-rotated' }
+      } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    rotateSelectedElement(elementId, rotation) {
+      const element = engine.getState().document.elements[elementId]
+      if (!element || (element.kind !== 'shape' && element.kind !== 'text')) return fail('element-operation-failed')
+      try {
+        engine.dispatch({ type: 'setElementRotation', elementId, rotation })
+        status = { kind: 'success', message: 'element-rotated' }
       } catch {
         return fail('element-operation-failed')
       }

@@ -323,6 +323,72 @@ describe('EditorEngine', () => {
     expect(structuredClone(engine.getState())).toEqual(engine.getState())
   })
 
+  it('sets shape rotation on the bare field and preserves other shape fields', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a'] })
+    const state = engine.dispatch({ type: 'setElementRotation', elementId: 'el_a', rotation: 1200000 })
+
+    expect(state.document.elements.el_a).toEqual({
+      id: 'el_a',
+      kind: 'shape',
+      preset: 'rect',
+      bounds: { x: 1000000, y: 1000000, w: 1000000, h: 1000000 },
+      rotation: 1200000,
+    })
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(state.selection).toEqual(['el_a'])
+  })
+
+  it('routes image rotation into the nested transform and keeps flips intact', () => {
+    const engine = new EditorEngine(makeImageDocument())
+    const state = engine.dispatch({ type: 'setElementRotation', elementId: 'img_1', rotation: 2700000 })
+
+    expect(state.document.elements.img_1).toMatchObject({
+      transform: { rotation: 2700000, flipH: true },
+      maskPreset: 'roundRect',
+    })
+    expect(state.document.elements.img_1).not.toHaveProperty('rotation')
+  })
+
+  it('removes a zero rotation instead of storing it', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'setElementRotation', elementId: 'el_a', rotation: 600000 })
+    const state = engine.dispatch({ type: 'setElementRotation', elementId: 'el_a', rotation: 0 })
+
+    expect(state.document.elements.el_a).not.toHaveProperty('rotation')
+  })
+
+  it('does not add history when the rotation is unchanged', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'setElementRotation', elementId: 'el_a', rotation: 900000 })
+    const state = engine.dispatch({ type: 'setElementRotation', elementId: 'el_a', rotation: 900000 })
+
+    expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+  })
+
+  it('sets text rotation on the bare field and preserves the body', () => {
+    const engine = new EditorEngine(makeTextDocument())
+    const before = engine.getState().document.elements.el_text
+    const state = engine.dispatch({ type: 'setElementRotation', elementId: 'el_text', rotation: 300000 })
+
+    expect(state.document.elements.el_text).toEqual({ ...before, rotation: 300000 })
+  })
+
+  it('rejects unsupported rotation targets atomically and restores shape rotation with undo/redo', () => {
+    const engine = new EditorEngine(makeTableDocument())
+    const before = engine.getState()
+    expect(() => engine.dispatch({ type: 'setElementRotation', elementId: 'missing', rotation: 1 })).toThrow('element does not exist: missing')
+    expect(() => engine.dispatch({ type: 'setElementRotation', elementId: 'el_table', rotation: 1 })).toThrow('element cannot be rotated: el_table')
+    expect(() => engine.dispatch({ type: 'setElementRotation', elementId: 'el_a', rotation: 1.5 })).toThrow('rotation must be an integer')
+    expect(engine.getState()).toEqual(before)
+
+    engine.dispatch({ type: 'setElementRotation', elementId: 'el_a', rotation: 1800000 })
+    engine.dispatch({ type: 'undo' })
+    expect(engine.getState().document.elements.el_a).toEqual(before.document.elements.el_a)
+    engine.dispatch({ type: 'redo' })
+    expect(engine.getState().document.elements.el_a).toMatchObject({ rotation: 1800000 })
+  })
+
   it('keeps shared old asset metadata until its final reference is replaced', () => {
     const engine = new EditorEngine(makeImageDocument(true))
     engine.dispatch({ type: 'replaceImageAsset', elementId: 'img_1', asset: imageAsset('asset_new') })

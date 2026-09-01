@@ -138,7 +138,7 @@ describe('PptEditor', () => {
     mounted.app.unmount()
   })
 
-  it('shows the rotation handle only for a single selected image', async () => {
+  it('shows the rotation handle for any single rotatable element', async () => {
     const imageMounted = mountEditor({ scene: imageScene, selectedElementId: 'image-1' })
     await nextTick()
 
@@ -149,8 +149,85 @@ describe('PptEditor', () => {
 
     const shapeMounted = mount('shape-1')
     await nextTick()
-    expect(shapeMounted.host.querySelector('[data-selection-rotation-handle]')).toBeNull()
+    expect(shapeMounted.host.querySelectorAll('[data-selection-rotation-handle]')).toHaveLength(1)
     shapeMounted.app.unmount()
+
+    const textMounted = mountEditor({ scene: textScene, selectedElementId: 'text-1' })
+    await nextTick()
+    expect(textMounted.host.querySelectorAll('[data-selection-rotation-handle]')).toHaveLength(1)
+    textMounted.app.unmount()
+  })
+
+  it('hides the rotation handle for multi-selection and for a selected group', async () => {
+    const multiMounted = mountEditor({ scene: multiSelectionScene, selectedElementIds: ['shape-1', 'shape-2'] })
+    await nextTick()
+    expect(multiMounted.host.querySelector('[data-selection-rotation-handle]')).toBeNull()
+    multiMounted.app.unmount()
+
+    const groupMounted = mountEditor({ scene: groupedScene, selectedElementId: 'group-1' })
+    await nextTick()
+    expect(groupMounted.host.querySelector('[data-selection-rotation-handle]')).toBeNull()
+    groupMounted.app.unmount()
+  })
+
+  it('emits rotate-element for a shape gesture and snaps Shift to fifteen degrees', async () => {
+    const rotateEvents: Array<{ elementId: string; rotation: number }> = []
+    const mounted = mountEditor({
+      selectedElementId: 'shape-1',
+      onRotateElement: (payload: { elementId: string; rotation: number }) => rotateEvents.push(payload),
+    })
+    await nextTick()
+    const canvasHost = mounted.host.querySelector('.ppt-editor__canvas') as HTMLElement
+    vi.spyOn(canvasHost, 'getBoundingClientRect').mockReturnValue({ left: 40, top: 30, width: 960, height: 540 } as DOMRect)
+    const handle = mounted.host.querySelector('[data-selection-rotation-handle]') as HTMLButtonElement
+    const center = { x: 232, y: 174 }
+    const startPoint = { x: 232, y: 110 }
+    const currentPoint = { x: 296, y: 174 }
+
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: startPoint.x, clientY: startPoint.y, pointerId: 41, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointermove', { clientX: currentPoint.x, clientY: currentPoint.y, pointerId: 41, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: currentPoint.x, clientY: currentPoint.y, pointerId: 41, bubbles: true }))
+
+    expect(rotateEvents[0]).toEqual({
+      elementId: 'shape-1',
+      rotation: rotationFromPointer(0, center, startPoint, currentPoint),
+    })
+
+    const shiftedPoint = { x: 262, y: 112 }
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: startPoint.x, clientY: startPoint.y, pointerId: 42, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: shiftedPoint.x, clientY: shiftedPoint.y, shiftKey: true, pointerId: 42, bubbles: true }))
+    expect(rotateEvents[1]!.rotation % 900000).toBe(0)
+    mounted.app.unmount()
+  })
+
+  it('reads the shape gesture start angle from the existing rotation', async () => {
+    const rotatedShapeScene: SceneGraph = {
+      slideId: 'slide-1',
+      page: { w: 9144000, h: 5143500 },
+      nodes: [{ id: 'shape-1', kind: 'shape', bounds: { x: 914400, y: 914400, w: 1828800, h: 914400 }, path: [], transform: { rotation: 900000 } }],
+    }
+    const rotateEvents: Array<{ elementId: string; rotation: number }> = []
+    const mounted = mountEditor({
+      scene: rotatedShapeScene,
+      selectedElementId: 'shape-1',
+      onRotateElement: (payload: { elementId: string; rotation: number }) => rotateEvents.push(payload),
+    })
+    await nextTick()
+    const canvasHost = mounted.host.querySelector('.ppt-editor__canvas') as HTMLElement
+    vi.spyOn(canvasHost, 'getBoundingClientRect').mockReturnValue({ left: 40, top: 30, width: 960, height: 540 } as DOMRect)
+    const handle = mounted.host.querySelector('[data-selection-rotation-handle]') as HTMLButtonElement
+    const center = { x: 232, y: 174 }
+    const startPoint = { x: 232, y: 110 }
+    const currentPoint = { x: 296, y: 174 }
+
+    handle.dispatchEvent(new PointerEvent('pointerdown', { clientX: startPoint.x, clientY: startPoint.y, pointerId: 43, bubbles: true }))
+    handle.dispatchEvent(new PointerEvent('pointerup', { clientX: currentPoint.x, clientY: currentPoint.y, pointerId: 43, bubbles: true }))
+
+    expect(rotateEvents[0]).toEqual({
+      elementId: 'shape-1',
+      rotation: rotationFromPointer(900000, center, startPoint, currentPoint),
+    })
+    mounted.app.unmount()
   })
 
   it('renders image transform buttons only for a single image and emits typed intents', async () => {
@@ -185,9 +262,20 @@ describe('PptEditor', () => {
     ])
     imageMounted.app.unmount()
 
-    const shapeMounted = mount('shape-1')
+    const shapeRotateEvents: unknown[] = []
+    const shapeMounted = mountEditor({
+      scene,
+      selectedElementId: 'shape-1',
+      onRotateElement: (payload: unknown) => shapeRotateEvents.push(payload),
+    })
     await nextTick()
-    expect(shapeMounted.host.querySelectorAll('[data-image-transform-button]')).toHaveLength(0)
+
+    expect([...shapeMounted.host.querySelectorAll('[data-image-transform-button]')].map((button) => button.getAttribute('data-image-transform-button'))).toEqual([
+      'rotate-left',
+      'rotate-right',
+    ])
+    ;(shapeMounted.host.querySelector('[data-image-transform-button="rotate-left"]') as HTMLButtonElement).click()
+    expect(shapeRotateEvents).toEqual([{ elementId: 'shape-1', rotation: -5400000 }])
     shapeMounted.app.unmount()
   })
 

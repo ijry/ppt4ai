@@ -178,6 +178,10 @@ function rotateImage(payload: { elementId: string; rotation: number }): void {
   assetSnapshot.value = assetHost.rotateSelectedImage(payload.elementId, payload.rotation)
 }
 
+function rotateElement(payload: { elementId: string; rotation: number }): void {
+  assetSnapshot.value = assetHost.rotateSelectedElement(payload.elementId, payload.rotation)
+}
+
 function flipImage(payload: { elementId: string; axis: 'horizontal' | 'vertical' }): void {
   assetSnapshot.value = assetHost.toggleSelectedImageFlip(payload.elementId, payload.axis)
 }
@@ -262,6 +266,7 @@ async function uploadFile(event: Event): Promise<void> {
           @move-end="moveElement"
           @resize="resizeElement"
           @rotate-image="rotateImage"
+          @rotate-element="rotateElement"
           @flip-image="flipImage"
           @text-edit="updateTextElement"
         />

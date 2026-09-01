@@ -64,6 +64,7 @@ export type EngineCommand =
   | { type: 'replaceImageAsset'; elementId: string; asset: AssetMetadata }
   | { type: 'replaceImageAssetReference'; elementId: string; assetId: string }
   | { type: 'setImageRotation'; elementId: string; rotation: number }
+  | { type: 'setElementRotation'; elementId: string; rotation: number }
   | { type: 'toggleImageFlip'; elementId: string; axis: ImageFlipAxis }
   | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
   | { type: 'setTableCellText'; body: TextBody }
@@ -621,6 +622,10 @@ export class EditorEngine {
         this.setImageRotation(command.elementId, command.rotation)
         break
       }
+      case 'setElementRotation': {
+        this.setElementRotation(command.elementId, command.rotation)
+        break
+      }
       case 'toggleImageFlip': {
         this.toggleImageFlip(command.elementId, command.axis)
         break
@@ -1163,6 +1168,25 @@ export class EditorEngine {
     if (!Number.isInteger(rotation)) throw new Error('rotation must be an integer')
     const transform = this.normalizeImageTransform({ ...element.transform, rotation })
     this.commitImageTransform(elementId, transform)
+  }
+
+  private setElementRotation(elementId: string, rotation: number): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`element does not exist: ${elementId}`)
+    if (!Number.isInteger(rotation)) throw new Error('rotation must be an integer')
+    if (element.kind === 'image') {
+      this.commitImageTransform(elementId, this.normalizeImageTransform({ ...element.transform, rotation }))
+      return
+    }
+    const nextDocument = clone(this.document)
+    const next = nextDocument.elements[elementId]!
+    if (next.kind !== 'shape' && next.kind !== 'text') throw new Error(`element cannot be rotated: ${elementId}`)
+    if (rotation === 0) delete next.rotation
+    else next.rotation = rotation
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`element rotation is invalid: ${elementId}: ${validation.errors.join('; ')}`)
+
+    this.commit([{ path: ['elements', elementId, 'rotation'], value: rotation === 0 ? undefined : rotation }])
   }
 
   private toggleImageFlip(elementId: string, axis: ImageFlipAxis): void {

@@ -218,6 +218,41 @@ describe('createPlaygroundAssetHost', () => {
     expect(invalid.engineState.history).toEqual(beforeInvalid.engineState.history)
   })
 
+  it('rotates a shape and a text element through one engine command each', () => {
+    const host = createPlaygroundAssetHost()
+    const before = host.getSnapshot()
+
+    const shape = host.rotateSelectedElement('shape_demo', 2700000)
+    expect(shape.status).toEqual({ kind: 'success', message: 'element-rotated' })
+    expect(shape.engineState.document.elements.shape_demo).toMatchObject({ rotation: 2700000 })
+    expect(shape.engineState.history.undoDepth).toBe(before.engineState.history.undoDepth + 1)
+
+    const text = host.rotateSelectedElement('text_demo', 900000)
+    expect(text.engineState.document.elements.text_demo).toMatchObject({ rotation: 900000 })
+    expect(text.engineState.history.undoDepth).toBe(shape.engineState.history.undoDepth + 1)
+
+    const cleared = host.rotateSelectedElement('shape_demo', 0)
+    expect(cleared.engineState.document.elements.shape_demo).not.toHaveProperty('rotation')
+  })
+
+  it('reports element rotation failures without changing document or history', () => {
+    const host = createPlaygroundAssetHost()
+
+    for (const elementId of ['missing', 'group_demo', 'table_demo']) {
+      const before = host.getSnapshot()
+      const result = host.rotateSelectedElement(elementId, 900000)
+      expect(result.status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+      expect(result.engineState.document).toEqual(before.engineState.document)
+      expect(result.engineState.history).toEqual(before.engineState.history)
+    }
+
+    const beforeInvalid = host.getSnapshot()
+    const invalid = host.rotateSelectedElement('shape_demo', 1.5)
+    expect(invalid.status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+    expect(invalid.engineState.document).toEqual(beforeInvalid.engineState.document)
+    expect(invalid.engineState.history).toEqual(beforeInvalid.engineState.history)
+  })
+
   it('reports missing assets and missing image targets without changing history', () => {
     const host = createPlaygroundAssetHost()
     const missingAsset = host.insertAsset('asset_missing')
