@@ -506,6 +506,21 @@ function descendantElementIds(document: Ppt4aiDocument, rootId: string, visited 
   return [rootId, ...element.childIds.flatMap((childId) => descendantElementIds(document, childId, visited))]
 }
 
+/**
+ * Elements whose own bounds must be rewritten to move or scale `rootId`.
+ *
+ * Descent stops at a group that declares a `childSpace`: its descendants are stored in that
+ * authored space and the scene graph maps them onto the group's current bounds, so rewriting
+ * them here as well would apply the transform twice.
+ */
+function boundsMappedElementIds(document: Ppt4aiDocument, rootId: string, visited = new Set<string>()): string[] {
+  if (visited.has(rootId) || !document.elements[rootId]) return []
+  visited.add(rootId)
+  const element = document.elements[rootId]!
+  if (element.kind !== 'group' || element.childSpace) return [rootId]
+  return [rootId, ...element.childIds.flatMap((childId) => boundsMappedElementIds(document, childId, visited))]
+}
+
 function selectionRoots(document: Ppt4aiDocument, elementIds: string[]): string[] {
   const selectedIds = validSelection(document, elementIds)
   return selectedIds.filter((elementId) => !selectedIds.some((candidateId) => (
@@ -896,7 +911,7 @@ export class EditorEngine {
       ...(xSnap ? [{ axis: 'x' as const, position: xSnap.position, source: xSnap.source, ...(xSnap.elementId ? { elementId: xSnap.elementId } : {}) }] : []),
       ...(ySnap ? [{ axis: 'y' as const, position: ySnap.position, source: ySnap.source, ...(ySnap.elementId ? { elementId: ySnap.elementId } : {}) }] : []),
     ]
-    const movedIds = selectedIds.flatMap((elementId) => descendantElementIds(this.document, elementId))
+    const movedIds = selectedIds.flatMap((elementId) => boundsMappedElementIds(this.document, elementId))
     this.commit(movedIds.flatMap((elementId) => {
       const element = this.document.elements[elementId]
       if (!element) return []
@@ -925,7 +940,7 @@ export class EditorEngine {
       w: source.w * scaleX,
       h: source.h * scaleY,
     })
-    const descendantIds = descendantElementIds(this.document, elementId)
+    const descendantIds = boundsMappedElementIds(this.document, elementId)
     this.commit(descendantIds.map((descendantId) => ({
       path: ['elements', descendantId, 'bounds'],
       value: descendantId === elementId ? bounds : mapBounds(this.document.elements[descendantId]!.bounds),
@@ -940,7 +955,7 @@ export class EditorEngine {
     if (!previous) return
     const scaleX = bounds.w / previous.w
     const scaleY = bounds.h / previous.h
-    const mappedIds = [...new Set(roots.flatMap((rootId) => descendantElementIds(this.document, rootId)))]
+    const mappedIds = [...new Set(roots.flatMap((rootId) => boundsMappedElementIds(this.document, rootId)))]
     this.commit(mappedIds.map((elementId) => {
       const source = this.document.elements[elementId]
       if (!source) return { path: ['elements', elementId, 'bounds'], value: undefined }
