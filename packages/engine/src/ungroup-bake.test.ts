@@ -6,7 +6,7 @@ import { EditorEngine } from './index'
 const quarterTurn = 5400000
 
 /** Two leaves inside a rotated group, so ungroup has to preserve a visible transform. */
-function rotatedGroupDocument(options: { rotation?: number; childSpace?: { x: number; y: number; w: number; h: number }; leafRotation?: number } = {}): Ppt4aiDocument {
+function rotatedGroupDocument(options: { rotation?: number; childSpace?: { x: number; y: number; w: number; h: number }; leafRotation?: number; flipH?: boolean; flipV?: boolean } = {}): Ppt4aiDocument {
   return {
     format: 'ppt4ai',
     version: 1,
@@ -21,6 +21,8 @@ function rotatedGroupDocument(options: { rotation?: number; childSpace?: { x: nu
         childIds: ['el_a', 'el_b'],
         ...(options.rotation === undefined ? {} : { rotation: options.rotation }),
         ...(options.childSpace ? { childSpace: options.childSpace } : {}),
+        ...(options.flipH ? { flipH: true } : {}),
+        ...(options.flipV ? { flipV: true } : {}),
       },
       el_a: {
         id: 'el_a',
@@ -100,6 +102,40 @@ describe('ungroup preserves the visible result', () => {
 
     expect(state.document.elements.el_a).toEqual(before.elements.el_a)
     expect(state.document.elements.el_b).toEqual(before.elements.el_b)
+  })
+
+  it('bakes a group flip onto each former child', () => {
+    const engine = new EditorEngine(rotatedGroupDocument({ flipH: true }))
+    const before = sceneNode(engine.getState().document, 'el_a')
+
+    const state = engine.dispatch({ type: 'ungroup', groupId: 'grp_1' })
+    const after = sceneNode(state.document, 'el_a')
+
+    // el_a fills the left half of the group, so the mirror moves it to the right half.
+    expect(state.document.elements.el_a).toMatchObject({ flipH: true, bounds: { x: 3000000 } })
+    expect(after.bounds.x).toBeCloseTo(before.bounds.x, 6)
+    expect(after.transform).toEqual(before.transform)
+  })
+
+  it('cancels a child flip that matches the group flip', () => {
+    const document = rotatedGroupDocument({ flipH: true })
+    const child = document.elements.el_a
+    if (child?.kind !== 'shape') throw new Error('expected a shape child')
+    child.flipH = true
+
+    const state = new EditorEngine(document).dispatch({ type: 'ungroup', groupId: 'grp_1' })
+
+    expect(state.document.elements.el_a).not.toHaveProperty('flipH')
+  })
+
+  it('negates a child rotation when the group flips one axis', () => {
+    const engine = new EditorEngine(rotatedGroupDocument({ flipH: true, leafRotation: 900000 }))
+    const before = sceneNode(engine.getState().document, 'el_a')
+
+    const state = engine.dispatch({ type: 'ungroup', groupId: 'grp_1' })
+
+    expect(state.document.elements.el_a).toMatchObject({ rotation: -900000 })
+    expect(sceneNode(state.document, 'el_a').transform).toEqual(before.transform)
   })
 
   it('restores the original children in one undo', () => {

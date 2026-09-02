@@ -442,6 +442,67 @@ describe('EditorEngine', () => {
     expect(engine.getState().document.elements.el_a).toMatchObject({ rotation: 1800000 })
   })
 
+  it('toggles a shape flip on the bare field and clears it rather than storing false', () => {
+    const engine = new EditorEngine(makeDocument())
+    const before = engine.getState().document.elements.el_a
+
+    const flipped = engine.dispatch({ type: 'toggleElementFlip', elementId: 'el_a', axis: 'horizontal' })
+    expect(flipped.document.elements.el_a).toEqual({ ...before, flipH: true })
+
+    const cleared = engine.dispatch({ type: 'toggleElementFlip', elementId: 'el_a', axis: 'horizontal' })
+    expect(cleared.document.elements.el_a).toEqual(before)
+    expect(cleared.history).toEqual({ undoDepth: 2, redoDepth: 0 })
+  })
+
+  it('toggles each axis independently', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'toggleElementFlip', elementId: 'el_a', axis: 'horizontal' })
+    const state = engine.dispatch({ type: 'toggleElementFlip', elementId: 'el_a', axis: 'vertical' })
+
+    expect(state.document.elements.el_a).toMatchObject({ flipH: true, flipV: true })
+  })
+
+  it('flips text, table and group on their bare fields, preserving their content', () => {
+    const textEngine = new EditorEngine(makeTextDocument())
+    const textBefore = textEngine.getState().document.elements.el_text
+    expect(textEngine.dispatch({ type: 'toggleElementFlip', elementId: 'el_text', axis: 'vertical' }).document.elements.el_text)
+      .toEqual({ ...textBefore, flipV: true })
+
+    const tableEngine = new EditorEngine(makeTableDocument())
+    const tableBefore = tableEngine.getState().document.elements.el_table
+    expect(tableEngine.dispatch({ type: 'toggleElementFlip', elementId: 'el_table', axis: 'horizontal' }).document.elements.el_table)
+      .toEqual({ ...tableBefore, flipH: true })
+
+    const groupEngine = new EditorEngine(makeNestedGroupDocument())
+    const descendantsBefore = groupEngine.getState().document.elements.el_a
+    const state = groupEngine.dispatch({ type: 'toggleElementFlip', elementId: 'grp_outer', axis: 'horizontal' })
+    expect(state.document.elements.grp_outer).toMatchObject({ flipH: true })
+    // The scene graph mirrors descendants at flatten time, so the group flip stays on the group.
+    expect(state.document.elements.el_a).toEqual(descendantsBefore)
+  })
+
+  it('routes an image flip into the nested transform, leaving no bare field behind', () => {
+    const engine = new EditorEngine(makeImageDocument())
+    const state = engine.dispatch({ type: 'toggleElementFlip', elementId: 'img_1', axis: 'vertical' })
+
+    expect(state.document.elements.img_1).toMatchObject({ transform: { rotation: 900000, flipH: true, flipV: true } })
+    expect(state.document.elements.img_1).not.toHaveProperty('flipV')
+  })
+
+  it('rejects an unsupported flip axis atomically and restores a flip with undo/redo', () => {
+    const engine = new EditorEngine(makeDocument())
+    const before = engine.getState()
+    expect(() => engine.dispatch({ type: 'toggleElementFlip', elementId: 'missing', axis: 'horizontal' })).toThrow('element does not exist: missing')
+    expect(() => engine.dispatch({ type: 'toggleElementFlip', elementId: 'el_a', axis: 'diagonal' as never })).toThrow('unsupported element flip axis: diagonal')
+    expect(engine.getState()).toEqual(before)
+
+    engine.dispatch({ type: 'toggleElementFlip', elementId: 'el_a', axis: 'horizontal' })
+    engine.dispatch({ type: 'undo' })
+    expect(engine.getState().document.elements.el_a).toEqual(before.document.elements.el_a)
+    engine.dispatch({ type: 'redo' })
+    expect(engine.getState().document.elements.el_a).toMatchObject({ flipH: true })
+  })
+
   it('keeps shared old asset metadata until its final reference is replaced', () => {
     const engine = new EditorEngine(makeImageDocument(true))
     engine.dispatch({ type: 'replaceImageAsset', elementId: 'img_1', asset: imageAsset('asset_new') })

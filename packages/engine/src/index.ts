@@ -1,4 +1,4 @@
-import { boundsCentre, cascadeRotation, mapChildSpace, rotatePointAround, type RotationPivot } from '@ppt4ai/geometry'
+import { boundsCentre, cascadeTransform, mapChildSpace, rotatePointAround, type GeometryPoint, type GroupTransform } from '@ppt4ai/geometry'
 import { validateDocument, validateTextBody, type AssetMetadata, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
@@ -68,6 +68,7 @@ export type EngineCommand =
   | { type: 'setElementRotation'; elementId: string; rotation: number }
   | { type: 'rotateSelection'; rotation: number }
   | { type: 'toggleImageFlip'; elementId: string; axis: ImageFlipAxis }
+  | { type: 'toggleElementFlip'; elementId: string; axis: ImageFlipAxis }
   | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
   | { type: 'setTableCellText'; body: TextBody }
   | { type: 'setTextBody'; elementId: string; body: TextBody }
@@ -515,6 +516,15 @@ function applyGroupSpaces(bounds: Rect, spaces: readonly GroupSpace[]): Rect {
   return mapped
 }
 
+function groupTransformOf(group: Extract<Element, { kind: 'group' }>, pivot: GeometryPoint): GroupTransform {
+  return {
+    pivot,
+    ...(group.rotation ? { rotation: group.rotation } : {}),
+    ...(group.flipH ? { flipH: true } : {}),
+    ...(group.flipV ? { flipV: true } : {}),
+  }
+}
+
 function descendantElementIds(document: Ppt4aiDocument, rootId: string, visited = new Set<string>()): string[] {
   if (visited.has(rootId) || !document.elements[rootId]) return []
   visited.add(rootId)
@@ -664,6 +674,10 @@ export class EditorEngine {
       }
       case 'toggleImageFlip': {
         this.toggleImageFlip(command.elementId, command.axis)
+        break
+      }
+      case 'toggleElementFlip': {
+        this.toggleElementFlip(command.elementId, command.axis)
         break
       }
       case 'selectTableCell': {
@@ -1068,40 +1082,51 @@ export class EditorEngine {
    * descendant is not centred in its parent.
    */
   private bakedChildChanges(group: Extract<Element, { kind: 'group' }>): Array<{ path: string[]; value: unknown }> {
-    if (!group.rotation && !group.childSpace) return []
+    if (!group.rotation && !group.childSpace && !group.flipH && !group.flipV) return []
     const changes: Array<{ path: string[]; value: unknown }> = []
-    const visit = (elementId: string, spaces: readonly GroupSpace[], rotations: readonly RotationPivot[]): void => {
+    const visit = (elementId: string, spaces: readonly GroupSpace[], ancestors: readonly GroupTransform[]): void => {
       const element = this.document.elements[elementId]
       if (!element) return
       const mapped = applyGroupSpaces(element.bounds, spaces)
-      const cascaded = cascadeRotation(mapped, element.kind === 'image' ? element.transform?.rotation : element.rotation, rotations)
+      const own = element.kind === 'image' ? element.transform ?? {} : element
+      const cascaded = cascadeTransform(mapped, own, ancestors)
       changes.push({ path: ['elements', elementId, 'bounds'], value: cascaded.bounds })
       if (element.kind === 'group') {
         // Cleared because the descendants below are being written as absolute values.
         changes.push({ path: ['elements', elementId, 'rotation'], value: undefined })
         changes.push({ path: ['elements', elementId, 'childSpace'], value: undefined })
+        changes.push({ path: ['elements', elementId, 'flipH'], value: undefined })
+        changes.push({ path: ['elements', elementId, 'flipV'], value: undefined })
         const childSpaces: GroupSpace[] = [
           ...spaces,
           { ...(element.childSpace ? { childSpace: element.childSpace } : {}), target: element.bounds },
         ]
-        const childRotations = element.rotation
-          ? [...rotations, { pivot: boundsCentre(mapped), rotation: element.rotation }]
-          : rotations
-        for (const childId of element.childIds) visit(childId, childSpaces, childRotations)
+        const childAncestors = element.rotation || element.flipH || element.flipV
+          ? [...ancestors, groupTransformOf(element, boundsCentre(mapped))]
+          : ancestors
+        for (const childId of element.childIds) visit(childId, childSpaces, childAncestors)
         return
       }
       if (element.kind === 'image') {
         const transform: ElementTransform = { ...element.transform }
         if (cascaded.rotation) transform.rotation = cascaded.rotation
         else delete transform.rotation
+        if (cascaded.flipH) transform.flipH = true
+        else delete transform.flipH
+        if (cascaded.flipV) transform.flipV = true
+        else delete transform.flipV
         changes.push({ path: ['elements', elementId, 'transform'], value: Object.keys(transform).length > 0 ? transform : undefined })
         return
       }
       changes.push({ path: ['elements', elementId, 'rotation'], value: cascaded.rotation === 0 ? undefined : cascaded.rotation })
+      changes.push({ path: ['elements', elementId, 'flipH'], value: cascaded.flipH ? true : undefined })
+      changes.push({ path: ['elements', elementId, 'flipV'], value: cascaded.flipV ? true : undefined })
     }
     const spaces: GroupSpace[] = [{ ...(group.childSpace ? { childSpace: group.childSpace } : {}), target: group.bounds }]
-    const rotations = group.rotation ? [{ pivot: boundsCentre(group.bounds), rotation: group.rotation }] : []
-    for (const childId of group.childIds) visit(childId, spaces, rotations)
+    const ancestors = group.rotation || group.flipH || group.flipV
+      ? [groupTransformOf(group, boundsCentre(group.bounds))]
+      : []
+    for (const childId of group.childIds) visit(childId, spaces, ancestors)
     return changes
   }
 
@@ -1339,6 +1364,28 @@ export class EditorEngine {
     if (axis === 'horizontal') transform.flipH = !transform.flipH
     else transform.flipV = !transform.flipV
     this.commitImageTransform(elementId, this.normalizeImageTransform(transform))
+  }
+
+  /** Images keep their flips inside `transform`; every other kind carries the bare fields. */
+  private toggleElementFlip(elementId: string, axis: ImageFlipAxis): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`element does not exist: ${elementId}`)
+    if (axis !== 'horizontal' && axis !== 'vertical') throw new Error(`unsupported element flip axis: ${String(axis)}`)
+    if (element.kind === 'image') {
+      this.toggleImageFlip(elementId, axis)
+      return
+    }
+    const field = axis === 'horizontal' ? 'flipH' : 'flipV'
+    const value = element[field] === true ? undefined : true
+    const nextDocument = clone(this.document)
+    const next = nextDocument.elements[elementId]!
+    if (next.kind === 'image') throw new Error(`element cannot be flipped: ${elementId}`)
+    if (value === undefined) delete next[field]
+    else next[field] = value
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`element flip is invalid: ${elementId}: ${validation.errors.join('; ')}`)
+
+    this.commit([{ path: ['elements', elementId, field], value }])
   }
 
   private normalizeImageTransform(transform: ElementTransform): ElementTransform | undefined {
