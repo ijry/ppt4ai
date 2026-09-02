@@ -158,10 +158,11 @@ describe('PptEditor', () => {
     textMounted.app.unmount()
   })
 
-  it('hides the rotation handle for multi-selection but shows it for a selected group', async () => {
+  it('shows the rotation handle for a multi-selection and for a selected group', async () => {
     const multiMounted = mountEditor({ scene: multiSelectionScene, selectedElementIds: ['shape-1', 'shape-2'] })
     await nextTick()
-    expect(multiMounted.host.querySelector('[data-selection-rotation-handle]')).toBeNull()
+    // A multi-selection rotates as a unit about its union centre; see multi-rotation.test.ts.
+    expect(multiMounted.host.querySelectorAll('[data-selection-rotation-handle]')).toHaveLength(1)
     multiMounted.app.unmount()
 
     const groupMounted = mountEditor({ scene: groupedScene, selectedElementId: 'group-1' })

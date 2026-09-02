@@ -258,6 +258,33 @@ describe('createPlaygroundAssetHost', () => {
     expect(group.engineState.document.elements.shape_demo).toEqual(before.engineState.document.elements.shape_demo)
   })
 
+  it('rotates a whole selection about its union centre in one history entry', () => {
+    const host = createPlaygroundAssetHost()
+    host.selectElements(['group_demo', 'table_demo'])
+    const before = host.getSnapshot()
+
+    const rotated = host.rotateSelection(5400000)
+
+    expect(rotated.status).toEqual({ kind: 'success', message: 'element-rotated' })
+    expect(rotated.engineState.history.undoDepth).toBe(before.engineState.history.undoDepth + 1)
+    expect(rotated.engineState.document.elements.group_demo).toMatchObject({ rotation: 5400000 })
+    expect(rotated.engineState.document.elements.table_demo).toMatchObject({ rotation: 5400000 })
+    // Both centres moved, so neither element kept its original box.
+    expect(rotated.engineState.document.elements.group_demo?.bounds).not.toEqual(before.engineState.document.elements.group_demo?.bounds)
+  })
+
+  it('reports a selection rotation failure without changing document or history', () => {
+    const host = createPlaygroundAssetHost()
+    host.selectElements(['group_demo'])
+    const before = host.getSnapshot()
+
+    const result = host.rotateSelection(1.5)
+
+    expect(result.status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+    expect(result.engineState.document).toEqual(before.engineState.document)
+    expect(result.engineState.history).toEqual(before.engineState.history)
+  })
+
   it('reports element rotation failures without changing document or history', () => {
     const host = createPlaygroundAssetHost()
     const imageId = host.insertAsset('asset_red').engineState.selection[0]!

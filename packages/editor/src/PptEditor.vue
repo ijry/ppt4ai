@@ -41,6 +41,7 @@ const emit = defineEmits<{
   'resize-selection': [payload: { elementIds: string[]; bounds: Rect }]
   'rotate-image': [payload: { elementId: string; rotation: number }]
   'rotate-element': [payload: { elementId: string; rotation: number }]
+  'rotate-selection': [payload: { rotation: number }]
   'flip-image': [payload: { elementId: string; axis: ImageFlipAxis }]
   'text-edit': [payload: { elementId: string; body: TextBody }]
   group: []
@@ -130,6 +131,9 @@ const selectedRotatableNode = computed(() => {
   if (node.kind !== 'image' && node.kind !== 'shape' && node.kind !== 'text' && node.kind !== 'table') return undefined
   return { id: node.id, bounds: node.bounds, rotation: node.transform?.rotation, kind: node.kind }
 })
+/** A multi-selection rotates as a unit about its union centre, so no single node owns the angle. */
+const rotatesAsSelection = computed(() => selectedElementIds.value.length > 1 && Boolean(selectedBounds()))
+const rotationHandleVisible = computed(() => Boolean(selectedRotatableNode.value) || rotatesAsSelection.value)
 
 function ungroupSelected(): void {
   if (selectedGroupId.value) emit('ungroup', { groupId: selectedGroupId.value })
@@ -159,9 +163,10 @@ const resizeGesture = ref<{
   rotation: number
   center: Point
 }>()
-const rotationPreview = ref<{ elementId: string; rotation: number }>()
+const rotationPreview = ref<{ elementId?: string; rotation: number }>()
 const rotationGesture = ref<{
-  elementId: string
+  /** Undefined while rotating a multi-selection, which turns as a unit about the union centre. */
+  elementId?: string
   startRotation: number
   center: Point
   startPoint: Point
@@ -327,11 +332,10 @@ function overlayBounds(): ScreenBounds | undefined {
 }
 
 function overlayRotation(): number {
+  const preview = rotationPreview.value
   const node = selectedRotatableNode.value
-  if (!node) return 0
-  return rotationPreview.value?.elementId === node.id
-    ? rotationPreview.value.rotation
-    : node.rotation ?? 0
+  if (!node) return preview && preview.elementId === undefined ? preview.rotation : 0
+  return preview?.elementId === node.id ? preview.rotation : node.rotation ?? 0
 }
 
 function sameIds(left: readonly string[], right: readonly string[]): boolean {
@@ -450,17 +454,18 @@ function resizeGestureBounds(gesture: NonNullable<typeof resizeGesture.value>, p
 
 function rotationStart(payload: RotatePointerPayload): void {
   const node = selectedRotatableNode.value
-  if (!node) return
-  const bounds = toScreenBounds(node.bounds)
-  const startRotation = node.rotation ?? 0
+  const bounds = node ? toScreenBounds(node.bounds) : selectedBounds()
+  if (!bounds) return
+  // A multi-selection starts from zero: the delta is what gets applied to every member.
+  const startRotation = node ? node.rotation ?? 0 : 0
   rotationGesture.value = {
-    elementId: node.id,
+    ...(node ? { elementId: node.id } : {}),
     startRotation,
     center: { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
     startPoint: toOverlayPoint(payload.point),
     shiftKey: payload.shiftKey,
   }
-  rotationPreview.value = { elementId: node.id, rotation: startRotation }
+  rotationPreview.value = { ...(node ? { elementId: node.id } : {}), rotation: startRotation }
 }
 
 function currentRotation(gesture: NonNullable<typeof rotationGesture.value>, payload: RotatePointerPayload): number {
@@ -473,26 +478,39 @@ function currentRotation(gesture: NonNullable<typeof rotationGesture.value>, pay
   )
 }
 
+/** The gesture is stale once the selection it started on is gone. */
+function rotationGestureMatchesSelection(gesture: NonNullable<typeof rotationGesture.value>): boolean {
+  if (gesture.elementId === undefined) return rotatesAsSelection.value
+  return selectedRotatableNode.value?.id === gesture.elementId
+}
+
 function rotationMove(payload: RotatePointerPayload): void {
   const gesture = rotationGesture.value
-  if (!gesture || selectedRotatableNode.value?.id !== gesture.elementId) {
+  if (!gesture || !rotationGestureMatchesSelection(gesture)) {
     if (gesture) clearRotationGesture()
     return
   }
   gesture.shiftKey = payload.shiftKey
-  rotationPreview.value = { elementId: gesture.elementId, rotation: currentRotation(gesture, payload) }
+  rotationPreview.value = {
+    ...(gesture.elementId === undefined ? {} : { elementId: gesture.elementId }),
+    rotation: currentRotation(gesture, payload),
+  }
 }
 
 function rotationEnd(payload: RotatePointerPayload): void {
   const gesture = rotationGesture.value
-  const node = selectedRotatableNode.value
-  if (!gesture || node?.id !== gesture.elementId) {
+  if (!gesture || !rotationGestureMatchesSelection(gesture)) {
     clearRotationGesture()
     return
   }
   const rotation = currentRotation(gesture, payload)
-  if (node.kind === 'image') emit('rotate-image', { elementId: gesture.elementId, rotation })
-  else emit('rotate-element', { elementId: gesture.elementId, rotation })
+  if (gesture.elementId === undefined) {
+    emit('rotate-selection', { rotation })
+  } else if (selectedRotatableNode.value?.kind === 'image') {
+    emit('rotate-image', { elementId: gesture.elementId, rotation })
+  } else {
+    emit('rotate-element', { elementId: gesture.elementId, rotation })
+  }
   clearRotationGesture()
 }
 
@@ -627,7 +645,7 @@ onBeforeUnmount(() => {
           :bounds="overlayBounds()!"
           :show-handles="selectedElementIds.length > 0"
           :rotation="overlayRotation()"
-          :show-rotation-handle="Boolean(selectedRotatableNode)"
+          :show-rotation-handle="rotationHandleVisible"
           @resize-start="resizeStart"
           @resize="resizePreviewMove"
           @resize-end="resizeEnd"
