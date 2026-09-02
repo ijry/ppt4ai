@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { EditorEngine } from '@ppt4ai/engine'
 import type { AssetAdapter, AssetMetadata, ImageElement, Ppt4aiDocument } from '@ppt4ai/model'
+import * as editorEntry from './index'
 import {
   createImageAssetController,
   ImageAssetControllerError,
@@ -149,9 +150,8 @@ describe('image asset controller', () => {
     expect(engine.getState()).toEqual(before)
   })
 
-  it('exports the controller API from the editor entry point', async () => {
-    const editor = await import('./index')
-    expect(editor.createImageAssetController).toBe(createImageAssetController)
-    expect(editor.ImageAssetControllerError).toBe(ImageAssetControllerError)
+  it('exports the controller API from the editor entry point', () => {
+    expect(editorEntry.createImageAssetController).toBe(createImageAssetController)
+    expect(editorEntry.ImageAssetControllerError).toBe(ImageAssetControllerError)
   })
 })

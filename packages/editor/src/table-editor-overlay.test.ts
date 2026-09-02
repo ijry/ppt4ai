@@ -1,5 +1,6 @@
 import type { SceneTableNode } from '@ppt4ai/render'
 import { describe, expect, it } from 'vitest'
+import * as editorEntry from './index'
 import {
   createTableEditorOverlay,
   selectedTableCells,
@@ -121,10 +122,8 @@ describe('table editor overlay geometry', () => {
     expect(structuredClone(selection)).toEqual(selection)
   })
 
-  it('exports the table overlay through the editor entry point', async () => {
-    const entry = await import('./index')
-
-    expect(entry.TableEditorOverlay).toBeDefined()
-    expect(entry.createTableEditorOverlay).toBe(createTableEditorOverlay)
+  it('exports the table overlay through the editor entry point', () => {
+    expect(editorEntry.TableEditorOverlay).toBeDefined()
+    expect(editorEntry.createTableEditorOverlay).toBe(createTableEditorOverlay)
   })
 })

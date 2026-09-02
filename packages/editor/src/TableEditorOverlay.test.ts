@@ -2,6 +2,7 @@
 import type { SceneTableNode } from '@ppt4ai/render'
 import { createApp, h, nextTick } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
+import * as editorEntry from './index'
 import TableEditorOverlay from './TableEditorOverlay.vue'
 import type { TableCellSelection } from './table-editor-overlay'
 
@@ -134,10 +135,8 @@ describe('TableEditorOverlay', () => {
     mounted.host.remove()
   })
 
-  it('exports table text editing through the editor entry point', async () => {
-    const entry = await import('./index')
-
-    expect(entry.TableCellTextEditor).toBeDefined()
-    expect(entry.createTableCellTextEditingController).toBeDefined()
+  it('exports table text editing through the editor entry point', () => {
+    expect(editorEntry.TableCellTextEditor).toBeDefined()
+    expect(editorEntry.createTableCellTextEditingController).toBeDefined()
   })
 })
