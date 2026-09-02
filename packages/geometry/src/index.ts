@@ -56,9 +56,25 @@ export function containsRotatedPoint(bounds: GeometryBounds, point: GeometryPoin
   return containsPoint(bounds, rotatePointAround(point, boundsCentre(bounds), -rotation))
 }
 
-export interface RotationPivot {
+/** A group's own transform plus the pivot it applies about, which is always its own centre. */
+export interface GroupTransform {
   pivot: GeometryPoint
+  rotation?: number
+  flipH?: boolean
+  flipV?: boolean
+}
+
+export interface ElementTransformValues {
+  rotation?: number
+  flipH?: boolean
+  flipV?: boolean
+}
+
+export interface CascadedTransform {
+  bounds: GeometryBounds
   rotation: number
+  flipH: boolean
+  flipV: boolean
 }
 
 /**
@@ -77,34 +93,47 @@ export function mapChildSpace(bounds: GeometryBounds, childSpace: GeometryBounds
 }
 
 /**
- * Fold a chain of ancestor rotations into one axis-aligned box plus a single angle.
+ * Fold a chain of ancestor transforms into one axis-aligned box plus a single angle and flip pair.
  *
  * `ancestors` is ordered outermost first, matching a top-down tree walk, but the innermost
- * ancestor acts first: it rotates its own contents before any outer ancestor moves it. Each
+ * ancestor acts first: it transforms its own contents before any outer ancestor moves them. Each
  * pivot must therefore be the ancestor's own untransformed centre.
  *
- * Rotating an already-rotated rectangle about an outside point yields a congruent rectangle,
- * so width and height are exact and only the centre moves.
+ * Each ancestor mirrors before it rotates, the order `a:xfrm` implies. Rotating or mirroring a
+ * rectangle about an outside point yields a congruent rectangle, so width and height are exact
+ * and only the centre moves.
  */
-export function cascadeRotation(
+export function cascadeTransform(
   bounds: GeometryBounds,
-  rotation: number | undefined,
-  ancestors: readonly RotationPivot[],
-): { bounds: GeometryBounds; rotation: number } {
-  let total = rotation ?? 0
+  own: ElementTransformValues,
+  ancestors: readonly GroupTransform[],
+): CascadedTransform {
+  let rotation = own.rotation ?? 0
+  let flipH = own.flipH === true
+  let flipV = own.flipV === true
   let centre = boundsCentre(bounds)
   for (let index = ancestors.length - 1; index >= 0; index -= 1) {
     const ancestor = ancestors[index]!
-    if (!ancestor.rotation) continue
-    centre = rotatePointAround(centre, ancestor.pivot, ancestor.rotation)
-    total += ancestor.rotation
+    const mirrorH = ancestor.flipH === true
+    const mirrorV = ancestor.flipV === true
+    if (mirrorH) centre = { x: 2 * ancestor.pivot.x - centre.x, y: centre.y }
+    if (mirrorV) centre = { x: centre.x, y: 2 * ancestor.pivot.y - centre.y }
+    // One mirror reverses the sense of an angle. Two are a point reflection, which does not, and
+    // which the descendant's own two flips already carry: flipH+flipV is itself a half turn.
+    if (mirrorH !== mirrorV && rotation !== 0) rotation = -rotation
+    if (mirrorH) flipH = !flipH
+    if (mirrorV) flipV = !flipV
+    if (ancestor.rotation) {
+      centre = rotatePointAround(centre, ancestor.pivot, ancestor.rotation)
+      rotation += ancestor.rotation
+    }
   }
-  if (centre.x === bounds.x + bounds.w / 2 && centre.y === bounds.y + bounds.h / 2) {
-    return { bounds, rotation: total }
-  }
+  const unmoved = centre.x === bounds.x + bounds.w / 2 && centre.y === bounds.y + bounds.h / 2
   return {
-    bounds: { x: centre.x - bounds.w / 2, y: centre.y - bounds.h / 2, w: bounds.w, h: bounds.h },
-    rotation: total,
+    bounds: unmoved ? bounds : { x: centre.x - bounds.w / 2, y: centre.y - bounds.h / 2, w: bounds.w, h: bounds.h },
+    rotation,
+    flipH,
+    flipV,
   }
 }
 
