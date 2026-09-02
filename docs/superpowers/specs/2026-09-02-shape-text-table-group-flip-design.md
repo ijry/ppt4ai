@@ -137,6 +137,25 @@ export function cascadeTransform(
 ## 6. 已知限制
 
 - **文本不镜像**（决策 4），且该结论来自微软文档而非本机阅读器实测
-- **多选整体翻转未做** —— `rotateSelection` 有对应物，翻转没有；需绕联合中心镜像并重算各元素 bounds
+- ~~**多选整体翻转未做**~~ —— **已在本切片续做完成，见第 7 节**
 - 组内翻转的镜像与 canvas 绘制的舍入可能有亚像素差异，与 overlay 旋转的同类限制一致
 - 表格单元格覆盖层不随翻转变化（因为表格不镜像，覆盖层与绘制仍然对齐）
+
+## 7. 续做：多选整体翻转
+
+第 6 节原把「多选整体翻转」列为延期，并写「需绕联合中心镜像并重算各元素 bounds」。**动手时否决了自己这句话** —— 那描述的是「镜像整个排布」，会把左边的元素搬到右边去，是伪装成翻转的布局改动。
+
+**决策 7：`flipSelection` 逐元素翻转，不绕联合中心镜像、不移动任何 bounds**
+
+依据是微软文档明确写的：*"When you rotate multiple shapes, they do not rotate as a group, but instead each shape rotates around its own center."* 翻转同属 Arrange > Rotate 菜单，语义一致。**因此 `flipSelection` 与 `rotateSelection` 形状不同**：后者确实绕联合中心公转并移动 bounds（那是我此前实现并测试固定的），前者不动 bounds。这个不对称是有意的，两处注释都写明了。
+
+选中 group 时后代不动，与单元素路径一致 —— 级联已经镜像它们。**同时选中 group 和它自己的后代时后代被跳过**（复用 `selectionRoots`），否则两次翻转相互抵消，看起来像"这个元素没反应"。
+
+**一个探针记录**：我写了 `flip-probe.test.ts` 对比「翻转组」与「翻转组内居中的子元素」，预期两者渲染相同。**未旋转时相同，子元素带旋转时不同**（`rotation` 一个取负一个不取）。查证后确认**这不是 bug**：组绕屏幕对齐的轴镜像，会反转后代角度的旋向；翻转元素自身是在它已旋转的框内镜像，不反转。子元素一旦带角度，两条镜像轴就不再平行，结果本就该分岔。该探针留在仓库里，把这个区别钉成断言，防止后来者把其中一条"修正"成另一条。
+
+**决策 8：旋转按钮同时补上多选路径**
+
+发现旋转手柄早就支持多选（`rotationHandleVisible` 含 `rotatesAsSelection`），但**工具栏的左右旋转按钮仍然只在单选时出现** —— 这是上一个旋转切片的遗漏，不是设计。两种变换现在共用一个 `transformEnabled` 门禁：能拖的选区也能点。多选时旋转按钮发 `rotate-selection`，载荷是**增量**而非绝对角度（与手势路径一致）。
+
+新增 event `flip-selection`，宿主两层转发到 `flipSelection`，状态文案复用 `element-flipped`。
+

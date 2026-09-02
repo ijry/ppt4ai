@@ -69,6 +69,7 @@ export type EngineCommand =
   | { type: 'rotateSelection'; rotation: number }
   | { type: 'toggleImageFlip'; elementId: string; axis: ImageFlipAxis }
   | { type: 'toggleElementFlip'; elementId: string; axis: ImageFlipAxis }
+  | { type: 'flipSelection'; axis: ImageFlipAxis }
   | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
   | { type: 'setTableCellText'; body: TextBody }
   | { type: 'setTextBody'; elementId: string; body: TextBody }
@@ -678,6 +679,10 @@ export class EditorEngine {
       }
       case 'toggleElementFlip': {
         this.toggleElementFlip(command.elementId, command.axis)
+        break
+      }
+      case 'flipSelection': {
+        this.flipSelection(command.axis)
         break
       }
       case 'selectTableCell': {
@@ -1386,6 +1391,43 @@ export class EditorEngine {
     if (!validation.valid) throw new Error(`element flip is invalid: ${elementId}: ${validation.errors.join('; ')}`)
 
     this.commit([{ path: ['elements', elementId, field], value }])
+  }
+
+  /**
+   * Flip every selection root about its own centre, in one history entry.
+   *
+   * Unlike `rotateSelection` this does not mirror about the union centre and does not move any
+   * bounds: Microsoft documents that a multi-selection rotates per shape rather than as a group,
+   * and a union-centre mirror would additionally reorder the elements on screen -- a layout change
+   * disguised as a flip. Descendants of a selected group are left out, because the scene cascade
+   * already mirrors them and flipping both would cancel out.
+   */
+  private flipSelection(axis: ImageFlipAxis): void {
+    if (axis !== 'horizontal' && axis !== 'vertical') throw new Error(`unsupported element flip axis: ${String(axis)}`)
+    const roots = selectionRoots(this.document, this.selection)
+    if (roots.length === 0) return
+    const field = axis === 'horizontal' ? 'flipH' : 'flipV'
+
+    const nextDocument = clone(this.document)
+    const changes: Array<{ path: string[]; value: unknown }> = []
+    for (const elementId of roots) {
+      const element = nextDocument.elements[elementId]
+      if (!element) continue
+      if (element.kind === 'image') {
+        const transform = this.normalizeImageTransform({ ...element.transform, [field]: !element.transform?.[field] })
+        if (transform) element.transform = clone(transform)
+        else delete element.transform
+        changes.push({ path: ['elements', elementId, 'transform'], value: transform })
+        continue
+      }
+      const value = element[field] === true ? undefined : true
+      if (value === undefined) delete element[field]
+      else element[field] = value
+      changes.push({ path: ['elements', elementId, field], value })
+    }
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`selection flip is invalid: ${validation.errors.join('; ')}`)
+    this.commit(changes)
   }
 
   private normalizeImageTransform(transform: ElementTransform): ElementTransform | undefined {
