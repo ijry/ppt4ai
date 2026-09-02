@@ -44,6 +44,7 @@ const emit = defineEmits<{
   'rotate-selection': [payload: { rotation: number }]
   'flip-image': [payload: { elementId: string; axis: ImageFlipAxis }]
   'flip-element': [payload: { elementId: string; axis: ImageFlipAxis }]
+  'flip-selection': [payload: { axis: ImageFlipAxis }]
   'text-edit': [payload: { elementId: string; body: TextBody }]
   group: []
   ungroup: [payload: { groupId: string }]
@@ -134,14 +135,23 @@ const selectedRotatableNode = computed(() => {
 /** A multi-selection rotates as a unit about its union centre, so no single node owns the angle. */
 const rotatesAsSelection = computed(() => selectedElementIds.value.length > 1 && Boolean(selectedBounds()))
 const rotationHandleVisible = computed(() => Boolean(selectedRotatableNode.value) || rotatesAsSelection.value)
+const transformEnabled = computed(() => Boolean(selectedRotatableNode.value) || rotatesAsSelection.value)
 
 function ungroupSelected(): void {
   if (selectedGroupId.value) emit('ungroup', { groupId: selectedGroupId.value })
 }
 
+/**
+ * The rotation gesture already covers a multi-selection, but the toolbar buttons did not. Both
+ * transforms now share one gate, so a selection that can be dragged can also be clicked.
+ */
 function rotateSelectedNode(delta: number): void {
   const node = selectedRotatableNode.value
-  if (!node) return
+  if (!node) {
+    // rotateSelection takes the delta applied to every member, not one element's absolute angle.
+    if (rotatesAsSelection.value) emit('rotate-selection', { rotation: delta })
+    return
+  }
   const rotation = (node.rotation ?? 0) + delta
   if (node.kind === 'image') emit('rotate-image', { elementId: node.id, rotation })
   else emit('rotate-element', { elementId: node.id, rotation })
@@ -149,7 +159,10 @@ function rotateSelectedNode(delta: number): void {
 
 function flipSelectedNode(axis: ImageFlipAxis): void {
   const node = selectedRotatableNode.value
-  if (!node) return
+  if (!node) {
+    if (rotatesAsSelection.value) emit('flip-selection', { axis })
+    return
+  }
   if (node.kind === 'image') emit('flip-image', { elementId: node.id, axis })
   else emit('flip-element', { elementId: node.id, axis })
 }
@@ -579,7 +592,7 @@ onBeforeUnmount(() => {
         >
           {{ t('toolbar.object.ungroup') }}
         </button>
-        <template v-if="selectedRotatableNode">
+        <template v-if="transformEnabled">
           <button
             type="button"
             class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"

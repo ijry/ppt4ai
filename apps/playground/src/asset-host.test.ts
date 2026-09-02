@@ -320,6 +320,33 @@ describe('createPlaygroundAssetHost', () => {
     expect(image.engineState.document).toEqual(beforeImage.engineState.document)
   })
 
+  it('flips a whole selection in one history entry, each element about its own centre', () => {
+    const host = createPlaygroundAssetHost()
+    host.selectElements(['group_demo', 'table_demo'])
+    const before = host.getSnapshot()
+
+    const flipped = host.flipSelection('horizontal')
+
+    expect(flipped.status).toEqual({ kind: 'success', message: 'element-flipped' })
+    expect(flipped.engineState.history.undoDepth).toBe(before.engineState.history.undoDepth + 1)
+    expect(flipped.engineState.document.elements.group_demo).toMatchObject({ flipH: true })
+    expect(flipped.engineState.document.elements.table_demo).toMatchObject({ flipH: true })
+    // Unlike rotateSelection, no bounds move: a flip is not a rearrangement.
+    expect(flipped.engineState.document.elements.table_demo?.bounds).toEqual(before.engineState.document.elements.table_demo?.bounds)
+  })
+
+  it('reports a selection flip failure without changing document or history', () => {
+    const host = createPlaygroundAssetHost()
+    host.selectElements(['group_demo'])
+    const before = host.getSnapshot()
+
+    const result = host.flipSelection('diagonal' as never)
+
+    expect(result.status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+    expect(result.engineState.document).toEqual(before.engineState.document)
+    expect(result.engineState.history).toEqual(before.engineState.history)
+  })
+
   it('reports element rotation failures without changing document or history', () => {
     const host = createPlaygroundAssetHost()
     const imageId = host.insertAsset('asset_red').engineState.selection[0]!

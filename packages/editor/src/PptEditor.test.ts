@@ -186,6 +186,36 @@ describe('PptEditor', () => {
     mounted.app.unmount()
   })
 
+  it('offers the transform buttons to a multi-selection and emits the selection-shaped intents', async () => {
+    const rotateEvents: unknown[] = []
+    const flipEvents: unknown[] = []
+    const elementEvents: unknown[] = []
+    const mounted = mountEditor({
+      scene: multiSelectionScene,
+      selectedElementIds: ['shape-1', 'shape-2'],
+      onRotateSelection: (payload: unknown) => rotateEvents.push(payload),
+      onFlipSelection: (payload: unknown) => flipEvents.push(payload),
+      onFlipElement: (payload: unknown) => elementEvents.push(payload),
+    })
+    await nextTick()
+
+    expect([...mounted.host.querySelectorAll('[data-image-transform-button]')].map((button) => button.getAttribute('data-image-transform-button'))).toEqual([
+      'rotate-left',
+      'rotate-right',
+      'flip-horizontal',
+      'flip-vertical',
+    ])
+    ;(mounted.host.querySelector('[data-image-transform-button="rotate-right"]') as HTMLButtonElement).click()
+    ;(mounted.host.querySelector('[data-image-transform-button="flip-horizontal"]') as HTMLButtonElement).click()
+
+    // The rotation payload is the delta applied to every member, not one element's absolute angle.
+    expect(rotateEvents).toEqual([{ rotation: 5400000 }])
+    expect(flipEvents).toEqual([{ axis: 'horizontal' }])
+    // No element-scoped event goes out alongside it, or the flip would be applied twice.
+    expect(elementEvents).toEqual([])
+    mounted.app.unmount()
+  })
+
   it('emits rotate-element for a shape gesture and snaps Shift to fifteen degrees', async () => {
     const rotateEvents: Array<{ elementId: string; rotation: number }> = []
     const mounted = mountEditor({

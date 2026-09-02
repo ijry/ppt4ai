@@ -194,6 +194,10 @@ function flipElement(payload: { elementId: string; axis: 'horizontal' | 'vertica
   assetSnapshot.value = assetHost.toggleSelectedElementFlip(payload.elementId, payload.axis)
 }
 
+function flipSelection(payload: { axis: 'horizontal' | 'vertical' }): void {
+  assetSnapshot.value = assetHost.flipSelection(payload.axis)
+}
+
 function updateTextElement(payload: { elementId: string; body: TextBody }): void {
   assetSnapshot.value = assetHost.updateTextElement(payload.elementId, payload.body)
 }
@@ -278,6 +282,7 @@ async function uploadFile(event: Event): Promise<void> {
           @rotate-selection="rotateSelection"
           @flip-image="flipImage"
           @flip-element="flipElement"
+          @flip-selection="flipSelection"
           @text-edit="updateTextElement"
         />
         <nav data-testid="editing-history-toolbar" class="mt-4 flex flex-wrap items-center gap-2" :aria-label="t('playground.history.title')">

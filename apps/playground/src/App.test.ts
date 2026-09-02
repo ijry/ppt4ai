@@ -435,6 +435,29 @@ describe('Playground asset host wiring', () => {
     mountedApps.splice(mountedApps.indexOf(app), 1)
   })
 
+  it('flips a multi-selection through the same toolbar buttons', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+    const canvas = host.querySelector('[data-slide-canvas]') as HTMLCanvasElement
+    vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 1280, height: 720 } as DOMRect)
+
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 110, pointerId: 61, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 140, clientY: 110, pointerId: 61, bubbles: true }))
+    await nextTick()
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: 140, clientY: 300, pointerId: 62, shiftKey: true, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: 140, clientY: 300, pointerId: 62, shiftKey: true, bubbles: true }))
+    await nextTick()
+    expect(host.querySelector('[data-testid="selected-element"]')?.textContent).toContain('group_demo, table_demo')
+
+    ;(host.querySelector('[data-image-transform-button="flip-vertical"]') as HTMLButtonElement).click()
+    await nextTick()
+
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
+    expect(host.querySelector('[data-testid="asset-status"]')?.textContent).toContain('元素已翻转')
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
   it('reports a localized target error without changing history', async () => {
     const { app, host } = mountApp()
     await nextTick()
