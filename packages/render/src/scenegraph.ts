@@ -1,4 +1,4 @@
-import { boundsCentre, cascadeRotation, createPresetPath, mapChildSpace, type PathCommand, type RotationPivot } from '@ppt4ai/geometry'
+import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
 import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveTableCellStyle, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutRun } from '@ppt4ai/text'
@@ -20,6 +20,8 @@ export interface SceneGroup {
   ancestorIds: string[]
   paintOrder: number
   rotation?: number
+  flipH?: boolean
+  flipV?: boolean
 }
 
 export interface SceneShapeNode {
@@ -161,6 +163,16 @@ function resolveTableTextStyle(text: TableStyleText | undefined, context: SceneC
   return Object.keys(resolved).length > 0 ? resolved : undefined
 }
 
+/** Builds the scene-level transform from the bare model fields, omitted when nothing is set. */
+function elementTransform(element: { rotation?: number; flipH?: boolean; flipV?: boolean }): ElementTransform | undefined {
+  const transform: ElementTransform = {
+    ...(element.rotation ? { rotation: element.rotation } : {}),
+    ...(element.flipH ? { flipH: true } : {}),
+    ...(element.flipV ? { flipV: true } : {}),
+  }
+  return Object.keys(transform).length > 0 ? transform : undefined
+}
+
 function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: SceneColorContext): SceneShapeNode {
   const node: SceneShapeNode = {
     id: element.id,
@@ -175,7 +187,8 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   const strokeColor = resolvedFillColor(element.stroke, context)
   if (fillColor) node.resolvedFillColor = fillColor
   if (strokeColor) node.resolvedStrokeColor = strokeColor
-  if (element.rotation) node.transform = { rotation: element.rotation }
+  const transform = elementTransform(element)
+  if (transform) node.transform = transform
   return node
 }
 
@@ -194,7 +207,8 @@ function createTextNode(element: Extract<Element, { kind: 'text' }>, context: Sc
   const strokeColor = resolvedFillColor(element.stroke, context)
   if (fillColor) node.resolvedFillColor = fillColor
   if (strokeColor) node.resolvedStrokeColor = strokeColor
-  if (element.rotation) node.transform = { rotation: element.rotation }
+  const transform = elementTransform(element)
+  if (transform) node.transform = transform
   return node
 }
 
@@ -227,7 +241,8 @@ function createTableNode(element: Extract<Element, { kind: 'table' }>, context: 
   }
   if (element.fill) node.fill = structuredClone(element.fill)
   if (element.stroke) node.stroke = structuredClone(element.stroke)
-  if (element.rotation) node.transform = { rotation: element.rotation }
+  const transform = elementTransform(element)
+  if (transform) node.transform = transform
   return node
 }
 
@@ -268,24 +283,33 @@ function applyChildSpaces(bounds: Rect, spaces: readonly GroupSpace[]): Rect {
  * Cascade before the node is built, not after: text and table layouts hold absolute coordinates
  * derived from bounds, so moving bounds afterwards would leave their lines and cells behind.
  */
-function cascadeElement(element: Element, ancestorRotations: readonly RotationPivot[], spaces: readonly GroupSpace[]): Element {
+function cascadeElement(element: Element, ancestors: readonly GroupTransform[], spaces: readonly GroupSpace[]): Element {
   if (element.kind === 'group') return element
   const mapped = applyChildSpaces(element.bounds, spaces)
   if (element.kind === 'image') {
-    const cascaded = cascadeRotation(mapped, element.transform?.rotation, ancestorRotations)
+    const cascaded = cascadeTransform(mapped, element.transform ?? {}, ancestors)
     const transform: ElementTransform = {
       ...element.transform,
       ...(cascaded.rotation ? { rotation: cascaded.rotation } : {}),
+      ...(cascaded.flipH ? { flipH: true } : {}),
+      ...(cascaded.flipV ? { flipV: true } : {}),
     }
     if (!cascaded.rotation) delete transform.rotation
+    if (!cascaded.flipH) delete transform.flipH
+    if (!cascaded.flipV) delete transform.flipV
     return {
       ...element,
       bounds: cascaded.bounds,
       ...(Object.keys(transform).length > 0 ? { transform } : {}),
     }
   }
-  const cascaded = cascadeRotation(mapped, element.rotation, ancestorRotations)
-  return { ...element, bounds: cascaded.bounds, rotation: cascaded.rotation }
+  const cascaded = cascadeTransform(mapped, element, ancestors)
+  const flipped = { ...element, bounds: cascaded.bounds, rotation: cascaded.rotation }
+  if (cascaded.flipH) flipped.flipH = true
+  else delete flipped.flipH
+  if (cascaded.flipV) flipped.flipV = true
+  else delete flipped.flipV
+  return flipped
 }
 
 function createNode(
@@ -331,7 +355,7 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
   const appendElement = (
     elementId: string,
     ancestorIds: string[] = [],
-    ancestorRotations: readonly RotationPivot[] = [],
+    ancestors: readonly GroupTransform[] = [],
     spaces: readonly GroupSpace[] = [],
   ): void => {
     if (visited.has(elementId)) return
@@ -340,7 +364,7 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
     if (!element) return
     if (element.kind === 'group') {
       const mappedBounds = applyChildSpaces(element.bounds, spaces)
-      const cascaded = cascadeRotation(mappedBounds, element.rotation, ancestorRotations)
+      const cascaded = cascadeTransform(mappedBounds, element, ancestors)
       const groupIndex = groups.push({
         id: element.id,
         bounds: cascaded.bounds === element.bounds ? structuredClone(element.bounds) : cascaded.bounds,
@@ -348,23 +372,30 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
         ancestorIds: [...ancestorIds],
         paintOrder: nodes.length - 1,
         ...(cascaded.rotation ? { rotation: cascaded.rotation } : {}),
+        ...(cascaded.flipH ? { flipH: true } : {}),
+        ...(cascaded.flipV ? { flipV: true } : {}),
       }) - 1
       // Descendants are mapped into this group's on-slide box before any outer mapping applies.
       const childSpaces: GroupSpace[] = [
         ...spaces,
         { ...(element.childSpace ? { childSpace: element.childSpace } : {}), target: element.bounds },
       ]
-      // The pivot is the group's mapped centre: child space applies before rotation.
-      const childRotations = element.rotation
-        ? [...ancestorRotations, { pivot: boundsCentre(mappedBounds), rotation: element.rotation }]
-        : ancestorRotations
-      for (const childId of element.childIds) appendElement(childId, [...ancestorIds, element.id], childRotations, childSpaces)
+      // The pivot is the group's mapped centre: child space applies before rotation and mirroring.
+      const childAncestors = element.rotation || element.flipH || element.flipV
+        ? [...ancestors, {
+            pivot: boundsCentre(mappedBounds),
+            ...(element.rotation ? { rotation: element.rotation } : {}),
+            ...(element.flipH ? { flipH: true } : {}),
+            ...(element.flipV ? { flipV: true } : {}),
+          }]
+        : ancestors
+      for (const childId of element.childIds) appendElement(childId, [...ancestorIds, element.id], childAncestors, childSpaces)
       groups[groupIndex]!.paintOrder = nodes.length - 1
       return
     }
     const inherited = resolveInheritedElement(element, layout, master)
-    const cascaded = ancestorRotations.length > 0 || spaces.length > 0
-      ? cascadeElement(inherited, ancestorRotations, spaces)
+    const cascaded = ancestors.length > 0 || spaces.length > 0
+      ? cascadeElement(inherited, ancestors, spaces)
       : inherited
     const node = createNode(cascaded, context, value.tableStyles, value.assets)
     if (node) nodes.push(node)
