@@ -588,6 +588,19 @@ describe('ppt4ai file model', () => {
     })
   })
 
+  it('accepts a negative indent but not a negative marginLeft', () => {
+    // A hanging indent is the standard OOXML bullet form: marL="457200" indent="-228600".
+    expect(validateTextBody({ paragraphs: [{ attrs: { marginLeft: 457200, indent: -228600 }, runs: [{ text: 'A' }] }] })).toEqual({ valid: true })
+    expect(validateTextBody({ paragraphs: [{ attrs: { marginLeft: -1 }, runs: [{ text: 'A' }] }] })).toEqual({
+      valid: false,
+      errors: ['paragraphs[0].attrs.marginLeft must be non-negative'],
+    })
+    expect(validateTextBody({ paragraphs: [{ attrs: { indent: Number.NaN }, runs: [{ text: 'A' }] }] })).toEqual({
+      valid: false,
+      errors: ['paragraphs[0].attrs.indent must be finite'],
+    })
+  })
+
   it('requires at least one paragraph and validates resize maximum height', () => {
     expect(validateTextBody({ bodyPr: { autofit: { type: 'resize', maxHeight: -1 } }, paragraphs: [] })).toEqual({
       valid: false,

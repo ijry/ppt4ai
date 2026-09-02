@@ -752,7 +752,10 @@ function validateTextParagraph(value: unknown, path: string, errors: string[]): 
   if ('level' in attrs) {
     validateFiniteNumber(attrs.level, `${path}.attrs.level`, errors, (number) => number >= 0 && Number.isInteger(number), 'must be non-negative integer')
   }
-  for (const key of ['indent', 'marginLeft', 'spaceBefore', 'spaceAfter']) {
+  // OOXML writes a hanging indent as a negative value against a positive marL, so `indent` is
+  // signed while the other three measurements are not.
+  if ('indent' in attrs) validateFiniteNumber(attrs.indent, `${path}.attrs.indent`, errors, () => true, 'must be finite')
+  for (const key of ['marginLeft', 'spaceBefore', 'spaceAfter']) {
     if (key in attrs) validateFiniteNumber(attrs[key], `${path}.attrs.${key}`, errors, (number) => number >= 0, 'must be non-negative')
   }
   if ('lineSpacing' in attrs) validateFiniteNumber(attrs.lineSpacing, `${path}.attrs.lineSpacing`, errors, (number) => number > 0, 'must be positive')
