@@ -1,5 +1,6 @@
 import type { Color, ColorMap, ColorMapKey, ColorTransformType, ElementDefaults, Fill, Rect, TextBody } from '@ppt4ai/model'
 import { serializeColorXml, serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
+import { sourceTextBody } from './text-source.js'
 import { decodeXml, descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 
 const colorNodeNames = new Set(['srgbClr', 'schemeClr', 'prstClr', 'sysClr', 'scrgbClr'])
@@ -369,13 +370,21 @@ function strokeReplacements(xml: string, shape: XmlElement, stroke: Fill | undef
   return [{ start: insertion, end: insertion, value: `<${drawingPrefix(shape)}ln>${value}</${drawingPrefix(shape)}ln>` }]
 }
 
+/**
+ * A placeholder default body is rewritten only when it differs from the source, compared through the
+ * same serializer on both sides -- the same judgement `replaceSlideTables` uses. The old plain-text
+ * comparison could not see a formatting change, and unconditionally rewriting would drop whatever
+ * the source holds that we do not model (`a:lstStyle`, `a:defRPr`, unknown children).
+ */
 function textReplacements(xml: string, shape: XmlElement, defaults: ElementDefaults, kind: string, id: string): Replacement[] {
   const hasBody = defaults.body !== undefined
   const hasText = !hasBody && Object.prototype.hasOwnProperty.call(defaults, 'text') && defaults.text !== undefined
   if (!hasBody && !hasText) return []
   const body = hasBody ? defaults.body! : { paragraphs: [{ runs: defaults.text ? [{ text: defaults.text }] : [] }] }
-  const current = sourceText(shape)
-  if (!hasBody && current === defaults.text) return []
+  if (hasBody) {
+    const current = sourceTextBody(shape)
+    if (current && serializeTextBodyXml(current) === serializeTextBodyXml(body)) return []
+  } else if (sourceText(shape) === defaults.text) return []
   const sourceBody = descendants(shape.children, 'txBody')[0]
   const presentationPrefix = sourceBody ? namespacePrefix(sourceBody.name) : namespacePrefix(shape.name)
   const drawing = sourceBody?.children.find((child) => child.localName === 'bodyPr' || child.localName === 'p')

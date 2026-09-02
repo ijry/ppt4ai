@@ -354,9 +354,12 @@ describe('exportPptx', () => {
     edited.masters!.mst_1!.defaults!.title!.bounds!.x = 30
     edited.masters!.mst_1!.defaults!.title!.rotation = 60000
     edited.masters!.mst_1!.defaults!.title!.fill = { color: { type: 'srgb', v: 'FF0000' } }
+    // `body` now wins over `text`, matching normalizeTextElement, so the edit goes there.
+    edited.masters!.mst_1!.defaults!.title!.body = { paragraphs: [{ runs: [{ text: 'Changed master' }] }] }
     edited.masters!.mst_1!.defaults!.title!.text = 'Changed master'
     edited.masters!.mst_1!.colorMap = { accent1: 'accent1' }
     edited.layouts!.lyt_1!.defaults!.title!.fill = { color: { type: 'srgb', v: '00FF00' } }
+    edited.layouts!.lyt_1!.defaults!.title!.body = { paragraphs: [{ runs: [{ text: 'Changed layout' }] }] }
     edited.layouts!.lyt_1!.defaults!.title!.text = 'Changed layout'
     edited.layouts!.lyt_1!.colorMapOverride = { accent1: 'accent4' }
     edited.slides.sld_1!.colorMapOverride = { accent1: 'accent5' }
@@ -444,7 +447,7 @@ describe('exportPptx', () => {
     const document = await importPptx(source)
     const conflicting = structuredClone(document.masters!.mst_1!)
     conflicting.id = 'mst_2'
-    conflicting.defaults!.title!.text = 'Conflicting master'
+    conflicting.defaults!.title!.body = { paragraphs: [{ runs: [{ text: 'Conflicting master' }] }] }
     document.masters!.mst_2 = conflicting
 
     await expect(exportPptx(document, source)).rejects.toThrow('PPTX export master source conflict')
