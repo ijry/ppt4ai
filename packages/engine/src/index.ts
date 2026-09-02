@@ -1,3 +1,4 @@
+import { boundsCentre, cascadeRotation, mapChildSpace, type RotationPivot } from '@ppt4ai/geometry'
 import { validateDocument, validateTextBody, type AssetMetadata, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
@@ -496,6 +497,21 @@ function selectionBounds(document: Ppt4aiDocument, elementIds: string[]): Rect |
   const right = Math.max(...bounds.map((value) => value.x + value.w))
   const bottom = Math.max(...bounds.map((value) => value.y + value.h))
   return { x: left, y: top, w: right - left, h: bottom - top }
+}
+
+/** Mirrors the scene graph's child-space chain so ungroup can bake the same result. */
+interface GroupSpace {
+  childSpace?: Rect
+  target: Rect
+}
+
+function applyGroupSpaces(bounds: Rect, spaces: readonly GroupSpace[]): Rect {
+  let mapped = bounds
+  for (let index = spaces.length - 1; index >= 0; index -= 1) {
+    const space = spaces[index]!
+    if (space.childSpace) mapped = mapChildSpace(mapped, space.childSpace, space.target)
+  }
+  return mapped
 }
 
 function descendantElementIds(document: Ppt4aiDocument, rootId: string, visited = new Set<string>()): string[] {
@@ -1030,9 +1046,58 @@ export class EditorEngine {
     nextElementIds.splice(index, 1, ...group.childIds)
     this.commit([
       { path: ['slides', slide.id, 'elementIds'], value: nextElementIds },
+      ...this.bakedChildChanges(group),
       { path: ['elements', groupId], value: undefined },
     ])
     this.selection = [...group.childIds]
+  }
+
+  /**
+   * The scene graph applies a group's rotation and child space to its descendants at flatten time,
+   * so dissolving the group would drop both. Bake the whole subtree to absolute values instead:
+   * every descendant gets the bounds and rotation it was rendering with, and intermediate groups
+   * lose their own rotation and child space so nothing is applied twice.
+   *
+   * The rotation cannot be pushed onto an intermediate group: a group rotates about its own centre,
+   * while the outer rotation pivots about the outer group's centre, and those differ whenever a
+   * descendant is not centred in its parent.
+   */
+  private bakedChildChanges(group: Extract<Element, { kind: 'group' }>): Array<{ path: string[]; value: unknown }> {
+    if (!group.rotation && !group.childSpace) return []
+    const changes: Array<{ path: string[]; value: unknown }> = []
+    const visit = (elementId: string, spaces: readonly GroupSpace[], rotations: readonly RotationPivot[]): void => {
+      const element = this.document.elements[elementId]
+      if (!element) return
+      const mapped = applyGroupSpaces(element.bounds, spaces)
+      const cascaded = cascadeRotation(mapped, element.kind === 'image' ? element.transform?.rotation : element.rotation, rotations)
+      changes.push({ path: ['elements', elementId, 'bounds'], value: cascaded.bounds })
+      if (element.kind === 'group') {
+        // Cleared because the descendants below are being written as absolute values.
+        changes.push({ path: ['elements', elementId, 'rotation'], value: undefined })
+        changes.push({ path: ['elements', elementId, 'childSpace'], value: undefined })
+        const childSpaces: GroupSpace[] = [
+          ...spaces,
+          { ...(element.childSpace ? { childSpace: element.childSpace } : {}), target: element.bounds },
+        ]
+        const childRotations = element.rotation
+          ? [...rotations, { pivot: boundsCentre(mapped), rotation: element.rotation }]
+          : rotations
+        for (const childId of element.childIds) visit(childId, childSpaces, childRotations)
+        return
+      }
+      if (element.kind === 'image') {
+        const transform: ElementTransform = { ...element.transform }
+        if (cascaded.rotation) transform.rotation = cascaded.rotation
+        else delete transform.rotation
+        changes.push({ path: ['elements', elementId, 'transform'], value: Object.keys(transform).length > 0 ? transform : undefined })
+        return
+      }
+      changes.push({ path: ['elements', elementId, 'rotation'], value: cascaded.rotation === 0 ? undefined : cascaded.rotation })
+    }
+    const spaces: GroupSpace[] = [{ ...(group.childSpace ? { childSpace: group.childSpace } : {}), target: group.bounds }]
+    const rotations = group.rotation ? [{ pivot: boundsCentre(group.bounds), rotation: group.rotation }] : []
+    for (const childId of group.childIds) visit(childId, spaces, rotations)
+    return changes
   }
 
   private activeSlide(): Ppt4aiDocument['slides'][string] | undefined {
