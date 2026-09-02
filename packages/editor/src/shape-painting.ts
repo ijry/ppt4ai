@@ -1,6 +1,6 @@
 import type { Rect, ResolvedColor } from '@ppt4ai/model'
 import type { SceneShapeNode } from '@ppt4ai/render'
-import { withRotation } from './rotation-transform'
+import { withFlipAndRotation } from './rotation-transform'
 
 export interface ShapePageMapping {
   scale: number
@@ -75,7 +75,7 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
     const fill = node.resolvedFillColor ? colorStyle(node.resolvedFillColor) : undefined
     const stroke = node.resolvedStrokeColor ? colorStyle(node.resolvedStrokeColor) : undefined
 
-    withRotation(context, mapRect(node.bounds, mapping), node.transform, () => {
+    withFlipAndRotation(context, mapRect(node.bounds, mapping), node.transform, () => {
       createPath(context, node, mapping)
       if (fill) {
         createPath(context, node, mapping)

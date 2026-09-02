@@ -12,6 +12,9 @@ class RecordingContext {
 
   save(): void { this.events.push(['save']) }
   restore(): void { this.events.push(['restore']) }
+  translate(x: number, y: number): void { this.events.push(['translate', x, y]) }
+  rotate(angle: number): void { this.events.push(['rotate', angle]) }
+  scale(x: number, y: number): void { this.events.push(['scale', x, y]) }
   beginPath(): void { this.events.push(['beginPath']) }
   moveTo(x: number, y: number): void { this.events.push(['moveTo', x, y]) }
   lineTo(x: number, y: number): void { this.events.push(['lineTo', x, y]) }
@@ -142,5 +145,44 @@ describe('shape painting', () => {
       resolvedFillColor: { rgb: '336699', alpha: 100000 },
     }), { scale: 1, offsetX: 0, offsetY: 0 })).toThrow('fill failed')
     expect(drawingContext.events.at(-1)).toEqual(['restore'])
+  })
+
+  it('mirrors the geometry about the mapped centre when flipH is set', () => {
+    const drawingContext = context()
+
+    paintShapeNode(drawingContext, node({ transform: { flipH: true } }), { scale: 2, offsetX: 5, offsetY: 7 })
+
+    // Mapped bounds are x 25..225, y 47..147, so the centre is (125, 97).
+    expect(drawingContext.events).toContainEqual(['translate', 125, 97])
+    expect(drawingContext.events).toContainEqual(['scale', -1, 1])
+    expect(drawingContext.events).toContainEqual(['translate', -125, -97])
+  })
+
+  it('mirrors both axes and keeps the path coordinates unchanged', () => {
+    const drawingContext = context()
+
+    paintShapeNode(drawingContext, node({ transform: { flipH: true, flipV: true } }), { scale: 1, offsetX: 0, offsetY: 0 })
+
+    expect(drawingContext.events).toContainEqual(['scale', -1, -1])
+    expect(drawingContext.events).toContainEqual(['moveTo', 10, 20])
+  })
+
+  it('rotates before it mirrors', () => {
+    const drawingContext = context()
+
+    paintShapeNode(drawingContext, node({ transform: { rotation: 5400000, flipV: true } }), { scale: 1, offsetX: 0, offsetY: 0 })
+
+    const rotateIndex = drawingContext.events.findIndex(([type]) => type === 'rotate')
+    const scaleIndex = drawingContext.events.findIndex(([type]) => type === 'scale')
+    expect(rotateIndex).toBeGreaterThan(-1)
+    expect(scaleIndex).toBeGreaterThan(rotateIndex)
+  })
+
+  it('leaves the transform alone when no flip is set', () => {
+    const drawingContext = context()
+
+    paintShapeNode(drawingContext, node(), { scale: 1, offsetX: 0, offsetY: 0 })
+
+    expect(drawingContext.events.some(([type]) => type === 'scale')).toBe(false)
   })
 })

@@ -38,6 +38,7 @@ class RecordingContext {
   }
   translate(x: number, y: number): void { this.events.push(['translate', x, y]) }
   rotate(angle: number): void { this.events.push(['rotate', angle]) }
+  scale(x: number, y: number): void { this.events.push(['scale', x, y]) }
 }
 
 function context(): RecordingContext & CanvasRenderingContext2D {
@@ -271,6 +272,16 @@ describe('table painting', () => {
     paintTableNode(drawingContext, table(), { scale: 1, offsetX: 0, offsetY: 0 })
 
     expect(drawingContext.events.filter(([type]) => type === 'rotate' || type === 'translate')).toEqual([])
+  })
+
+  it('does not mirror a flipped table, keeping cell text readable', () => {
+    const drawingContext = context()
+    const flipped: SceneTableNode = { ...table(), transform: { flipH: true, flipV: true } }
+
+    paintTableNode(drawingContext, flipped, { scale: 1, offsetX: 0, offsetY: 0 })
+
+    expect(drawingContext.events.filter(([type]) => type === 'scale')).toEqual([])
+    expect(drawingContext.events.at(-1)).toEqual(['restore'])
   })
 
   it.each<Array<string | ((drawingContext: CanvasRenderingContext2D) => void)>>([

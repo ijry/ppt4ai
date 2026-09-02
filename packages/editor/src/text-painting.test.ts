@@ -35,6 +35,7 @@ class RecordingContext {
   }]) }
   translate(x: number, y: number): void { this.events.push(['translate', x, y]) }
   rotate(angle: number): void { this.events.push(['rotate', angle]) }
+  scale(x: number, y: number): void { this.events.push(['scale', x, y]) }
 }
 
 function context(): RecordingContext & CanvasRenderingContext2D {
@@ -106,6 +107,24 @@ describe('text rotation', () => {
     paintTextNode(drawingContext, node(), mapping)
 
     expect(drawingContext.events.filter(([type]) => type === 'rotate')).toEqual([])
+  })
+
+  it('does not mirror text, because PowerPoint flips a shape but leaves its text readable', () => {
+    const drawingContext = context()
+
+    paintTextNode(drawingContext, node({ transform: { flipH: true, flipV: true } }), mapping)
+
+    expect(drawingContext.events.filter(([type]) => type === 'scale')).toEqual([])
+    expect(drawingContext.events.some(([type]) => type === 'fillText')).toBe(true)
+  })
+
+  it('still rotates a flipped text node', () => {
+    const drawingContext = context()
+
+    paintTextNode(drawingContext, node({ transform: { rotation: 5400000, flipH: true } }), mapping)
+
+    expect(drawingContext.events.filter(([type]) => type === 'rotate')).toEqual([['rotate', Math.PI / 2]])
+    expect(drawingContext.events.filter(([type]) => type === 'scale')).toEqual([])
   })
 })
 
