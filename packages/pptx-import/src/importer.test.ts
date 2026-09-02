@@ -464,7 +464,10 @@ describe('importPptx', () => {
     const element = imported.elements[imported.slides.sld_1!.elementIds[0]!]
     if (!element || element.kind !== 'text') throw new Error('expected text element')
 
-    expect(element.text).toBe('FirstSecondThirdFourth')
+    // Paragraphs join with a newline, matching the scene graph's own fallback for a body-only
+    // element. The previous run-together value could not round-trip: normalizeTextElement splits
+    // the flat field on newlines, so four paragraphs came back as one.
+    expect(element.text).toBe('First\nSecond\nThird\nFourth')
     expect(element.body).toEqual({
       paragraphs: [
         { runs: [{ text: 'First' }], attrs: { bullet: { type: 'char', char: '•', fontFamily: 'Wingdings' } } },
@@ -485,7 +488,7 @@ describe('importPptx', () => {
     const imported = await importPptx(createStoredZip(malformedFiles))
     const element = imported.elements[imported.slides.sld_1!.elementIds[0]!]
     if (!element || element.kind !== 'text') throw new Error('expected text element')
-    expect(element.text).toBe('FirstSecondThirdFourth')
+    expect(element.text).toBe('First\nSecond\nThird\nFourth')
     expect(element.body?.paragraphs[0]?.attrs).toBeUndefined()
     expect(element.body?.paragraphs[1]?.attrs).toBeUndefined()
   })

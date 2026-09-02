@@ -328,7 +328,9 @@ describe('createPptx', () => {
     expect(xml).toContain('<a:br/>')
     expect(xml).toContain('<a:t xml:space="preserve"> tail </a:t>')
     expect(importedShape).toMatchObject({ kind: 'shape', bounds: shape.bounds, preset: shape.preset })
-    expect(importedText).toMatchObject({ kind: 'text', bounds: text.bounds, text: 'Hello & World tail Next\n' })
+    // The break inside the first run round-trips in place now, and the paragraph split shows up as
+    // its own newline. The old value put every newline at the end, which no source could produce.
+    expect(importedText).toMatchObject({ kind: 'text', bounds: text.bounds, text: 'Hello & \nWorld tail \nNext' })
     expect(shapeTextDocument).toEqual(before)
   })
 
