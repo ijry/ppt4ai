@@ -919,6 +919,9 @@ function parseDefaults(shape: XmlNode): [string, ElementDefaults] | undefined {
   if (fill) defaults.fill = fill
   const stroke = parseStroke(shape)
   if (stroke) defaults.stroke = stroke
+  const body = parseTextBody(shape)
+  // `text` stays alongside `body`: master/layout writeback compares against it in its no-body path.
+  if (body) defaults.body = body
   const text = parseText(shape)
   if (text.present && text.value) defaults.text = text.value
   return [placeholder, defaults]
