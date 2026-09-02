@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextBody, type TextBullet, type TextParagraph, type TextRun, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextBody, type TextBullet, type TextMarks, type TextParagraph, type TextRun, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -677,13 +677,26 @@ function parsePlaceholder(shape: XmlNode): string | undefined {
   return index ? `${type}:${index}` : type
 }
 
+/**
+ * The legacy flat `text` field. Breaks are read in place for the same reason as in
+ * `parseParagraphRuns`, and paragraphs join with a newline so the two agree.
+ */
 function parseText(shape: XmlNode): { present: boolean; value: string } {
   const body = findDescendants(shape, 'txBody')[0]
   if (!body) return { present: false, value: '' }
-  const parts: string[] = []
-  for (const node of findDescendants(body, 't')) parts.push(textContent(node))
-  const lineBreaks = findDescendants(body, 'br').length
-  return { present: true, value: parts.join('') + '\n'.repeat(lineBreaks) }
+  const paragraphs = children(body, 'p').map((paragraphNode) => {
+    let text = ''
+    for (const node of paragraphNode.children) {
+      const name = localName(node.name)
+      if (name === 'br') text += '\n'
+      else if (name === 'r') {
+        const textNode = child(node, 't')
+        if (textNode) text += textContent(textNode)
+      }
+    }
+    return text
+  })
+  return { present: true, value: paragraphs.join('\n') }
 }
 
 function parseBullet(paragraphProperties: XmlNode | undefined): TextBullet | undefined {
@@ -710,6 +723,62 @@ function parseBullet(paragraphProperties: XmlNode | undefined): TextBullet | und
   return startAt === undefined ? { type: 'autoNum', scheme } : { type: 'autoNum', scheme, startAt }
 }
 
+/**
+ * `u="none"` stays as `'none'` rather than becoming absent: the model has that value, and an
+ * explicit none overrides an inherited underline, so it is not the same as saying nothing.
+ */
+function parseRunMarks(runProperties: XmlNode | undefined): TextMarks | undefined {
+  if (!runProperties) return undefined
+  const marks: TextMarks = {}
+  const latin = child(runProperties, 'latin')
+  const typeface = latin && attribute(latin, 'typeface')?.trim()
+  if (typeface) marks.fontFamily = typeface
+  // `sz` is in hundredths of a point; the model stores points.
+  const size = parseNumber(attribute(runProperties, 'sz'))
+  if (size !== undefined && size > 0) marks.fontSize = size / 100
+  const bold = parseBoolean(attribute(runProperties, 'b'))
+  if (bold !== undefined) marks.bold = bold
+  const italic = parseBoolean(attribute(runProperties, 'i'))
+  if (italic !== undefined) marks.italic = italic
+  const underline = attribute(runProperties, 'u')
+  if (underline === 'none') marks.underline = 'none'
+  else if (underline !== undefined && underline !== '') marks.underline = 'single'
+  const color = parseColor(child(runProperties, 'solidFill'))
+  if (color) marks.color = { color }
+  const baseline = parseNumber(attribute(runProperties, 'baseline'))
+  if (baseline !== undefined) marks.baseline = baseline
+  return Object.keys(marks).length > 0 ? marks : undefined
+}
+
+/**
+ * `a:br` is a position, not a count. Walking the paragraph's children in order keeps it there;
+ * the previous "count every br, append that many newlines" only agreed with the source when a
+ * paragraph held a single run.
+ *
+ * A break joins the run in front of it, matching how the exporter splits run text on `\n` and
+ * emits `<a:br/>` between the fragments. Leading breaks get a run of their own.
+ */
+function parseParagraphRuns(paragraphNode: XmlNode): TextRun[] {
+  const runs: TextRun[] = []
+  for (const node of paragraphNode.children) {
+    const name = localName(node.name)
+    if (name === 'br') {
+      const previous = runs[runs.length - 1]
+      if (previous) previous.text += '\n'
+      else runs.push({ text: '\n' })
+      continue
+    }
+    if (name !== 'r') continue
+    const textNode = child(node, 't')
+    if (!textNode) continue
+    const text = textContent(textNode)
+    if (!text) continue
+    const marks = parseRunMarks(child(node, 'rPr'))
+    runs.push(marks ? { text, marks } : { text })
+  }
+  return runs
+}
+
 function parseTextBody(shape: XmlNode): TextBody | undefined {
   const body = findDescendants(shape, 'txBody')[0]
   if (!body) return undefined
@@ -717,13 +786,7 @@ function parseTextBody(shape: XmlNode): TextBody | undefined {
   const verticalValue = bodyProperties && attribute(bodyProperties, 'vert')
   const vertical = verticalValue === 'vert270' || verticalValue === 'vert' || verticalValue === 'wordArtVert' ? 'vertical' as const : undefined
   const paragraphs: TextParagraph[] = children(body, 'p').map((paragraphNode) => {
-    const runs: TextRun[] = []
-    for (const runNode of children(paragraphNode, 'r')) {
-      const textNode = child(runNode, 't')
-      if (!textNode) continue
-      const text = textContent(textNode)
-      if (text) runs.push({ text })
-    }
+    const runs = parseParagraphRuns(paragraphNode)
     const attrs = parseBullet(child(paragraphNode, 'pPr'))
     return attrs ? { runs, attrs: { bullet: attrs } } : { runs }
   })
