@@ -75,17 +75,17 @@ describe('serializeTableXml', () => {
         '</a:tblPr>' +
         '<a:tblGrid><a:gridCol w="100"/><a:gridCol w="200"/></a:tblGrid>' +
         '<a:tr h="70">' +
-          '<a:tc><a:txBody><a:bodyPr wrap="square" anchor="ctr"/><a:p><a:pPr algn="ctr"/><a:r><a:rPr sz="1800" b="1" i="1" u="sng"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:latin typeface="Aptos"/></a:rPr><a:t>A &lt; &amp; &quot;</a:t></a:r></a:p></a:txBody>' +
+          '<a:tc><a:txBody><a:bodyPr wrap="square" anchor="ctr"/><a:lstStyle/><a:p><a:pPr algn="ctr"/><a:r><a:rPr sz="1800" b="1" i="1" u="sng"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:latin typeface="Aptos"/></a:rPr><a:t>A &lt; &amp; &quot;</a:t></a:r></a:p></a:txBody>' +
             '<a:tcPr gridSpan="2"><a:solidFill><a:srgbClr val="FFF2CC"/></a:solidFill><a:lnL w="12700"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:lnL><a:lnR w="25400"><a:solidFill><a:srgbClr val="00FF00"/></a:solidFill><a:prstDash val="dash"/></a:lnR><a:lnT w="38100"><a:solidFill><a:srgbClr val="0000FF"/></a:solidFill><a:prstDash val="dot"/></a:lnT><a:lnB w="50800"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:lnB></a:tcPr>' +
           '</a:tc>' +
         '</a:tr>' +
         '<a:tr h="80">' +
-          '<a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>C</a:t></a:r></a:p></a:txBody><a:tcPr rowSpan="2"/></a:tc>' +
-          '<a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>D</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>' +
+          '<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>C</a:t></a:r></a:p></a:txBody><a:tcPr rowSpan="2"/></a:tc>' +
+          '<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>D</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>' +
         '</a:tr>' +
         '<a:tr h="90">' +
-          '<a:tc><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr vMerge="1"/></a:tc>' +
-          '<a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>E</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>' +
+          '<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p/></a:txBody><a:tcPr vMerge="1"/></a:tc>' +
+          '<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>E</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>' +
         '</a:tr>' +
       '</a:tbl>',
     )
@@ -130,8 +130,8 @@ describe('serializeTableXml', () => {
     }
 
     expect(serializeTableXml(mergedTable)).toContain(
-      '<a:tr h="1"><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>origin</a:t></a:r></a:p></a:txBody><a:tcPr gridSpan="2" rowSpan="2"/></a:tc><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>top</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>' +
-        '<a:tr h="1"><a:tc><a:txBody><a:bodyPr/><a:p/></a:txBody><a:tcPr vMerge="1"/></a:tc><a:tc><a:txBody><a:bodyPr/><a:p><a:r><a:t>bottom</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>',
+      '<a:tr h="1"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>origin</a:t></a:r></a:p></a:txBody><a:tcPr gridSpan="2" rowSpan="2"/></a:tc><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>top</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>' +
+        '<a:tr h="1"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p/></a:txBody><a:tcPr vMerge="1"/></a:tc><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>bottom</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>',
     )
   })
 

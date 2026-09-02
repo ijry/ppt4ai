@@ -1,65 +1,12 @@
 import type {
-  Color,
-  Fill,
   TableBorder,
   TableCell,
   TableCellBorders,
   TableElement,
-  TextBody,
-  TextMarks,
-  TextParagraph,
-  TextAutofit,
 } from '@ppt4ai/model'
+import { attrs, booleanAttribute, serializeFillXml, serializeTextBodyXml } from './text-xml.js'
 
 const namespace = 'http://schemas.openxmlformats.org/drawingml/2006/main'
-
-function escapeXml(value: string | number): string {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;')
-}
-
-function attrs(values: Array<[string, string | number | boolean | undefined]>): string {
-  return values
-    .filter(([, value]) => value !== undefined)
-    .map(([name, value]) => ` ${name}="${escapeXml(value as string | number)}"`)
-    .join('')
-}
-
-function booleanAttribute(value: boolean | undefined): string | undefined {
-  return value === undefined ? undefined : value ? '1' : '0'
-}
-
-function serializeColor(color: Color): string {
-  const transformXml = (color.transforms ?? [])
-    .map((transform) => `<a:${transform.type}${attrs([['val', transform.value]])}/>`)
-    .join('')
-  if (color.type === 'scrgb') {
-    const channels = color.v.split(',')
-    const colorAttributes = attrs([['r', channels[0]], ['g', channels[1]], ['b', channels[2]]])
-    return transformXml ? `<a:scrgbClr${colorAttributes}>${transformXml}</a:scrgbClr>` : `<a:scrgbClr${colorAttributes}/>`
-  }
-  const element = color.type === 'srgb'
-    ? 'srgbClr'
-    : color.type === 'scheme'
-      ? 'schemeClr'
-      : color.type === 'preset'
-        ? 'prstClr'
-        : 'sysClr'
-  const colorAttributes = color.type === 'system'
-    ? attrs([['val', 'windowText'], ['lastClr', color.v]])
-    : attrs([['val', color.v]])
-  return transformXml
-    ? `<a:${element}${colorAttributes}>${transformXml}</a:${element}>`
-    : `<a:${element}${colorAttributes}/>`
-}
-
-function serializeFill(fill: Fill | undefined): string {
-  return fill ? `<a:solidFill>${serializeColor(fill.color)}</a:solidFill>` : ''
-}
 
 function serializeBorder(name: string, border: TableBorder | undefined): string {
   if (!border) return ''
@@ -67,7 +14,7 @@ function serializeBorder(name: string, border: TableBorder | undefined): string 
   const dash = border.style === 'dash' || border.style === 'dot'
     ? `<a:prstDash${attrs([['val', border.style]])}/>`
     : ''
-  return `<a:${name}${attrs([['w', border.width]])}>${serializeFill({ color: border.color })}${dash}</a:${name}>`
+  return `<a:${name}${attrs([['w', border.width]])}>${serializeFillXml({ color: border.color })}${dash}</a:${name}>`
 }
 
 function serializeBorders(borders: TableCellBorders | undefined): string {
@@ -78,54 +25,6 @@ function serializeBorders(borders: TableCellBorders | undefined): string {
     + serializeBorder('lnB', borders.bottom)
 }
 
-function serializeBodyProperties(body: TextBody): string {
-  const properties = body.bodyPr
-  const verticalAlign = properties?.verticalAlign === 'middle' ? 'ctr' : properties?.verticalAlign === 'bottom' ? 'b' : undefined
-  const vertical = properties?.vertical === 'vertical' ? 'vert' : undefined
-  const inset = properties?.insets
-  const bodyPrAttributes = attrs([
-    ['lIns', inset?.left], ['tIns', inset?.top], ['rIns', inset?.right], ['bIns', inset?.bottom],
-    ['wrap', properties?.wrap], ['anchor', verticalAlign], ['vert', vertical],
-  ])
-  const autofit = serializeAutofit(properties?.autofit)
-  return autofit ? `<a:bodyPr${bodyPrAttributes}>${autofit}</a:bodyPr>` : `<a:bodyPr${bodyPrAttributes}/>`
-}
-
-function serializeAutofit(autofit: TextAutofit | undefined): string {
-  if (!autofit) return ''
-  if (autofit.type === 'shrink') return `<a:normAutofit${attrs([['fontScale', autofit.minFontScale]])}/>`
-  if (autofit.type === 'resize') return `<a:spAutoFit${attrs([['lnSpcReduction', autofit.maxHeight]])}/>`
-  return '<a:noAutofit/>'
-}
-
-function serializeMarks(marks: TextMarks | undefined): string {
-  if (!marks) return ''
-  return `<a:rPr${attrs([
-    ['sz', marks.fontSize === undefined ? undefined : Math.round(marks.fontSize * 100)],
-    ['b', booleanAttribute(marks.bold)],
-    ['i', booleanAttribute(marks.italic)],
-    ['u', marks.underline === undefined ? undefined : marks.underline === 'single' ? 'sng' : 'none'],
-    ['baseline', marks.baseline],
-  ])}>${serializeFill(marks.color)}${marks.fontFamily ? `<a:latin${attrs([['typeface', marks.fontFamily]])}/>` : ''}</a:rPr>`
-}
-
-function serializeParagraph(paragraph: TextParagraph): string {
-  const attrsXml = attrs([
-    ['algn', paragraph.attrs?.align === 'center' ? 'ctr' : paragraph.attrs?.align],
-    ['lvl', paragraph.attrs?.level],
-    ['marL', paragraph.attrs?.marginLeft],
-    ['indent', paragraph.attrs?.indent],
-  ])
-  const paragraphProperties = attrsXml ? `<a:pPr${attrsXml}/>` : ''
-  const runs = paragraph.runs.map((run) => `<a:r>${serializeMarks(run.marks)}<a:t>${escapeXml(run.text)}</a:t></a:r>`).join('')
-  const content = paragraphProperties + runs
-  return content ? `<a:p>${content}</a:p>` : '<a:p/>'
-}
-
-function serializeTextBody(body: TextBody): string {
-  return `<a:txBody>${serializeBodyProperties(body)}${body.paragraphs.map(serializeParagraph).join('')}</a:txBody>`
-}
-
 function serializeCellProperties(cell: TableCell, continuation: 'horizontal' | 'vertical' | undefined): string {
   const properties = attrs([
     ['gridSpan', !continuation && cell.colSpan && cell.colSpan > 1 ? cell.colSpan : undefined],
@@ -133,7 +32,7 @@ function serializeCellProperties(cell: TableCell, continuation: 'horizontal' | '
     ['hMerge', continuation === 'horizontal' ? '1' : undefined],
     ['vMerge', continuation === 'vertical' ? '1' : undefined],
   ])
-  const content = continuation ? '' : serializeFill(cell.fill) + serializeBorders(cell.borders)
+  const content = continuation ? '' : serializeFillXml(cell.fill) + serializeBorders(cell.borders)
   return content ? `<a:tcPr${properties}>${content}</a:tcPr>` : `<a:tcPr${properties}/>`
 }
 
@@ -142,7 +41,7 @@ function emptyCell(): TableCell {
 }
 
 function serializeCell(cell: TableCell, continuation: 'horizontal' | 'vertical' | undefined): string {
-  const body = continuation ? serializeTextBody(emptyCell().body) : serializeTextBody(cell.body)
+  const body = continuation ? serializeTextBodyXml(emptyCell().body, 'a:') : serializeTextBodyXml(cell.body, 'a:')
   return `<a:tc>${body}${serializeCellProperties(cell, continuation)}</a:tc>`
 }
 
@@ -194,7 +93,7 @@ function serializeTableProperties(table: TableElement): string {
     ['lastCol', booleanAttribute(style?.lastColumn)],
     ['bandRow', booleanAttribute(style?.bandRow)],
     ['bandCol', booleanAttribute(style?.bandColumn)],
-  ])}>${serializeFill(table.fill)}</a:tblPr>`
+  ])}>${serializeFillXml(table.fill)}</a:tblPr>`
 }
 
 export function serializeTableXml(table: TableElement): string {
