@@ -34,7 +34,7 @@
 - **导入 `p:grpSp`** —— 导入器（`importer.ts:474`）只匹配 `sp`/`graphicFrame`/`pic` 并递归穿过 `grpSp`，因此**导入的分组会被拍平成散元素，`GroupElement` 只由编辑器 group 命令产生**。本切片的 group 旋转因此**不具备 PPTX 往返能力**，这是范围内已知的、有意接受的限制。
 - **写回 group** —— `writeback.ts:461` 同样只扫三种 tag，且元素按位置索引一对一映射（`:815-825`），引入 group 元素会移位并触发 `element prefix mismatch`。
 - `a:chOff`/`a:chExt` 子坐标空间 —— 全仓无任何读取（grep 零命中）。
-- 多选整体旋转、旋转元素的贴合选择框 —— 沿用既有延期项。
+- 多选整体旋转 —— 沿用既有延期项（原文此处并列的「旋转元素的贴合选择框」是误判，见 §6 更正）。
 
 ## 4. 关键决策
 
@@ -42,7 +42,9 @@
 
 模型里每个元素的 `bounds` 与 `rotation` 都是「未受祖先影响」的原始值，级联只发生在 `documentToSceneGraph` 一处。
 
-好处不止是改动小 —— 它让 **group 缩放天然正确**：engine 的 `resize` 用轴对齐 `mapBounds` 缩放后代（`engine/src/index.ts:910-933`），若 bounds 里烘焙了旋转，缩放会产生斜切；把旋转留在渲染期，等价于「在 group 的未旋转本地空间里缩放，再整体旋转」，这正是 PowerPoint 的语义。
+好处不止是改动小 —— 它让 **group 缩放不产生斜切**：engine 的 `resize` 用轴对齐 `mapBounds` 缩放后代（`engine/src/index.ts:910-933`），若 bounds 里烘焙了旋转，缩放就会把矩形拉成平行四边形；把旋转留在渲染期，等价于「在 group 的未旋转本地空间里缩放，再整体旋转」，这样后代始终保持矩形。
+
+> **2026-09-02 更正**：原文此处结尾写「这正是 PowerPoint 的语义」，属未经核实的断言 —— 本机无 PowerPoint/LibreOffice，无法验证另一应用行为。上述「不产生斜切」是可从代码与几何推出的性质，与 PowerPoint 无关，故保留；对 PowerPoint 的援引已删。
 
 **决策 2：级联公式 —— 中心绕祖先支点旋转，角度相加**
 
@@ -101,5 +103,10 @@ export interface SceneGroup {
 
 - **group 旋转不进 PPTX**：导入不认 `p:grpSp`、写回不处理 group（见 §3），因此旋转的 group 存不进文件，重新导入后分组本身也不存在
 - **ungroup 会丢失 group 旋转**：后代存的是自身旋转，不含祖先贡献；解组后 group 的那份旋转无处可去。本切片**用测试固定该行为**使其可见，不做烘焙（烘焙需同时重算 bounds，属独立切片）
-- 多选整体旋转、旋转元素的贴合选择框仍未做
+- 多选整体旋转仍未做
 - group 自身不支持翻转
+
+> **2026-09-02 更正与后续**
+>
+> - 本节原列「旋转元素的贴合选择框仍未做」（§3 亦有同样表述）**不成立**：`SelectionOverlay.vue:88,100` 已对 border 与 frame 施加 `transform: rotate(...)`，手柄随 frame 旋转。错误源头见 `2026-09-01-general-rotation-design.md` 决策 3 的更正。剩余只是多选联合 bounds 按轴对齐计算，已含在「多选整体旋转」内。
+> - 前两条限制已在后续切片解除：`p:grpSp` 导入/写回（提交 `fba0b03`、`5c3bd72`、`be12a9e`）、ungroup 烘焙整棵子树（提交 `57a9e0f`）。

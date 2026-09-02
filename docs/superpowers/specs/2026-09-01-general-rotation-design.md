@@ -46,9 +46,14 @@ image 节点已用 `transform?: ElementTransform`。若 shape / text 用裸 `rot
 
 **决策 3：本切片不修选择框视觉对齐**
 
-`selection-overlay.ts` 无旋转处理，旋转元素的选择框会是外接的轴对齐矩形而非贴合图形。这在 PowerPoint 里是贴合的，但修它要连带改 8 个 resize 手柄的位置与拖拽方向映射，范围显著大于渲染与命中。
+`selection-overlay.ts` 无旋转处理，旋转元素的选择框会是外接的轴对齐矩形而非贴合图形。修它要连带改 8 个 resize 手柄的位置与拖拽方向映射，范围显著大于渲染与命中。
 
 本切片先让「画得对、点得中」，选择框保持轴对齐外框 —— 这仍比现状好（现状是画都不画）。作为已知限制记录，后续独立切片处理。
+
+> **2026-09-02 更正（本节写错了两处）**
+>
+> 1. **「旋转元素的选择框是轴对齐矩形」在写下时就已经是错的。** `selection-overlay.ts` 确实不含角度（它是纯几何模块），但旋转在 **`SelectionOverlay.vue`** 里：第 88、100 行对 border 与 frame 都施加 `transform: rotate(...)` + `transformOrigin: center center`，8 个手柄是 frame 的子元素因而随之旋转；`selection-overlay.test.ts:185` 一直在断言 `rotate(90deg)`。当时只看了 `.ts` 没看 `.vue`，此后数条里程碑都沿用了这个错误结论。真实缺口只剩**多选**：联合 bounds 仍按轴对齐计算，这已包含在「多选整体旋转」条目里，不是独立缺口。
+> 2. **「这在 PowerPoint 里是贴合的」是未经核实的断言** —— 本机没有 PowerPoint/LibreOffice，无法验证另一应用的行为。与两轮前撤回的「PowerPoint 同步缩放 `ext`/`chExt`」是同一类问题：把听起来合理的具体行为写成事实。此类断言今后一律标注为假设。
 
 **决策 4：命中测试反向旋转点，而非计算旋转后的包围盒**
 

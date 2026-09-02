@@ -34,7 +34,7 @@
 - table 旋转 —— `TableElement` 无 `rotation` 字段，需先扩模型与格式层，独立切片
 - shape / text 的翻转 —— `flipH` / `flipV` 仍是 image 专属，模型层不为 shape / text 引入
 - 多选与 group 的整体旋转 —— 需要复合变换，见决策 4
-- 选择框在旋转元素上的视觉对齐 —— 沿用上一切片的已知限制
+- ~~选择框在旋转元素上的视觉对齐~~ —— 该项是误判，选择框本就随元素旋转，见 §8 更正
 
 ## 4. 关键决策
 
@@ -93,5 +93,6 @@
 
 - table 无法旋转（模型层缺字段）
 - 多选与 group 无法整体旋转
-- 旋转元素的选择框仍是轴对齐外框，非贴合图形
 - shape / text 不支持翻转
+
+> **2026-09-02 更正**：原列「旋转元素的选择框仍是轴对齐外框，非贴合图形」及第 3 节「选择框在旋转元素上的视觉对齐 —— 沿用上一切片的已知限制」**均不成立**。`SelectionOverlay.vue:88,100` 对 border 与 frame 都施加了 `transform: rotate(...)`，8 个手柄作为 frame 子元素随之旋转，`selection-overlay.test.ts:185` 一直在断言这一点。错误源头是 `2026-09-01-general-rotation-design.md` 决策 3 只读了纯几何的 `selection-overlay.ts`、没读 `.vue` 组件，此后被逐份文档沿用。真实缺口只剩多选：联合 bounds 仍按轴对齐计算，已含在「多选整体旋转」条目内。
