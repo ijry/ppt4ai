@@ -96,4 +96,60 @@ describe('editing a group that declares a child space', () => {
     expect(state.document.elements.el_1?.bounds).toEqual(before.elements.el_1?.bounds)
     expect(leafBounds(state.document)).toEqual({ x: 1000000, y: 2000000, w: 4000000, h: 2000000 })
   })
+
+  it('keeps childSpace as imported when the group is resized, so content scales with the box', () => {
+    const engine = new EditorEngine(scaledGroupDocument())
+    const state = engine.dispatch({ type: 'resize', elementId: 'grp_1', bounds: { x: 1000000, y: 2000000, w: 4000000, h: 2000000 } })
+    const group = state.document.elements.grp_1
+    if (group?.kind !== 'group') throw new Error('expected a group')
+
+    // Scaling childSpace alongside bounds would hold the ext:chExt ratio fixed, which is the
+    // scale factor -- the box would grow while its contents stayed put.
+    expect(group.childSpace).toEqual({ x: 5000000, y: 6000000, w: 4000000, h: 2000000 })
+  })
+
+  it('keeps a half-covering child at half the resized group', () => {
+    const document = scaledGroupDocument()
+    document.elements.el_1!.bounds = { x: 5000000, y: 6000000, w: 2000000, h: 1000000 }
+    const engine = new EditorEngine(document)
+
+    const state = engine.dispatch({ type: 'resize', elementId: 'grp_1', bounds: { x: 1000000, y: 2000000, w: 4000000, h: 2000000 } })
+
+    expect(leafBounds(state.document)).toEqual({ x: 1000000, y: 2000000, w: 2000000, h: 1000000 })
+  })
+
+  it('leaves childSpace origin alone when the group only moves', () => {
+    const engine = new EditorEngine(scaledGroupDocument())
+    engine.dispatch({ type: 'select', elementIds: ['grp_1'] })
+    const state = engine.dispatch({ type: 'move', dx: 1000000, dy: 0 })
+    const group = state.document.elements.grp_1
+    if (group?.kind !== 'group') throw new Error('expected a group')
+
+    expect(group.childSpace).toEqual({ x: 5000000, y: 6000000, w: 4000000, h: 2000000 })
+  })
+
+  it('does not invent a childSpace for a group that had none', () => {
+    const document = scaledGroupDocument()
+    const group = document.elements.grp_1
+    if (group?.kind !== 'group') throw new Error('expected a group')
+    delete group.childSpace
+    const engine = new EditorEngine(document)
+
+    const state = engine.dispatch({ type: 'resize', elementId: 'grp_1', bounds: { x: 1000000, y: 2000000, w: 4000000, h: 2000000 } })
+    const resized = state.document.elements.grp_1
+    if (resized?.kind !== 'group') throw new Error('expected a group')
+
+    expect(resized.childSpace).toBeUndefined()
+  })
+
+  it('keeps childSpace as imported for a multi-selection resize as well', () => {
+    const engine = new EditorEngine(scaledGroupDocument())
+    engine.dispatch({ type: 'select', elementIds: ['grp_1'] })
+    const state = engine.dispatch({ type: 'resizeSelection', bounds: { x: 1000000, y: 2000000, w: 4000000, h: 2000000 } })
+    const group = state.document.elements.grp_1
+    if (group?.kind !== 'group') throw new Error('expected a group')
+
+    expect(group.childSpace).toEqual({ x: 5000000, y: 6000000, w: 4000000, h: 2000000 })
+    expect(leafBounds(state.document)).toEqual({ x: 1000000, y: 2000000, w: 4000000, h: 2000000 })
+  })
 })
