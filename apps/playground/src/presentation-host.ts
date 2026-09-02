@@ -52,6 +52,7 @@ export interface PlaygroundPresentationHost {
   rotateSelectedElement(elementId: string, rotation: number): PlaygroundPresentationSnapshot
   rotateSelection(rotation: number): PlaygroundPresentationSnapshot
   toggleSelectedImageFlip(elementId: string, axis: ImageFlipAxis): PlaygroundPresentationSnapshot
+  toggleSelectedElementFlip(elementId: string, axis: ImageFlipAxis): PlaygroundPresentationSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundPresentationSnapshot
   setThemeColor(slot: ThemeColorSlot, color: Color | null): PlaygroundPresentationSnapshot
   selectAsset(assetId: string): PlaygroundPresentationSnapshot
@@ -459,6 +460,9 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     },
     toggleSelectedImageFlip(elementId, axis) {
       return forward((host) => host.toggleSelectedImageFlip(elementId, axis))
+    },
+    toggleSelectedElementFlip(elementId, axis) {
+      return forward((host) => host.toggleSelectedElementFlip(elementId, axis))
     },
     updateTextElement(elementId, body) {
       return forward((host) => host.updateTextElement(elementId, body))

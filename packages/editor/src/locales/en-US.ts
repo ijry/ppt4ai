@@ -130,6 +130,8 @@ const enUS = {
         'image-upload-failed': 'Image upload failed',
         'element-moved': 'Element moved',
         'element-resized': 'Element resized',
+        'element-rotated': 'Element rotated',
+        'element-flipped': 'Element flipped',
         'text-updated': 'Text updated',
         'element-missing': 'Element is missing',
         'element-operation-failed': 'Element operation failed',

@@ -30,6 +30,7 @@ export interface PlaygroundAssetHost {
   rotateSelectedElement(elementId: string, rotation: number): PlaygroundAssetHostSnapshot
   rotateSelection(rotation: number): PlaygroundAssetHostSnapshot
   toggleSelectedImageFlip(elementId: string, axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
+  toggleSelectedElementFlip(elementId: string, axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
   setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): PlaygroundAssetHostSnapshot
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
@@ -277,6 +278,17 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
       try {
         engine.dispatch({ type: 'toggleImageFlip', elementId, axis })
         status = { kind: 'success', message: 'image-flipped' }
+      } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    toggleSelectedElementFlip(elementId, axis) {
+      const element = engine.getState().document.elements[elementId]
+      if (!element || element.kind === 'image') return fail('element-operation-failed')
+      try {
+        engine.dispatch({ type: 'toggleElementFlip', elementId, axis })
+        status = { kind: 'success', message: 'element-flipped' }
       } catch {
         return fail('element-operation-failed')
       }

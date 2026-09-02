@@ -43,6 +43,7 @@ const emit = defineEmits<{
   'rotate-element': [payload: { elementId: string; rotation: number }]
   'rotate-selection': [payload: { rotation: number }]
   'flip-image': [payload: { elementId: string; axis: ImageFlipAxis }]
+  'flip-element': [payload: { elementId: string; axis: ImageFlipAxis }]
   'text-edit': [payload: { elementId: string; body: TextBody }]
   group: []
   ungroup: [payload: { groupId: string }]
@@ -120,7 +121,6 @@ const selectedImageNode = computed<SceneImageNode | undefined>(() => {
   const node = props.scene?.nodes.find((entry) => entry.id === selectedElementIds.value[0])
   return node?.kind === 'image' ? node : undefined
 })
-const imageTransformEnabled = computed(() => Boolean(selectedImageNode.value))
 const selectedRotatableNode = computed(() => {
   if (selectedElementIds.value.length !== 1) return undefined
   const elementId = selectedElementIds.value[0]!
@@ -147,9 +147,11 @@ function rotateSelectedNode(delta: number): void {
   else emit('rotate-element', { elementId: node.id, rotation })
 }
 
-function flipSelectedImage(axis: ImageFlipAxis): void {
-  const image = selectedImageNode.value
-  if (image) emit('flip-image', { elementId: image.id, axis })
+function flipSelectedNode(axis: ImageFlipAxis): void {
+  const node = selectedRotatableNode.value
+  if (!node) return
+  if (node.kind === 'image') emit('flip-image', { elementId: node.id, axis })
+  else emit('flip-element', { elementId: node.id, axis })
 }
 
 const resizePreview = ref<{ elementIds: string[]; bounds: ScreenBounds; guides: SnapGuide[] }>()
@@ -596,14 +598,12 @@ onBeforeUnmount(() => {
           >
             {{ t('toolbar.object.rotateRight') }}
           </button>
-        </template>
-        <template v-if="imageTransformEnabled">
           <button
             type="button"
             class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
             data-image-transform-button="flip-horizontal"
             :aria-label="t('toolbar.object.flipHorizontal')"
-            @click="flipSelectedImage('horizontal')"
+            @click="flipSelectedNode('horizontal')"
           >
             {{ t('toolbar.object.flipHorizontal') }}
           </button>
@@ -612,7 +612,7 @@ onBeforeUnmount(() => {
             class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 transition-colors duration-150 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
             data-image-transform-button="flip-vertical"
             :aria-label="t('toolbar.object.flipVertical')"
-            @click="flipSelectedImage('vertical')"
+            @click="flipSelectedNode('vertical')"
           >
             {{ t('toolbar.object.flipVertical') }}
           </button>

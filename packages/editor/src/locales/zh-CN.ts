@@ -130,6 +130,8 @@ const zhCN = {
         'image-upload-failed': '图片上传失败',
         'element-moved': '已移动元素',
         'element-resized': '已调整元素大小',
+        'element-rotated': '元素已旋转',
+        'element-flipped': '元素已翻转',
         'text-updated': '已更新文字',
         'element-missing': '元素不存在',
         'element-operation-failed': '元素操作失败',

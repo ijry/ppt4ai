@@ -285,6 +285,41 @@ describe('createPlaygroundAssetHost', () => {
     expect(result.engineState.history).toEqual(before.engineState.history)
   })
 
+  it('flips a shape, text, table and group through one engine command each', () => {
+    const host = createPlaygroundAssetHost()
+    const before = host.getSnapshot()
+
+    const shape = host.toggleSelectedElementFlip('shape_demo', 'horizontal')
+    expect(shape.status).toEqual({ kind: 'success', message: 'element-flipped' })
+    expect(shape.engineState.document.elements.shape_demo).toMatchObject({ flipH: true })
+    expect(shape.engineState.history.undoDepth).toBe(before.engineState.history.undoDepth + 1)
+
+    expect(host.toggleSelectedElementFlip('text_demo', 'vertical').engineState.document.elements.text_demo).toMatchObject({ flipV: true })
+    expect(host.toggleSelectedElementFlip('table_demo', 'horizontal').engineState.document.elements.table_demo).toMatchObject({ flipH: true })
+    expect(host.toggleSelectedElementFlip('group_demo', 'vertical').engineState.document.elements.group_demo).toMatchObject({ flipV: true })
+
+    const cleared = host.toggleSelectedElementFlip('shape_demo', 'horizontal')
+    expect(cleared.engineState.document.elements.shape_demo).not.toHaveProperty('flipH')
+  })
+
+  it('reports a flip failure without changing document or history', () => {
+    const host = createPlaygroundAssetHost()
+    const before = host.getSnapshot()
+
+    const missing = host.toggleSelectedElementFlip('missing', 'horizontal')
+    expect(missing.status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+    expect(missing.engineState.document).toEqual(before.engineState.document)
+    expect(missing.engineState.history).toEqual(before.engineState.history)
+
+    // Images go through toggleSelectedImageFlip, so the element path rejects them.
+    const inserted = host.insertAsset('asset_red')
+    const imageId = inserted.engineState.selection[0]!
+    const beforeImage = host.getSnapshot()
+    const image = host.toggleSelectedElementFlip(imageId, 'horizontal')
+    expect(image.status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+    expect(image.engineState.document).toEqual(beforeImage.engineState.document)
+  })
+
   it('reports element rotation failures without changing document or history', () => {
     const host = createPlaygroundAssetHost()
     const imageId = host.insertAsset('asset_red').engineState.selection[0]!

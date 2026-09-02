@@ -246,7 +246,7 @@ describe('PptEditor', () => {
     mounted.app.unmount()
   })
 
-  it('renders image transform buttons only for a single image and emits typed intents', async () => {
+  it('renders transform buttons for a single image and emits typed intents', async () => {
     const rotateEvents: unknown[] = []
     const flipEvents: unknown[] = []
     const imageMounted = mountEditor({
@@ -279,19 +279,26 @@ describe('PptEditor', () => {
     imageMounted.app.unmount()
 
     const shapeRotateEvents: unknown[] = []
+    const shapeFlipEvents: unknown[] = []
     const shapeMounted = mountEditor({
       scene,
       selectedElementId: 'shape-1',
       onRotateElement: (payload: unknown) => shapeRotateEvents.push(payload),
+      onFlipElement: (payload: unknown) => shapeFlipEvents.push(payload),
     })
     await nextTick()
 
     expect([...shapeMounted.host.querySelectorAll('[data-image-transform-button]')].map((button) => button.getAttribute('data-image-transform-button'))).toEqual([
       'rotate-left',
       'rotate-right',
+      'flip-horizontal',
+      'flip-vertical',
     ])
     ;(shapeMounted.host.querySelector('[data-image-transform-button="rotate-left"]') as HTMLButtonElement).click()
+    ;(shapeMounted.host.querySelector('[data-image-transform-button="flip-horizontal"]') as HTMLButtonElement).click()
     expect(shapeRotateEvents).toEqual([{ elementId: 'shape-1', rotation: -5400000 }])
+    // A non-image goes out as flip-element, so the host can route it to the bare model fields.
+    expect(shapeFlipEvents).toEqual([{ elementId: 'shape-1', axis: 'horizontal' }])
     shapeMounted.app.unmount()
   })
 
