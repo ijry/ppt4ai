@@ -1,4 +1,4 @@
-import { boundsCentre, cascadeRotation, mapChildSpace, type RotationPivot } from '@ppt4ai/geometry'
+import { boundsCentre, cascadeRotation, mapChildSpace, rotatePointAround, type RotationPivot } from '@ppt4ai/geometry'
 import { validateDocument, validateTextBody, type AssetMetadata, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
@@ -66,6 +66,7 @@ export type EngineCommand =
   | { type: 'replaceImageAssetReference'; elementId: string; assetId: string }
   | { type: 'setImageRotation'; elementId: string; rotation: number }
   | { type: 'setElementRotation'; elementId: string; rotation: number }
+  | { type: 'rotateSelection'; rotation: number }
   | { type: 'toggleImageFlip'; elementId: string; axis: ImageFlipAxis }
   | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
   | { type: 'setTableCellText'; body: TextBody }
@@ -655,6 +656,10 @@ export class EditorEngine {
       }
       case 'setElementRotation': {
         this.setElementRotation(command.elementId, command.rotation)
+        break
+      }
+      case 'rotateSelection': {
+        this.rotateSelection(command.rotation)
         break
       }
       case 'toggleImageFlip': {
@@ -1267,6 +1272,62 @@ export class EditorEngine {
     if (!validation.valid) throw new Error(`element rotation is invalid: ${elementId}: ${validation.errors.join('; ')}`)
 
     this.commit([{ path: ['elements', elementId, 'rotation'], value: rotation === 0 ? undefined : rotation }])
+  }
+
+  /**
+   * Rotate a whole selection about its union centre: each root's own angle gains `rotation` and its
+   * centre orbits the union centre.
+   *
+   * A selected group's descendants are translated by the same centre delta but keep their own
+   * angles: the scene graph rotates them about the group's centre, and that pivot only lands in the
+   * right place if they travel with the group -- the same reason `move` rewrites descendants.
+   */
+  private rotateSelection(rotation: number): void {
+    if (!Number.isInteger(rotation)) throw new Error('rotation must be an integer')
+    const roots = selectionRoots(this.document, this.selection)
+    const union = selectionBounds(this.document, roots)
+    if (!union || rotation === 0) return
+    const pivot = boundsCentre(union)
+
+    const nextDocument = clone(this.document)
+    const changes: Array<{ path: string[]; value: unknown }> = []
+    const translate = (elementId: string, dx: number, dy: number): void => {
+      const element = nextDocument.elements[elementId]
+      if (!element) return
+      const bounds: Rect = { ...element.bounds, x: element.bounds.x + dx, y: element.bounds.y + dy }
+      element.bounds = bounds
+      changes.push({ path: ['elements', elementId, 'bounds'], value: bounds })
+    }
+    for (const elementId of roots) {
+      const element = nextDocument.elements[elementId]
+      if (!element) continue
+      const before = boundsCentre(element.bounds)
+      const after = rotatePointAround(before, pivot, rotation)
+      const descendantIds = boundsMappedElementIds(nextDocument, elementId).filter((id) => id !== elementId)
+      for (const descendantId of descendantIds) translate(descendantId, after.x - before.x, after.y - before.y)
+      const bounds: Rect = {
+        x: after.x - element.bounds.w / 2,
+        y: after.y - element.bounds.h / 2,
+        w: element.bounds.w,
+        h: element.bounds.h,
+      }
+      element.bounds = bounds
+      changes.push({ path: ['elements', elementId, 'bounds'], value: bounds })
+      if (element.kind === 'image') {
+        const transform = this.normalizeImageTransform({ ...element.transform, rotation: (element.transform?.rotation ?? 0) + rotation })
+        if (transform) element.transform = clone(transform)
+        else delete element.transform
+        changes.push({ path: ['elements', elementId, 'transform'], value: transform })
+        continue
+      }
+      const next = (element.rotation ?? 0) + rotation
+      if (next === 0) delete element.rotation
+      else element.rotation = next
+      changes.push({ path: ['elements', elementId, 'rotation'], value: next === 0 ? undefined : next })
+    }
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`selection rotation is invalid: ${validation.errors.join('; ')}`)
+    this.commit(changes)
   }
 
   private toggleImageFlip(elementId: string, axis: ImageFlipAxis): void {
