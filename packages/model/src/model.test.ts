@@ -6,6 +6,7 @@ import {
   resolveColor,
   resolveInheritedElement,
   resolveTableCellStyle,
+  resolveThemeFontFamily,
   validateDocument,
   validateTextBody,
   type Ppt4aiDocument,
@@ -286,6 +287,64 @@ describe('ppt4ai file model', () => {
         'themes.theme-1.colors.accent1.transforms[0].type must be a supported color transform type',
         'themes.theme-1.colors.accent1.transforms[1].value must be between 0 and 100000',
         'masters.master_1.colorMap.accent1 must reference a supported theme color slot',
+      ],
+    })
+  })
+
+  it('resolves the six theme font references and leaves literal families alone', () => {
+    const theme: Theme = {
+      id: 'theme-fonts',
+      colors: {},
+      fonts: {
+        major: { latin: 'Cambria', ea: '宋体' },
+        minor: { latin: 'Calibri', ea: '等线' },
+      },
+    }
+
+    expect(resolveThemeFontFamily('+mj-lt', theme)).toBe('Cambria')
+    expect(resolveThemeFontFamily('+mj-ea', theme)).toBe('宋体')
+    expect(resolveThemeFontFamily('+mn-lt', theme)).toBe('Calibri')
+    expect(resolveThemeFontFamily('+mn-ea', theme)).toBe('等线')
+    expect(resolveThemeFontFamily('  +MJ-LT ', theme)).toBe('Cambria')
+    expect(resolveThemeFontFamily('Georgia', theme)).toBe('Georgia')
+    expect(resolveThemeFontFamily('+unknown', theme)).toBe('+unknown')
+    expect(resolveThemeFontFamily(undefined, theme)).toBeUndefined()
+  })
+
+  it('falls back to the built-in theme fonts for missing and reset slots', () => {
+    const reset: Theme = { id: 'theme-reset-fonts', colors: {}, fonts: { major: { latin: null }, minor: {} } }
+
+    expect(resolveThemeFontFamily('+mj-lt', reset)).toBe('Aptos Display')
+    expect(resolveThemeFontFamily('+mn-lt', reset)).toBe('Aptos')
+    expect(resolveThemeFontFamily('+mj-lt')).toBe('Aptos Display')
+    // The stock Office theme leaves ea/cs empty, so a reference to them resolves to nothing usable.
+    expect(resolveThemeFontFamily('+mj-cs', reset)).toBeUndefined()
+    expect(resolveThemeFontFamily('+mn-ea')).toBeUndefined()
+  })
+
+  it('validates theme fonts with stable paths', () => {
+    const document = {
+      ...minimalDocument,
+      themes: {
+        'theme-1': {
+          id: 'theme-1',
+          colors: {},
+          fonts: {
+            major: { latin: 'Cambria', hebrew: 'David', ea: '' },
+            headings: { latin: 'Cambria' },
+            minor: 'Calibri',
+          },
+        },
+      },
+    } as unknown as Ppt4aiDocument
+
+    expect(validateDocument(document)).toEqual({
+      valid: false,
+      errors: [
+        'themes.theme-1.fonts.major.hebrew is not a supported theme font script',
+        'themes.theme-1.fonts.major.ea must be a non-empty string or null',
+        'themes.theme-1.fonts.headings is not a supported theme font slot',
+        'themes.theme-1.fonts.minor must be an object',
       ],
     })
   })

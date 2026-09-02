@@ -1,7 +1,7 @@
 import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveTableCellStyle, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
-import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutRun } from '@ppt4ai/text'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
   slideId: string
@@ -38,10 +38,17 @@ export interface SceneShapeNode {
 
 export interface SceneTextLayoutRun extends TextLayoutRun {
   resolvedColor?: ResolvedColor
+  resolvedFontFamily?: string
 }
 
-export interface SceneTextLayoutLine extends Omit<TextLayoutLine, 'runs'> {
+/** Present only when the theme resolved the run's `+mj-lt`-style reference into a real typeface. */
+export interface SceneTextLayoutMarker extends TextLayoutMarker {
+  resolvedFontFamily?: string
+}
+
+export interface SceneTextLayoutLine extends Omit<TextLayoutLine, 'runs' | 'marker'> {
   runs: SceneTextLayoutRun[]
+  marker?: SceneTextLayoutMarker
 }
 
 export interface SceneTextLayout extends Omit<TextLayout, 'lines'> {
@@ -101,25 +108,39 @@ export interface SceneResolvedTableTextStyle extends Omit<TableStyleText, 'color
   color?: ResolvedColor
 }
 
-interface SceneColorContext {
+interface SceneThemeContext {
   theme?: Theme
   colorMap: ColorMap
 }
 
-function resolvedFillColor(fill: Fill | undefined, context: SceneColorContext): ResolvedColor | undefined {
+function resolvedFillColor(fill: Fill | undefined, context: SceneThemeContext): ResolvedColor | undefined {
   return fill ? resolveColor(fill.color, context.theme, context.colorMap) : undefined
 }
 
-function toSceneTextLayout(layout: TextLayout, context: SceneColorContext): SceneTextLayout {
+/**
+ * Only set when the theme actually changed the family, so text without a theme reference — nearly
+ * all of it — keeps the same scene shape as before, and no run carries a duplicate of its own font.
+ */
+function resolvedFontFamily(marks: TextMarks | undefined, context: SceneThemeContext): string | undefined {
+  const resolved = resolveThemeFontFamily(marks?.fontFamily, context.theme)
+  return resolved === marks?.fontFamily ? undefined : resolved
+}
+
+function toSceneTextLayout(layout: TextLayout, context: SceneThemeContext): SceneTextLayout {
   return {
     ...layout,
-    lines: layout.lines.map((line) => ({
-      ...line,
-      runs: line.runs.map((run) => {
-        const resolvedColor = resolvedFillColor(run.marks?.color, context)
-        return { ...run, ...(resolvedColor ? { resolvedColor } : {}) }
-      }),
-    })),
+    lines: layout.lines.map((line) => {
+      const markerFontFamily = line.marker ? resolvedFontFamily(line.marker.marks, context) : undefined
+      return {
+        ...line,
+        ...(line.marker ? { marker: { ...line.marker, ...(markerFontFamily ? { resolvedFontFamily: markerFontFamily } : {}) } } : {}),
+        runs: line.runs.map((run) => {
+          const resolvedColor = resolvedFillColor(run.marks?.color, context)
+          const fontFamily = resolvedFontFamily(run.marks, context)
+          return { ...run, ...(resolvedColor ? { resolvedColor } : {}), ...(fontFamily ? { resolvedFontFamily: fontFamily } : {}) }
+        }),
+      }
+    }),
   }
 }
 
@@ -143,7 +164,7 @@ function mergeTableTextDefaults(body: TextBody, text: TableStyleText | undefined
   }
 }
 
-function resolveBorderColors(borders: TableCellBorders, context: SceneColorContext): Partial<Record<keyof TableCellBorders, ResolvedColor>> | undefined {
+function resolveBorderColors(borders: TableCellBorders, context: SceneThemeContext): Partial<Record<keyof TableCellBorders, ResolvedColor>> | undefined {
   const colors: Partial<Record<keyof TableCellBorders, ResolvedColor>> = {}
   for (const side of ['left', 'right', 'top', 'bottom'] as const) {
     const color = borders[side] ? resolveColor(borders[side].color, context.theme, context.colorMap) : undefined
@@ -152,7 +173,7 @@ function resolveBorderColors(borders: TableCellBorders, context: SceneColorConte
   return Object.keys(colors).length > 0 ? colors : undefined
 }
 
-function resolveTableTextStyle(text: TableStyleText | undefined, context: SceneColorContext): SceneResolvedTableTextStyle | undefined {
+function resolveTableTextStyle(text: TableStyleText | undefined, context: SceneThemeContext): SceneResolvedTableTextStyle | undefined {
   if (!text) return undefined
   const color = text.color ? resolveColor(text.color, context.theme, context.colorMap) : undefined
   const resolved = {
@@ -173,7 +194,7 @@ function elementTransform(element: { rotation?: number; flipH?: boolean; flipV?:
   return Object.keys(transform).length > 0 ? transform : undefined
 }
 
-function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: SceneColorContext): SceneShapeNode {
+function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: SceneThemeContext): SceneShapeNode {
   const node: SceneShapeNode = {
     id: element.id,
     kind: 'shape',
@@ -192,7 +213,7 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   return node
 }
 
-function createTextNode(element: Extract<Element, { kind: 'text' }>, context: SceneColorContext): SceneTextNode {
+function createTextNode(element: Extract<Element, { kind: 'text' }>, context: SceneThemeContext): SceneTextNode {
   const body = normalizeTextElement(element)
   const node: SceneTextNode = {
     id: element.id,
@@ -212,7 +233,7 @@ function createTextNode(element: Extract<Element, { kind: 'text' }>, context: Sc
   return node
 }
 
-function createTableNode(element: Extract<Element, { kind: 'table' }>, context: SceneColorContext, tableStyles?: Ppt4aiDocument['tableStyles']): SceneTableNode {
+function createTableNode(element: Extract<Element, { kind: 'table' }>, context: SceneThemeContext, tableStyles?: Ppt4aiDocument['tableStyles']): SceneTableNode {
   const tableLayout = layoutTable(element)
   const node: SceneTableNode = {
     id: element.id,
@@ -314,7 +335,7 @@ function cascadeElement(element: Element, ancestors: readonly GroupTransform[], 
 
 function createNode(
   element: Element,
-  context: SceneColorContext,
+  context: SceneThemeContext,
   tableStyles?: Ppt4aiDocument['tableStyles'],
   assets?: Ppt4aiDocument['assets'],
 ): SceneNode | undefined {
@@ -346,7 +367,7 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
   const masterId = slide.masterId ?? layout?.masterId
   const master = masterId ? value.masters?.[masterId] : undefined
   const theme = master?.themeId ? value.themes?.[master.themeId] : undefined
-  const context: SceneColorContext = {
+  const context: SceneThemeContext = {
     colorMap: mergeColorMaps(master?.colorMap, layout?.colorMapOverride, slide.colorMapOverride),
     ...(theme ? { theme } : {}),
   }

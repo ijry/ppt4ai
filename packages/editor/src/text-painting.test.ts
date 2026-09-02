@@ -196,6 +196,42 @@ describe('text painting', () => {
     })
   })
 
+  it('paints a theme font reference with the family the scene resolved', () => {
+    const drawingContext = context()
+    const themedNode = node({
+      layout: {
+        ...node().layout,
+        lines: [{
+          ...node().layout.lines[0]!,
+          marker: { text: '1.', x: 50, width: 40, marks: { fontSize: 10, fontFamily: '+mn-lt' }, resolvedFontFamily: 'Calibri' },
+          runs: [{ text: 'Heading', x: 100, width: 100, marks: { fontSize: 20, fontFamily: '+mj-lt' }, resolvedFontFamily: 'Cambria' }],
+        }],
+      },
+    })
+
+    paintTextNode(drawingContext, themedNode, { scale: 0.001, offsetX: 0, offsetY: 0 })
+
+    const fonts = drawingContext.events.filter(([type]) => type === 'fillText').map((event) => (event[4] as { font: string }).font)
+    expect(fonts).toEqual(['63.5px "Calibri"', '127px "Cambria"'])
+  })
+
+  it('ignores a reference the scene could not resolve rather than asking for a "+" family', () => {
+    const drawingContext = context()
+    const unresolvedNode = node({
+      layout: {
+        ...node().layout,
+        lines: [{
+          ...withoutMarker(node().layout.lines[0]!),
+          runs: [{ text: 'Body', x: 100, width: 100, marks: { fontSize: 20, fontFamily: '+mj-cs' } }],
+        }],
+      },
+    })
+
+    paintTextNode(drawingContext, unresolvedNode, { scale: 0.001, offsetX: 0, offsetY: 0 })
+
+    expect(drawingContext.events.find(([type]) => type === 'fillText')?.[4]).toMatchObject({ font: '127px "Arial"' })
+  })
+
   it('restores context when fillText fails', () => {
     const drawingContext = context()
     drawingContext.fillText = () => { throw new Error('text failed') }

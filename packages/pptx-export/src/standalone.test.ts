@@ -281,6 +281,50 @@ describe('createPptx', () => {
     expect(themedDocument).toEqual(before)
   })
 
+  it('serializes theme fonts and reads them back', async () => {
+    const themedDocument = structuredClone(emptyDocument)
+    themedDocument.themes = {
+      theme_fonts: {
+        id: 'theme_fonts',
+        colors: {},
+        fonts: {
+          major: { latin: 'Cambria "Display" & Co', ea: '宋体' },
+          minor: { latin: null },
+        },
+      },
+    }
+    themedDocument.masters = {
+      master_fonts: { id: 'master_fonts', themeId: 'theme_fonts' },
+    }
+    const before = structuredClone(themedDocument)
+
+    const output = await createPptx(themedDocument)
+    const entries = await packageEntries(output)
+    const themeXml = new TextDecoder().decode(entries.get('ppt/theme/theme1.xml'))
+    const imported = await importPptx(output)
+    const themeId = imported.masters?.mst_1?.themeId
+
+    expect(themeXml).toContain('<a:majorFont><a:latin typeface="Cambria &quot;Display&quot; &amp; Co"/><a:ea typeface="宋体"/><a:cs typeface=""/></a:majorFont>')
+    // A null slot writes the built-in default, matching what the renderer resolves `+mn-lt` to.
+    expect(themeXml).toContain('<a:minorFont><a:latin typeface="Aptos"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont>')
+    expect(imported.themes?.[themeId ?? '']?.fonts).toEqual({
+      major: { latin: 'Cambria "Display" & Co', ea: '宋体' },
+      minor: { latin: 'Aptos' },
+    })
+    expect(themedDocument).toEqual(before)
+  })
+
+  it('falls back to the built-in theme fonts when the model carries none', async () => {
+    const output = await createPptx(structuredClone(emptyDocument))
+    const entries = await packageEntries(output)
+    const themeXml = new TextDecoder().decode(entries.get('ppt/theme/theme1.xml'))
+
+    expect(themeXml).toContain('<a:fontScheme name="Office">'
+      + '<a:majorFont><a:latin typeface="Aptos Display"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>'
+      + '<a:minorFont><a:latin typeface="Aptos"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont>'
+      + '</a:fontScheme>')
+  })
+
   it('selects the first referenced theme by deterministic master key order', async () => {
     const themedDocument = structuredClone(emptyDocument)
     themedDocument.masters = {

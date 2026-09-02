@@ -10,6 +10,7 @@ export {
   type SceneTableNode,
   type SceneTextLayout,
   type SceneTextLayoutLine,
+  type SceneTextLayoutMarker,
   type SceneTextLayoutRun,
   type SceneTextNode,
 } from './scenegraph'

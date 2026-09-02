@@ -39,6 +39,24 @@ export const DEFAULT_THEME_COLORS: Readonly<Record<ThemeColorSlot, Color>> = {
   folHlink: { type: 'srgb', v: '954F72' },
 }
 
+export type ThemeFontSlot = 'major' | 'minor'
+
+export type ThemeFontScript = 'latin' | 'ea' | 'cs'
+
+/** A typeface per script. An absent value means the source said nothing usable, `null` means "reset to the built-in default". */
+export type ThemeFontFace = Partial<Record<ThemeFontScript, string | null>>
+
+export type ThemeFonts = Partial<Record<ThemeFontSlot, ThemeFontFace>>
+
+/**
+ * The Office defaults, and the single source of what a missing or reset slot serializes to.
+ * `ea` and `cs` are empty because the stock Office theme leaves them empty, meaning "no override".
+ */
+export const DEFAULT_THEME_FONTS: Readonly<Record<ThemeFontSlot, Readonly<Record<ThemeFontScript, string>>>> = {
+  major: { latin: 'Aptos Display', ea: '', cs: '' },
+  minor: { latin: 'Aptos', ea: '', cs: '' },
+}
+
 export interface ThemeSource {
   partPath: string
 }
@@ -46,6 +64,7 @@ export interface ThemeSource {
 export interface Theme {
   id: string
   colors: Partial<Record<ThemeColorSlot, Color | null>>
+  fonts?: ThemeFonts
   source?: ThemeSource
 }
 
@@ -519,6 +538,30 @@ export function resolveColor(color: Color, theme?: Theme, colorMap: ColorMap = D
   return resolveColorSource(color, theme, colorMap, new Set<string>(), 0)
 }
 
+const themeFontReferences: Readonly<Record<string, { slot: ThemeFontSlot; script: ThemeFontScript }>> = {
+  '+mj-lt': { slot: 'major', script: 'latin' },
+  '+mj-ea': { slot: 'major', script: 'ea' },
+  '+mj-cs': { slot: 'major', script: 'cs' },
+  '+mn-lt': { slot: 'minor', script: 'latin' },
+  '+mn-ea': { slot: 'minor', script: 'ea' },
+  '+mn-cs': { slot: 'minor', script: 'cs' },
+}
+
+/**
+ * Turns a `typeface` value into a family a font stack can use. Anything that is not one of the six
+ * theme references comes back untouched; a reference falls back to `DEFAULT_THEME_FONTS`, which is
+ * also what the exporter writes, so canvas and file cannot disagree. There is no font counterpart
+ * to `p:clrMap`, so unlike `resolveColor` this takes no map. An empty effective typeface — the
+ * stock `ea`/`cs` case — resolves to nothing rather than to an unusable empty family.
+ */
+export function resolveThemeFontFamily(family: string | undefined, theme?: Theme): string | undefined {
+  if (family === undefined) return undefined
+  const reference = themeFontReferences[family.trim().toLowerCase()]
+  if (!reference) return family
+  const effective = theme?.fonts?.[reference.slot]?.[reference.script] ?? DEFAULT_THEME_FONTS[reference.slot][reference.script]
+  return effective.length > 0 ? effective : undefined
+}
+
 function elementKey(element: Element): string {
   return element.kind === 'group' ? element.id : element.placeholder ?? element.id
 }
@@ -605,6 +648,8 @@ const tableStyleRegions = new Set<TableStyleRegionName>(['wholeTable', 'band1H',
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
 const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
+const themeFontSlots = new Set<ThemeFontSlot>(['major', 'minor'])
+const themeFontScripts = new Set<ThemeFontScript>(['latin', 'ea', 'cs'])
 const colorMapKeys = new Set<ColorMapKey>(['bg1', 'tx1', 'bg2', 'tx2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 const imageMimeTypes = new Set<ImageMimeType>(['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/webp'])
 const imageEffects = new Set(['alphaModFix', 'grayscl'])
@@ -644,6 +689,26 @@ function validateColor(value: unknown, path: string, errors: string[]): void {
       }
       validateFiniteNumber(transformValue.value, `${transformPath}.value`, errors, (number) => number >= 0 && number <= 100000, 'must be between 0 and 100000')
     })
+  }
+}
+
+function validateThemeFonts(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  for (const [slot, face] of Object.entries(value as Record<string, unknown>)) {
+    const facePath = `${path}.${slot}`
+    if (!themeFontSlots.has(slot as ThemeFontSlot)) errors.push(`${facePath} is not a supported theme font slot`)
+    if (!face || typeof face !== 'object' || Array.isArray(face)) {
+      errors.push(`${facePath} must be an object`)
+      continue
+    }
+    for (const [script, typeface] of Object.entries(face as Record<string, unknown>)) {
+      const typefacePath = `${facePath}.${script}`
+      if (!themeFontScripts.has(script as ThemeFontScript)) errors.push(`${typefacePath} is not a supported theme font script`)
+      if (typeface !== null && (typeof typeface !== 'string' || typeface.length === 0)) errors.push(`${typefacePath} must be a non-empty string or null`)
+    }
   }
 }
 
@@ -1060,6 +1125,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
         if (!themeColorSlots.has(slot as ThemeColorSlot)) errors.push(`${colorPath} is not a supported theme color slot`)
         if (color !== null) validateColor(color, colorPath, errors)
       }
+      if ('fonts' in theme && theme.fonts !== undefined) validateThemeFonts(theme.fonts, `${themePath}.fonts`, errors)
     }
   }
 

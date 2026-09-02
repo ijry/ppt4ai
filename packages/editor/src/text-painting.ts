@@ -1,6 +1,6 @@
 import type { ResolvedColor, TextMarks } from '@ppt4ai/model'
-import type { SceneTextLayout, SceneTextLayoutLine, SceneTextLayoutRun, SceneTextNode } from '@ppt4ai/render'
-import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, type TextLayoutMarker } from '@ppt4ai/text'
+import type { SceneTextLayout, SceneTextLayoutLine, SceneTextLayoutMarker, SceneTextLayoutRun, SceneTextNode } from '@ppt4ai/render'
+import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE } from '@ppt4ai/text'
 import { withRotation } from './rotation-transform'
 
 export interface TextPageMapping {
@@ -10,7 +10,7 @@ export interface TextPageMapping {
 }
 
 type TextContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
-type TextItem = SceneTextLayoutRun | TextLayoutMarker
+type TextItem = SceneTextLayoutRun | SceneTextLayoutMarker
 
 interface TextPaintStyle {
   color: string
@@ -43,18 +43,24 @@ function colorState(color: ResolvedColor | undefined): { color: string; alpha: n
   return { color: `#${color.rgb.toUpperCase()}`, alpha: color.alpha / 100000 }
 }
 
-function fontState(marks: TextMarks | undefined, fontScale: number, pageScale: number): Pick<TextPaintStyle, 'font' | 'fontPixels'> {
+/**
+ * A family still carrying the `+` sigil is a theme reference the scene could not resolve — OOXML
+ * reserves that prefix, so no installed font answers to it. Treat it as absent instead of handing
+ * `18px "+mj-lt"` to the canvas.
+ */
+function fontState(marks: TextMarks | undefined, resolvedFontFamily: string | undefined, fontScale: number, pageScale: number): Pick<TextPaintStyle, 'font' | 'fontPixels'> {
   const fontSize = finite(marks?.fontSize ?? DEFAULT_FONT_SIZE, 'text font size')
   if (fontSize <= 0) throw new Error('text font size must be positive')
   const fontPixels = fontSize * EMU_PER_POINT * fontScale / DEFAULT_FONT_SCALE * pageScale
-  const family = JSON.stringify(marks?.fontFamily ?? DEFAULT_FONT_FAMILY)
+  const requested = resolvedFontFamily ?? marks?.fontFamily
+  const family = JSON.stringify(requested && !requested.startsWith('+') ? requested : DEFAULT_FONT_FAMILY)
   const prefix = [marks?.italic ? 'italic' : '', marks?.bold ? 'bold' : ''].filter(Boolean).join(' ')
   return { fontPixels, font: `${prefix ? `${prefix} ` : ''}${fontPixels}px ${family}` }
 }
 
 function paintStyle(item: TextItem, fontScale: number, pageScale: number): TextPaintStyle {
   return {
-    ...fontState(item.marks, fontScale, pageScale),
+    ...fontState(item.marks, item.resolvedFontFamily, fontScale, pageScale),
     ...colorState('resolvedColor' in item ? item.resolvedColor : undefined),
   }
 }

@@ -1,5 +1,6 @@
 import {
   DEFAULT_THEME_COLORS,
+  DEFAULT_THEME_FONTS,
   type Color,
   type Fill,
   type Rect,
@@ -8,6 +9,8 @@ import {
   type TextElement,
   type Theme,
   type ThemeColorSlot,
+  type ThemeFontScript,
+  type ThemeFontSlot,
 } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { attrs, escapeXml, serializeColorXml, serializeFillXml, serializeTextBodyXml, type XmlAttribute } from './text-xml.js'
@@ -106,6 +109,17 @@ const defaultThemeColors: Record<ThemeColorSlot, string> = {
   folHlink: `<a:srgbClr val="${DEFAULT_THEME_COLORS.folHlink.v}"/>`,
 }
 
+const themeFontScripts: readonly ThemeFontScript[] = ['latin', 'ea', 'cs']
+
+/** A slot the model says nothing about falls back to `DEFAULT_THEME_FONTS`, the same values the renderer resolves references against. */
+function themeFontXml(theme: Theme | undefined, slot: ThemeFontSlot): string {
+  const face = theme?.fonts?.[slot]
+  const scripts = themeFontScripts
+    .map((script) => `<a:${script}${attrs([['typeface', face?.[script] ?? DEFAULT_THEME_FONTS[slot][script]]])}/>`)
+    .join('')
+  return `<a:${slot}Font>${scripts}</a:${slot}Font>`
+}
+
 export function serializeThemeXml(theme?: Theme): string {
   const colors = themeColorSlots
     .map((slot) => {
@@ -113,7 +127,8 @@ export function serializeThemeXml(theme?: Theme): string {
       return `<a:${slot}>${color === undefined || color === null ? defaultThemeColors[slot] : serializeColorXml(color)}</a:${slot}>`
     })
     .join('')
-  return `${xmlHeader}<a:theme xmlns:a="${drawingNamespace}" name="Office"><a:themeElements><a:clrScheme name="Office">${colors}</a:clrScheme><a:fontScheme name="Office"><a:majorFont><a:latin typeface="Aptos Display"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont><a:minorFont><a:latin typeface="Aptos"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme><a:fmtScheme name="Office"><a:fillStyleLst/><a:lnStyleLst/><a:effectStyleLst/><a:bgFillStyleLst/></a:fmtScheme></a:themeElements></a:theme>`
+  const fonts = `<a:fontScheme name="Office">${themeFontXml(theme, 'major')}${themeFontXml(theme, 'minor')}</a:fontScheme>`
+  return `${xmlHeader}<a:theme xmlns:a="${drawingNamespace}" name="Office"><a:themeElements><a:clrScheme name="Office">${colors}</a:clrScheme>${fonts}<a:fmtScheme name="Office"><a:fillStyleLst/><a:lnStyleLst/><a:effectStyleLst/><a:bgFillStyleLst/></a:fmtScheme></a:themeElements></a:theme>`
 }
 
 export function serializeMasterXml(): string {

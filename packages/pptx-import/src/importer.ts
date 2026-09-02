@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type Theme, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -88,6 +88,7 @@ function parseIntegerAttribute(value: string | undefined): number | undefined {
 const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 const colorMapKeys = new Set<ColorMapKey>(['bg1', 'tx1', 'bg2', 'tx2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
+const themeFontScripts: readonly ThemeFontScript[] = ['latin', 'ea', 'cs']
 
 function parsePercentage(value: string | undefined): number | undefined {
   if (value === undefined || value.trim() === '') return undefined
@@ -154,6 +155,27 @@ function parseColor(node: XmlNode | undefined): Color | undefined {
   return undefined
 }
 
+function parseThemeFontFace(node: XmlNode | undefined): ThemeFontFace | undefined {
+  if (!node) return undefined
+  const face: ThemeFontFace = {}
+  for (const script of themeFontScripts) {
+    const scriptNode = child(node, script)
+    // `typeface=""` is the stock way of saying "no override for this script", so it stays unmodeled.
+    const typeface = scriptNode ? attribute(scriptNode, 'typeface')?.trim() : undefined
+    if (typeface) face[script] = typeface
+  }
+  return Object.keys(face).length > 0 ? face : undefined
+}
+
+function parseThemeFonts(root: XmlNode): ThemeFonts | undefined {
+  const scheme = findDescendants(root, 'fontScheme')[0]
+  if (!scheme) return undefined
+  const major = parseThemeFontFace(child(scheme, 'majorFont'))
+  const minor = parseThemeFontFace(child(scheme, 'minorFont'))
+  if (!major && !minor) return undefined
+  return { ...(major ? { major } : {}), ...(minor ? { minor } : {}) }
+}
+
 function parseTheme(xml: string, id: string, partPath: string): Theme | undefined {
   let root: XmlNode
   try {
@@ -162,15 +184,16 @@ function parseTheme(xml: string, id: string, partPath: string): Theme | undefine
     return undefined
   }
   const scheme = findDescendants(root, 'clrScheme')[0]
-  if (!scheme) return undefined
   const colors: Theme['colors'] = {}
-  for (const slotNode of scheme.children) {
+  for (const slotNode of scheme?.children ?? []) {
     const slot = localName(slotNode.name) as ThemeColorSlot
     if (!themeColorSlots.has(slot)) continue
     const color = parseColor(slotNode)
     if (color) colors[slot] = color
   }
-  return Object.keys(colors).length > 0 ? { id, colors, source: { partPath } } : undefined
+  const fonts = parseThemeFonts(root)
+  if (Object.keys(colors).length === 0 && !fonts) return undefined
+  return { id, colors, ...(fonts ? { fonts } : {}), source: { partPath } }
 }
 
 function parseColorMap(node: XmlNode | undefined): Partial<ColorMap> | undefined {
