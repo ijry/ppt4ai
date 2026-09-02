@@ -43,8 +43,9 @@ describe('formatted text survives a writeback edit', () => {
     const document = await importPptx(source)
     const text = document.elements.el_1
     if (text?.kind !== 'text') throw new Error('fixture did not import as text')
-    const marks = text.body?.paragraphs[0]?.runs[0]?.marks
-    text.body = { paragraphs: [{ attrs: text.body?.paragraphs[0]?.attrs, runs: [{ text: 'Edited', ...(marks ? { marks } : {}) }] }] }
+    const paragraph = text.body?.paragraphs[0]
+    if (!paragraph) throw new Error('fixture paragraph is missing')
+    text.body = { paragraphs: [{ ...paragraph, runs: [{ text: 'Edited', ...(paragraph.runs[0]?.marks ? { marks: paragraph.runs[0].marks } : {}) }] }] }
 
     const output = await exportPptx(document, source)
     const outputSlide = await slideXmlOf(output)

@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextElement, type TextMarks, type TextParagraphAttrs, type TextRun } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
@@ -37,7 +37,7 @@ interface ScannedElement {
   element: XmlElement
   expectedId: string
   image?: SourceImage
-  sourceText?: string
+  sourceBody?: TextBody
   /** Set for a `p:grpSp` placeholder, which advances the positional map but has no writable content. */
   group?: true
 }
@@ -116,31 +116,181 @@ function xmlTextContent(element: XmlElement): string {
   return decodeXml(element.text) + element.children.map((child) => xmlTextContent(child)).join('')
 }
 
-function sourceTextContent(element: XmlElement): string | undefined {
+function directChildOf(element: XmlElement, localName: string): XmlElement | undefined {
+  return element.children.find((child) => child.localName === localName)
+}
+
+function integerAttribute(element: XmlElement, name: string): number | undefined {
+  return parseIntegerAttributeValue(element.attributes[name])
+}
+
+function numberAttribute(element: XmlElement, name: string): number | undefined {
+  const raw = element.attributes[name]
+  if (raw === undefined || raw.trim() === '') return undefined
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : undefined
+}
+
+function booleanAttributeValue(value: string | undefined): boolean | undefined {
+  return value === '1' || value === 'true' ? true : value === '0' || value === 'false' ? false : undefined
+}
+
+/**
+ * The four `source*` text readers below mirror the importer's `parseRunMarks`,
+ * `parseParagraphAttrs`, `parseBodyProperties` and `parseTextBody`. They are duplicated rather than
+ * shared for the same reason as `sourceColor`/`parseColor` and `sourceBounds`/`parseBounds`: the two
+ * XML representations differ by design, since range writeback needs byte offsets on every element.
+ */
+function sourceRunMarks(runProperties: XmlElement | undefined): TextMarks | undefined {
+  if (!runProperties) return undefined
+  const marks: TextMarks = {}
+  const typeface = directChildOf(runProperties, 'latin')?.attributes.typeface?.trim()
+  if (typeface) marks.fontFamily = typeface
+  const size = numberAttribute(runProperties, 'sz')
+  if (size !== undefined && size > 0) marks.fontSize = size / 100
+  const bold = booleanAttributeValue(runProperties.attributes.b)
+  if (bold !== undefined) marks.bold = bold
+  const italic = booleanAttributeValue(runProperties.attributes.i)
+  if (italic !== undefined) marks.italic = italic
+  const underline = runProperties.attributes.u
+  if (underline === 'none') marks.underline = 'none'
+  else if (underline !== undefined && underline !== '') marks.underline = 'single'
+  const color = sourceColor(directChildOf(runProperties, 'solidFill'))
+  if (color) marks.color = { color }
+  const baseline = numberAttribute(runProperties, 'baseline')
+  if (baseline !== undefined) marks.baseline = baseline
+  return Object.keys(marks).length > 0 ? marks : undefined
+}
+
+function sourceBullet(paragraphProperties: XmlElement): TextBullet | undefined {
+  const character = directChildOf(paragraphProperties, 'buChar')
+  if (character) {
+    const value = character.attributes.char
+    if (!value || [...value].length !== 1) return undefined
+    const typeface = directChildOf(character, 'rPr')?.attributes.typeface
+    return typeface ? { type: 'char', char: value, fontFamily: typeface } : { type: 'char', char: value }
+  }
+  const autoNumber = directChildOf(paragraphProperties, 'buAutoNum')
+  if (!autoNumber) return undefined
+  const type = autoNumber.attributes.type
+  const scheme = type === 'alphaLcPeriod' || type === 'alphaLcParenRight'
+    ? 'alphaLower'
+    : type === 'alphaUcPeriod' || type === 'alphaUcParenRight'
+      ? 'alphaUpper'
+      : 'arabic'
+  const startAt = integerAttribute(autoNumber, 'startAt')
+  if (autoNumber.attributes.startAt !== undefined && (startAt === undefined || startAt <= 0)) return undefined
+  return startAt === undefined ? { type: 'autoNum', scheme } : { type: 'autoNum', scheme, startAt }
+}
+
+function sourceSpacingPercentage(node: XmlElement | undefined): number | undefined {
+  const percentage = node && directChildOf(node, 'spcPct')
+  const value = percentage && numberAttribute(percentage, 'val')
+  return value !== undefined && value > 0 ? value : undefined
+}
+
+function sourceSpacingEmu(node: XmlElement | undefined): number | undefined {
+  const points = node && directChildOf(node, 'spcPts')
+  const value = points && numberAttribute(points, 'val')
+  return value !== undefined && value >= 0 ? value * 127 : undefined
+}
+
+function sourceParagraphAttrs(paragraphProperties: XmlElement | undefined): TextParagraphAttrs | undefined {
+  if (!paragraphProperties) return undefined
+  const attrs: TextParagraphAttrs = {}
+  const alignment = paragraphProperties.attributes.algn
+  if (alignment === 'l') attrs.align = 'left'
+  else if (alignment === 'ctr') attrs.align = 'center'
+  else if (alignment === 'r') attrs.align = 'right'
+  const level = integerAttribute(paragraphProperties, 'lvl')
+  if (level !== undefined && level >= 0) attrs.level = level
+  const marginLeft = numberAttribute(paragraphProperties, 'marL')
+  if (marginLeft !== undefined && marginLeft >= 0) attrs.marginLeft = marginLeft
+  const indent = numberAttribute(paragraphProperties, 'indent')
+  if (indent !== undefined) attrs.indent = indent
+  const lineSpacing = sourceSpacingPercentage(directChildOf(paragraphProperties, 'lnSpc'))
+  if (lineSpacing !== undefined) attrs.lineSpacing = lineSpacing
+  const spaceBefore = sourceSpacingEmu(directChildOf(paragraphProperties, 'spcBef'))
+  if (spaceBefore !== undefined) attrs.spaceBefore = spaceBefore
+  const spaceAfter = sourceSpacingEmu(directChildOf(paragraphProperties, 'spcAft'))
+  if (spaceAfter !== undefined) attrs.spaceAfter = spaceAfter
+  const bullet = sourceBullet(paragraphProperties)
+  if (bullet) attrs.bullet = bullet
+  return Object.keys(attrs).length > 0 ? attrs : undefined
+}
+
+function sourceAutofit(bodyProperties: XmlElement): TextAutofit | undefined {
+  if (directChildOf(bodyProperties, 'noAutofit')) return { type: 'none' }
+  const normal = directChildOf(bodyProperties, 'normAutofit')
+  if (normal) {
+    const scale = integerAttribute(normal, 'fontScale')
+    return scale !== undefined && scale >= 1 && scale <= 100000 ? { type: 'shrink', minFontScale: scale } : { type: 'shrink' }
+  }
+  return directChildOf(bodyProperties, 'spAutoFit') ? { type: 'resize' } : undefined
+}
+
+function sourceBodyProperties(bodyProperties: XmlElement | undefined): TextBodyProperties | undefined {
+  if (!bodyProperties) return undefined
+  const properties: TextBodyProperties = {}
+  const insets = (['lIns', 'tIns', 'rIns', 'bIns'] as const).map((name) => numberAttribute(bodyProperties, name))
+  const [left, top, right, bottom] = insets
+  if (left !== undefined && top !== undefined && right !== undefined && bottom !== undefined && insets.every((value) => value! >= 0)) {
+    properties.insets = { left, top, right, bottom }
+  }
+  const anchor = bodyProperties.attributes.anchor
+  if (anchor === 't') properties.verticalAlign = 'top'
+  else if (anchor === 'ctr') properties.verticalAlign = 'middle'
+  else if (anchor === 'b') properties.verticalAlign = 'bottom'
+  const vertical = bodyProperties.attributes.vert
+  if (vertical === 'vert270' || vertical === 'vert' || vertical === 'wordArtVert') properties.vertical = 'vertical'
+  else if (vertical === 'horz') properties.vertical = 'horizontal'
+  const wrap = bodyProperties.attributes.wrap
+  if (wrap === 'square' || wrap === 'none') properties.wrap = wrap
+  const autofit = sourceAutofit(bodyProperties)
+  if (autofit) properties.autofit = autofit
+  return Object.keys(properties).length > 0 ? properties : undefined
+}
+
+/** `a:br` is read in position, matching the importer and `serializeTextBodyXml`'s split on `\n`. */
+function sourceParagraphRuns(paragraph: XmlElement): TextRun[] {
+  const runs: TextRun[] = []
+  for (const node of paragraph.children) {
+    if (node.localName === 'br') {
+      const previous = runs[runs.length - 1]
+      if (previous) previous.text += '\n'
+      else runs.push({ text: '\n' })
+      continue
+    }
+    if (node.localName !== 'r') continue
+    const textNode = directChildOf(node, 't')
+    if (!textNode) continue
+    const text = xmlTextContent(textNode)
+    if (!text) continue
+    const marks = sourceRunMarks(directChildOf(node, 'rPr'))
+    runs.push(marks ? { text, marks } : { text })
+  }
+  return runs
+}
+
+function sourceTextBody(element: XmlElement): TextBody | undefined {
   const body = firstDescendant(element, 'txBody')
   if (!body) return undefined
-  const text = descendants([body], 't').map((node) => xmlTextContent(node)).join('')
-  const lineBreaks = descendants([body], 'br').length
-  return text + '\n'.repeat(lineBreaks)
+  const bodyPr = sourceBodyProperties(directChildOf(body, 'bodyPr'))
+  const paragraphs = body.children
+    .filter((child) => child.localName === 'p')
+    .map((paragraph) => {
+      const runs = sourceParagraphRuns(paragraph)
+      const attrs = sourceParagraphAttrs(directChildOf(paragraph, 'pPr'))
+      return attrs ? { runs, attrs } : { runs }
+    })
+  if (paragraphs.length === 0) return undefined
+  return bodyPr ? { bodyPr, paragraphs } : { paragraphs }
 }
 
 function textBodyForElement(element: TextElement): TextBody {
   return element.body ?? {
     paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }],
   }
-}
-
-function textBodyContent(body: TextBody): string {
-  let text = ''
-  let lineBreaks = 0
-  for (const paragraph of body.paragraphs) {
-    for (const run of paragraph.runs) {
-      const fragments = run.text.split('\n')
-      text += fragments.join('')
-      lineBreaks += fragments.length - 1
-    }
-  }
-  return text + '\n'.repeat(lineBreaks)
 }
 
 function sourceBounds(element: XmlElement): Rect | undefined {
@@ -546,8 +696,8 @@ function slideElements(xml: string, slideId: string, slidePath: string, relation
       const expectedId = candidate ? `el_${elementNumber}` : undefined
       if (candidate) elementNumber += 1
       if (expectedId && element.localName === 'sp' && hasBounds(element)) {
-        const sourceText = sourceTextContent(element)
-        result.push({ element, expectedId, ...(sourceText !== undefined ? { sourceText } : {}) })
+        const sourceBody = sourceTextBody(element)
+        result.push({ element, expectedId, ...(sourceBody !== undefined ? { sourceBody } : {}) })
       } else if (expectedId && element.localName === 'graphicFrame' && isImportableTable(element)) {
         result.push({ element, expectedId })
       }
@@ -919,12 +1069,15 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
     }
     if (sourceElement.localName !== 'graphicFrame') {
       if (element.kind === 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
-      const sourceTextBody = firstDescendant(sourceElement, 'txBody')
-      if (sourceTextBody) {
+      const sourceBodyElement = firstDescendant(sourceElement, 'txBody')
+      if (sourceBodyElement) {
         if (element.kind !== 'text') throw new Error(`PPTX export text source mismatch for element ${element.id}`)
         const body = textBodyForElement(element)
-        if (source.sourceText !== undefined && textBodyContent(body) !== source.sourceText) {
-          replacements.push({ start: sourceTextBody.start, end: sourceTextBody.end, value: serializeTextBodyXml(body) })
+        // Both sides go through the same serializer, so field order and omission rules normalize
+        // themselves. Comparing against the raw source XML instead would rewrite every txBody,
+        // since the source's own formatting and attribute order will not match ours.
+        if (source.sourceBody === undefined || serializeTextBodyXml(body) !== serializeTextBodyXml(source.sourceBody)) {
+          replacements.push({ start: sourceBodyElement.start, end: sourceBodyElement.end, value: serializeTextBodyXml(body) })
         }
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
         replacements.push(...transformReplacements(xml, sourceElement, element))
