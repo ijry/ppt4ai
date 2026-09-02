@@ -502,7 +502,15 @@ describe('importPptx', () => {
     expect(structuredClone(imported)).toEqual(imported)
   })
 
-  it.each(['horz', 'eaVert', 'mongolianVert', 'unknown', undefined])('ignores non-basic vertical value %s', async (value) => {
+  it('imports horz as an explicit horizontal writing mode', async () => {
+    const imported = await importPptx(createStoredZip(verticalFiles('horz')))
+    const element = imported.elements[imported.slides.sld_1!.elementIds[0]!]
+    if (!element || element.kind !== 'text') throw new Error('expected text element')
+    // The model has a horizontal value, and an explicit horz can override an inherited vert.
+    expect(element.body?.bodyPr).toEqual({ vertical: 'horizontal' })
+  })
+
+  it.each(['eaVert', 'mongolianVert', 'unknown', undefined])('ignores non-basic vertical value %s', async (value) => {
     const imported = await importPptx(createStoredZip(verticalFiles(value)))
     const element = imported.elements[imported.slides.sld_1!.elementIds[0]!]
     if (!element || element.kind !== 'text') throw new Error('expected text element')

@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextBody, type TextBullet, type TextMarks, type TextParagraph, type TextRun, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -779,19 +779,95 @@ function parseParagraphRuns(paragraphNode: XmlNode): TextRun[] {
   return runs
 }
 
+/**
+ * Only the `spcPct` form of line spacing and the `spcPts` form of paragraph spacing are read,
+ * because those are the two the model can hold: `lineSpacing` is a percentage and `spaceBefore` is
+ * EMU. The other pairing is skipped rather than converted, since guessing the unit would silently
+ * misplace text.
+ */
+function parseSpacingPercentage(node: XmlNode | undefined): number | undefined {
+  const percentage = node && child(node, 'spcPct')
+  const value = percentage && parseNumber(attribute(percentage, 'val'))
+  return value !== undefined && value > 0 ? value : undefined
+}
+
+function parseSpacingEmu(node: XmlNode | undefined): number | undefined {
+  const points = node && child(node, 'spcPts')
+  const value = points && parseNumber(attribute(points, 'val'))
+  // `spcPts@val` is in hundredths of a point, and one point is 12700 EMU.
+  return value !== undefined && value >= 0 ? value * 127 : undefined
+}
+
+function parseParagraphAttrs(paragraphProperties: XmlNode | undefined): TextParagraphAttrs | undefined {
+  if (!paragraphProperties) return undefined
+  const attrs: TextParagraphAttrs = {}
+  const alignment = attribute(paragraphProperties, 'algn')
+  if (alignment === 'l') attrs.align = 'left'
+  else if (alignment === 'ctr') attrs.align = 'center'
+  else if (alignment === 'r') attrs.align = 'right'
+  const level = parseIntegerAttribute(attribute(paragraphProperties, 'lvl'))
+  if (level !== undefined && level >= 0) attrs.level = level
+  const marginLeft = parseNumber(attribute(paragraphProperties, 'marL'))
+  if (marginLeft !== undefined && marginLeft >= 0) attrs.marginLeft = marginLeft
+  // Signed: a hanging indent is negative against a positive marL.
+  const indent = parseNumber(attribute(paragraphProperties, 'indent'))
+  if (indent !== undefined) attrs.indent = indent
+  const lineSpacing = parseSpacingPercentage(child(paragraphProperties, 'lnSpc'))
+  if (lineSpacing !== undefined) attrs.lineSpacing = lineSpacing
+  const spaceBefore = parseSpacingEmu(child(paragraphProperties, 'spcBef'))
+  if (spaceBefore !== undefined) attrs.spaceBefore = spaceBefore
+  const spaceAfter = parseSpacingEmu(child(paragraphProperties, 'spcAft'))
+  if (spaceAfter !== undefined) attrs.spaceAfter = spaceAfter
+  const bullet = parseBullet(paragraphProperties)
+  if (bullet) attrs.bullet = bullet
+  return Object.keys(attrs).length > 0 ? attrs : undefined
+}
+
+/** `lnSpcReduction` is deliberately not read: see the note in the design doc about the exporter. */
+function parseAutofit(bodyProperties: XmlNode): TextAutofit | undefined {
+  if (child(bodyProperties, 'noAutofit')) return { type: 'none' }
+  const normal = child(bodyProperties, 'normAutofit')
+  if (normal) {
+    const scale = parsePercentage(attribute(normal, 'fontScale'))
+    return scale !== undefined && scale >= 1 ? { type: 'shrink', minFontScale: scale } : { type: 'shrink' }
+  }
+  return child(bodyProperties, 'spAutoFit') ? { type: 'resize' } : undefined
+}
+
+function parseBodyProperties(bodyProperties: XmlNode | undefined): TextBodyProperties | undefined {
+  if (!bodyProperties) return undefined
+  const properties: TextBodyProperties = {}
+  const insets = (['lIns', 'tIns', 'rIns', 'bIns'] as const).map((name) => parseNumber(attribute(bodyProperties, name)))
+  const [left, top, right, bottom] = insets
+  // All four or none: the model has no partial inset form.
+  if (left !== undefined && top !== undefined && right !== undefined && bottom !== undefined && insets.every((value) => value! >= 0)) {
+    properties.insets = { left, top, right, bottom }
+  }
+  const anchor = attribute(bodyProperties, 'anchor')
+  if (anchor === 't') properties.verticalAlign = 'top'
+  else if (anchor === 'ctr') properties.verticalAlign = 'middle'
+  else if (anchor === 'b') properties.verticalAlign = 'bottom'
+  const verticalValue = attribute(bodyProperties, 'vert')
+  if (verticalValue === 'vert270' || verticalValue === 'vert' || verticalValue === 'wordArtVert') properties.vertical = 'vertical'
+  else if (verticalValue === 'horz') properties.vertical = 'horizontal'
+  const wrap = attribute(bodyProperties, 'wrap')
+  if (wrap === 'square' || wrap === 'none') properties.wrap = wrap
+  const autofit = parseAutofit(bodyProperties)
+  if (autofit) properties.autofit = autofit
+  return Object.keys(properties).length > 0 ? properties : undefined
+}
+
 function parseTextBody(shape: XmlNode): TextBody | undefined {
   const body = findDescendants(shape, 'txBody')[0]
   if (!body) return undefined
-  const bodyProperties = child(body, 'bodyPr')
-  const verticalValue = bodyProperties && attribute(bodyProperties, 'vert')
-  const vertical = verticalValue === 'vert270' || verticalValue === 'vert' || verticalValue === 'wordArtVert' ? 'vertical' as const : undefined
+  const bodyPr = parseBodyProperties(child(body, 'bodyPr'))
   const paragraphs: TextParagraph[] = children(body, 'p').map((paragraphNode) => {
     const runs = parseParagraphRuns(paragraphNode)
-    const attrs = parseBullet(child(paragraphNode, 'pPr'))
-    return attrs ? { runs, attrs: { bullet: attrs } } : { runs }
+    const attrs = parseParagraphAttrs(child(paragraphNode, 'pPr'))
+    return attrs ? { runs, attrs } : { runs }
   })
   if (paragraphs.length === 0) return undefined
-  return vertical ? { bodyPr: { vertical }, paragraphs } : { paragraphs }
+  return bodyPr ? { bodyPr, paragraphs } : { paragraphs }
 }
 
 function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Element | undefined {
