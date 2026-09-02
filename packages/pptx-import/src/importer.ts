@@ -247,6 +247,18 @@ function parseRotation(shape: XmlNode): number | undefined {
   return parseIntegerAttribute(transform ? attribute(transform, 'rot') : undefined)
 }
 
+/** Only a set flip is recorded; `flipH="0"` means no flip, so it stays absent from the model. */
+function parseFlips(transform: XmlNode | undefined): { flipH?: boolean; flipV?: boolean } {
+  if (!transform) return {}
+  const flipH = attribute(transform, 'flipH') === '1' || attribute(transform, 'flipH') === 'true'
+  const flipV = attribute(transform, 'flipV') === '1' || attribute(transform, 'flipV') === 'true'
+  return { ...(flipH ? { flipH } : {}), ...(flipV ? { flipV } : {}) }
+}
+
+function parseShapeFlips(shape: XmlNode): { flipH?: boolean; flipV?: boolean } {
+  return parseFlips(findDescendants(shape, 'xfrm')[0])
+}
+
 function parseShapeFill(shape: XmlNode): Fill | undefined {
   return parseDirectFill(shapeProperties(shape))
 }
@@ -462,6 +474,7 @@ function parseTable(frame: XmlNode, id: string): TableElement | undefined {
     columns,
     rows: parsedRows,
     ...(rotation === undefined ? {} : { rotation }),
+    ...parseShapeFlips(frame),
     ...(tableFill ? { fill: tableFill } : {}),
     ...(style ? { style } : {}),
   }
@@ -514,6 +527,11 @@ function parseGroupRotation(group: XmlNode): number | undefined {
   const properties = child(group, 'grpSpPr')
   const transform = properties && child(properties, 'xfrm')
   return parseIntegerAttribute(transform ? attribute(transform, 'rot') : undefined)
+}
+
+function parseGroupFlips(group: XmlNode): { flipH?: boolean; flipV?: boolean } {
+  const properties = child(group, 'grpSpPr')
+  return parseFlips(properties && child(properties, 'xfrm'))
 }
 
 /**
@@ -718,10 +736,11 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   if (requireBounds && !bounds) return undefined
   const placeholder = parsePlaceholder(shape)
   const rotation = parseRotation(shape)
+  const flips = parseShapeFlips(shape)
   const text = parseText(shape)
   if (text.present) {
     if (!bounds) return undefined
-    const element: Extract<Element, { kind: 'text' }> = { id, kind: 'text', bounds, ...(rotation === undefined ? {} : { rotation }), text: text.value }
+    const element: Extract<Element, { kind: 'text' }> = { id, kind: 'text', bounds, ...(rotation === undefined ? {} : { rotation }), ...flips, text: text.value }
     const body = parseTextBody(shape)
     if (body) element.body = body
     if (placeholder) element.placeholder = placeholder
@@ -738,6 +757,7 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     preset: parsePreset(shape),
     bounds,
     ...(rotation === undefined ? {} : { rotation }),
+    ...flips,
   }
   if (placeholder) element.placeholder = placeholder
   const fill = parseShapeFill(shape)
@@ -937,6 +957,7 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
           bounds,
           childIds: [],
           ...(rotation === undefined ? {} : { rotation }),
+          ...parseGroupFlips(shape.node),
           ...(childSpace === undefined ? {} : { childSpace }),
         }
         registerChild(shape, groupId)

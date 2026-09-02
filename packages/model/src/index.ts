@@ -138,6 +138,8 @@ export interface ShapeElement {
   preset: PresetGeometry
   bounds: Rect
   rotation?: number
+  flipH?: boolean
+  flipV?: boolean
   fill?: Fill
   stroke?: Fill
   placeholder?: string
@@ -148,6 +150,8 @@ export interface TextElement {
   kind: 'text'
   bounds: Rect
   rotation?: number
+  flipH?: boolean
+  flipV?: boolean
   text?: string
   body?: TextBody
   fill?: Fill
@@ -227,6 +231,8 @@ export interface TableElement {
   columns: number[]
   rows: TableRow[]
   rotation?: number
+  flipH?: boolean
+  flipV?: boolean
   fill?: Fill
   stroke?: Fill
   placeholder?: string
@@ -239,6 +245,8 @@ export interface GroupElement {
   bounds: Rect
   childIds: string[]
   rotation?: number
+  flipH?: boolean
+  flipV?: boolean
   /**
    * OOXML `a:chOff`/`a:chExt`: the coordinate space descendants are authored in. Descendant
    * bounds stay as authored so writeback compares like with like; the scene graph maps this
@@ -1106,6 +1114,12 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     if (element.bounds.w <= 0 || element.bounds.h <= 0) errors.push(`element ${elementId} bounds must be positive`)
     if (element.kind !== 'image' && element.rotation !== undefined) {
       validateFiniteNumber(element.rotation, `elements.${elementId}.rotation`, errors, Number.isInteger, 'must be an integer')
+    }
+    if (element.kind !== 'image') {
+      for (const axis of ['flipH', 'flipV'] as const) {
+        const value = element[axis]
+        if (value !== undefined && typeof value !== 'boolean') errors.push(`elements.${elementId}.${axis} must be a boolean`)
+      }
     }
     if (element.kind === 'group') {
       if (element.childSpace !== undefined) {
