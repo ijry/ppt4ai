@@ -192,18 +192,30 @@ function sourceRotation(element: XmlElement): number | undefined {
   return parseIntegerAttributeValue(transform?.attributes.rot)
 }
 
-function rotationReplacements(xml: string, sourceElement: XmlElement, rotation: number | undefined): Replacement[] {
-  // A group's rotation lives on grpSpPr, so scope there rather than reaching into a child's xfrm.
-  const transform = sourceElement.localName === 'grpSp'
+/** Matches the importer: only `1`/`true` is a flip, so `flipH="0"` and an absent attribute agree. */
+function flipAttribute(value: string | undefined): true | undefined {
+  return value === '1' || value === 'true' ? true : undefined
+}
+
+function transformReplacements(
+  xml: string,
+  sourceElement: XmlElement,
+  transform: { rotation?: number; flipH?: boolean; flipV?: boolean },
+): Replacement[] {
+  // A group's transform lives on grpSpPr, so scope there rather than reaching into a child's xfrm.
+  const source = sourceElement.localName === 'grpSp'
     ? groupTransform(sourceElement)
     : firstDescendant(sourceElement, 'xfrm')
-  if (!transform) return []
-  const previous = parseIntegerAttributeValue(transform.attributes.rot)
-  if (previous === rotation || (previous === undefined && rotation === undefined)) return []
-  const openingEnd = tagEnd(xml, transform.start + 1)
-  const openingXml = xml.slice(transform.start, openingEnd)
-  const value = updateXmlAttribute(openingXml, 'rot', rotation)
-  return value === openingXml ? [] : [{ start: transform.start, end: openingEnd, value }]
+  if (!source) return []
+  const previousRotation = parseIntegerAttributeValue(source.attributes.rot)
+  const rotationChanged = previousRotation !== transform.rotation && !(previousRotation === undefined && transform.rotation === undefined)
+  const flips = (['flipH', 'flipV'] as const).filter((axis) => flipAttribute(source.attributes[axis]) !== (transform[axis] === true ? true : undefined))
+  if (!rotationChanged && flips.length === 0) return []
+  const openingEnd = tagEnd(xml, source.start + 1)
+  const openingXml = xml.slice(source.start, openingEnd)
+  let value = rotationChanged ? updateXmlAttribute(openingXml, 'rot', transform.rotation) : openingXml
+  for (const axis of flips) value = updateXmlAttribute(value, axis, transform[axis] === true ? '1' : undefined)
+  return value === openingXml ? [] : [{ start: source.start, end: openingEnd, value }]
 }
 
 function boundsReplacements(xml: string, sourceElement: XmlElement, bounds: Rect): Replacement[] {
@@ -897,7 +909,7 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
     if (strictIdentity && elementId !== source.expectedId) throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
     if (source.group) {
       if (element.kind !== 'group') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
-      replacements.push(...rotationReplacements(xml, sourceElement, element.rotation))
+      replacements.push(...transformReplacements(xml, sourceElement, element))
       replacements.push(...groupBoundsReplacements(xml, sourceElement, element))
       continue
     }
@@ -915,14 +927,14 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
           replacements.push({ start: sourceTextBody.start, end: sourceTextBody.end, value: serializeTextBodyXml(body) })
         }
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
-        replacements.push(...rotationReplacements(xml, sourceElement, element.rotation))
+        replacements.push(...transformReplacements(xml, sourceElement, element))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
         replacements.push(...strokeReplacements(xml, sourceElement, element.stroke))
       } else if (element.kind === 'text') {
         throw new Error(`PPTX export text source mismatch for element ${element.id}`)
       } else if (element.kind === 'shape') {
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
-        replacements.push(...rotationReplacements(xml, sourceElement, element.rotation))
+        replacements.push(...transformReplacements(xml, sourceElement, element))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
         replacements.push(...strokeReplacements(xml, sourceElement, element.stroke))
         replacements.push(...geometryReplacements(xml, sourceElement, element.preset))
@@ -934,7 +946,7 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
     if (element.kind !== 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
     const table = firstDescendant(sourceElement, 'tbl')
     if (!table) throw new Error(`PPTX export table source missing for element ${element.id}`)
-    replacements.push(...rotationReplacements(xml, sourceElement, element.rotation))
+    replacements.push(...transformReplacements(xml, sourceElement, element))
     replacements.push({ start: table.start, end: table.end, value: serializeTableXml(element) })
   }
 

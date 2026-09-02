@@ -382,6 +382,60 @@ describe('createPptx', () => {
     expect(xml).not.toContain('rot=')
   })
 
+  it('round-trips shape and text flips', async () => {
+    const flippedDocument = structuredClone(shapeTextDocument)
+    const flippedShape = flippedDocument.elements[shape.id]
+    const flippedText = flippedDocument.elements[text.id]
+    if (!flippedShape || flippedShape.kind !== 'shape' || !flippedText || flippedText.kind !== 'text') throw new Error('flip fixtures are missing')
+    flippedShape.flipH = true
+    flippedShape.flipV = true
+    flippedText.flipV = true
+
+    const output = await createPptx(flippedDocument)
+    const xml = await slideXml(output)
+    const imported = await importPptx(output)
+    const importedIds = imported.slides.sld_1?.elementIds ?? []
+
+    expect(xml).toContain('<a:xfrm flipH="1" flipV="1">')
+    expect(xml).toContain('<a:xfrm flipV="1">')
+    expect(imported.elements[importedIds[0] ?? '']).toMatchObject({ kind: 'shape', flipH: true, flipV: true })
+    expect(imported.elements[importedIds[1] ?? '']).toMatchObject({ kind: 'text', flipV: true })
+  })
+
+  it('keeps a flip alongside a rotation on one transform', async () => {
+    const document = structuredClone(shapeTextDocument)
+    const rotatedShape = document.elements[shape.id]
+    if (!rotatedShape || rotatedShape.kind !== 'shape') throw new Error('flip fixtures are missing')
+    rotatedShape.rotation = 2700000
+    rotatedShape.flipH = true
+
+    const xml = await slideXml(await createPptx(document))
+
+    expect(xml).toContain('<a:xfrm rot="2700000" flipH="1">')
+  })
+
+  it('round-trips a table flip through the graphic frame transform', async () => {
+    const flippedTable: TableElement = { ...table, flipV: true }
+    const document: Ppt4aiDocument = {
+      ...emptyDocument,
+      slides: { sld_1: { id: 'sld_1', elementIds: [flippedTable.id] } },
+      elements: { [flippedTable.id]: flippedTable },
+    }
+
+    const output = await createPptx(document)
+    const imported = await importPptx(output)
+
+    expect(await slideXml(output)).toContain('<p:xfrm flipV="1">')
+    expect(imported.elements[imported.slides.sld_1?.elementIds[0] ?? '']).toMatchObject({ kind: 'table', flipV: true })
+  })
+
+  it('omits flip attributes entirely when neither axis is set', async () => {
+    const xml = await slideXml(await createPptx(shapeTextDocument))
+
+    expect(xml).not.toContain('flipH=')
+    expect(xml).not.toContain('flipV=')
+  })
+
   it('serializes table elements as graphic frames and round-trips their grid', async () => {
     const before = structuredClone(tableDocument)
     const output = await createPptx(tableDocument)

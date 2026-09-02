@@ -210,8 +210,17 @@ function serializeTransformContents(bounds: Rect): string {
   return `<a:off x="${bounds.x}" y="${bounds.y}"/><a:ext cx="${bounds.w}" cy="${bounds.h}"/>`
 }
 
-function serializeShapeTransform(bounds: Rect, rotation: number | undefined): string {
-  return `<a:xfrm${attrs([['rot', rotation]])}>${serializeTransformContents(bounds)}</a:xfrm>`
+function serializeShapeTransform(element: ShapeElement | TextElement): string {
+  return `<a:xfrm${serializeTransformAttributes(element)}>${serializeTransformContents(element.bounds)}</a:xfrm>`
+}
+
+/** Flips are written only when set: `flipH="0"` and an absent attribute mean the same thing. */
+function serializeTransformAttributes(element: { rotation?: number; flipH?: boolean; flipV?: boolean }): string {
+  return attrs([
+    ['rot', element.rotation],
+    ['flipH', element.flipH === true ? '1' : undefined],
+    ['flipV', element.flipV === true ? '1' : undefined],
+  ])
 }
 
 function serializeGeometry(preset: ShapeElement['preset']): string {
@@ -335,7 +344,7 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   const preset = isText ? 'rect' : element.preset
   const placeholder = serializePlaceholder(element.placeholder)
   const nonVisualProperties = `<p:nvSpPr><p:cNvPr id="${shapeId}" name="${escapeXml(element.id)}"/><p:cNvSpPr${isText ? ' txBox="1"' : ''}/><p:nvPr>${placeholder}</p:nvPr></p:nvSpPr>`
-  const shapeProperties = `<p:spPr>${serializeShapeTransform(element.bounds, element.rotation)}${serializeGeometry(preset)}${serializeFillXml(element.fill)}${element.stroke ? `<a:ln>${serializeFillXml(element.stroke)}</a:ln>` : ''}</p:spPr>`
+  const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${serializeGeometry(preset)}${serializeFillXml(element.fill)}${element.stroke ? `<a:ln>${serializeFillXml(element.stroke)}</a:ln>` : ''}</p:spPr>`
   const textBody = isText
     ? serializeTextBodyXml(element.body ?? { paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }] })
     : ''
@@ -345,7 +354,7 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
 export function serializeTableFrameXml(table: TableElement, shapeId: number): string {
   const placeholder = serializePlaceholder(table.placeholder)
   const nonVisualProperties = `<p:nvGraphicFramePr><p:cNvPr id="${shapeId}" name="${escapeXml(table.id)}"/><p:cNvGraphicFramePr/><p:nvPr>${placeholder}</p:nvPr></p:nvGraphicFramePr>`
-  const transform = `<p:xfrm${attrs([['rot', table.rotation]])}>${serializeTransformContents(table.bounds)}</p:xfrm>`
+  const transform = `<p:xfrm${serializeTransformAttributes(table)}>${serializeTransformContents(table.bounds)}</p:xfrm>`
   const graphic = `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">${serializeTableXml(table)}</a:graphicData></a:graphic>`
   return `<p:graphicFrame>${nonVisualProperties}${transform}${graphic}</p:graphicFrame>`
 }

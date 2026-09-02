@@ -116,4 +116,36 @@ describe('group source package writeback', () => {
 
     await expect(exportPptx(document, source)).rejects.toThrow(/prefix mismatch/)
   })
+
+  it('writes a group flip onto grpSpPr alongside the rotation', async () => {
+    const source = groupedPackage()
+    const document = await importPptx(source)
+    const group = document.elements.grp_1
+    if (group?.kind !== 'group') throw new Error('fixture group was not imported')
+    group.flipH = true
+
+    const slideXml = await slideXmlOf(await exportPptx(document, source))
+
+    expect(slideXml).toContain('<p:grpSpPr><a:xfrm flipH="1" rot="900000">')
+    expect((await importPptx(await exportPptx(document, source))).elements.grp_1).toMatchObject({ flipH: true, rotation: 900000 })
+  })
+
+  it('removes a group flip when the model clears it', async () => {
+    const flippedSource = writeStoredZip([
+      { name: '[Content_Types].xml', data: new TextEncoder().encode(contentTypes) },
+      { name: 'ppt/presentation.xml', data: new TextEncoder().encode(presentation) },
+      { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(presentationRels) },
+      { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(groupedSlide.replace('<a:xfrm rot="900000">', '<a:xfrm rot="900000" flipV="1">')) },
+    ])
+    const document = await importPptx(flippedSource)
+    const group = document.elements.grp_1
+    if (group?.kind !== 'group') throw new Error('fixture group was not imported')
+    expect(group).toMatchObject({ flipV: true })
+    delete group.flipV
+
+    const slideXml = await slideXmlOf(await exportPptx(document, flippedSource))
+
+    expect(slideXml).toContain('<p:grpSpPr><a:xfrm rot="900000">')
+    expect(slideXml).not.toContain('flipV')
+  })
 })

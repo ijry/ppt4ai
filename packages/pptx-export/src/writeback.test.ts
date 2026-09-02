@@ -179,8 +179,8 @@ function strokedShapeSourcePackage(): Uint8Array {
   ])
 }
 
-function rotatedShapeSourcePackage(shapeRotation?: string, textRotation?: string): Uint8Array {
-  const shapeTransform = `<a:xfrm${shapeRotation === undefined ? '' : ` rot="${shapeRotation}"`} data-shape-transform="keep"><a:off x="10" y="20"/><a:ext cx="300" cy="400"/><a:customTransform keep="yes"/></a:xfrm>`
+function rotatedShapeSourcePackage(shapeRotation?: string, textRotation?: string, shapeFlips = ''): Uint8Array {
+  const shapeTransform = `<a:xfrm${shapeRotation === undefined ? '' : ` rot="${shapeRotation}"`}${shapeFlips} data-shape-transform="keep"><a:off x="10" y="20"/><a:ext cx="300" cy="400"/><a:customTransform keep="yes"/></a:xfrm>`
   const textTransform = `<a:xfrm${textRotation === undefined ? '' : ` rot="${textRotation}"`} data-text-transform="keep"><a:off x="500" y="600"/><a:ext cx="700" cy="800"/><a:customTextTransform keep="yes"/></a:xfrm>`
   const rotatedSlide = `<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp data-preserve="rotation-shape"><p:nvSpPr><p:cNvPr id="1" name="Shape"/><p:nvPr/></p:nvSpPr><p:spPr>${shapeTransform}<a:prstGeom prst="triangle"/></p:spPr></p:sp><p:sp data-preserve="rotation-text"><p:nvSpPr><p:cNvPr id="2" name="Text"/><p:nvPr/></p:nvSpPr><p:spPr>${textTransform}</p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>Rotated</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`
   return writeStoredZip([
@@ -936,6 +936,63 @@ describe('exportPptx', () => {
     expect(removedSlide).toContain('<a:xfrm data-text-transform="keep">')
     expect(removedSlide).not.toContain('rot="60000"')
     expect(removedSlide).not.toContain('rot="-120000"')
+  })
+
+  it('writes an added shape flip onto the existing xfrm', async () => {
+    const source = rotatedShapeSourcePackage('60000')
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    if (!shape || shape.kind !== 'shape') throw new Error('fixture shape was not imported')
+    shape.flipH = true
+    shape.flipV = true
+
+    const output = await exportPptx(document, source)
+    const outputSlide = new TextDecoder().decode((await packageEntries(output)).get('ppt/slides/slide1.xml'))
+
+    expect(outputSlide).toContain('<a:xfrm flipV="1" flipH="1" rot="60000" data-shape-transform="keep">')
+    expect((await importPptx(output)).elements.el_1).toMatchObject({ flipH: true, flipV: true, rotation: 60000 })
+  })
+
+  it('removes a source flip when the model no longer carries one', async () => {
+    const source = rotatedShapeSourcePackage(undefined, undefined, ' flipH="1" flipV="1"')
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    if (!shape || shape.kind !== 'shape') throw new Error('fixture shape was not imported')
+    expect(shape).toMatchObject({ flipH: true, flipV: true })
+    delete shape.flipH
+    delete shape.flipV
+
+    const output = await exportPptx(document, source)
+    const outputSlide = new TextDecoder().decode((await packageEntries(output)).get('ppt/slides/slide1.xml'))
+
+    expect(outputSlide).toContain('<a:xfrm data-shape-transform="keep">')
+    expect((await importPptx(output)).elements.el_1).not.toHaveProperty('flipH')
+  })
+
+  it('leaves the transform untouched when an unset flip stays unset', async () => {
+    const source = rotatedShapeSourcePackage(undefined, undefined, ' flipH="0"')
+    const document = await importPptx(source)
+
+    const output = await exportPptx(document, source)
+    const outputSlide = new TextDecoder().decode((await packageEntries(output)).get('ppt/slides/slide1.xml'))
+
+    // flipH="0" and no attribute both import as no flip, so writeback must not churn the source.
+    expect(outputSlide).toContain('<a:xfrm flipH="0" data-shape-transform="keep">')
+  })
+
+  it('writes a table flip onto the graphic frame transform', async () => {
+    const source = sourcePackage()
+    const document = await importPptx(source)
+    const table = document.elements.el_1
+    if (!table || table.kind !== 'table') throw new Error('fixture table was not imported')
+    table.flipH = true
+
+    const exported = await exportPptx(document, source)
+    const entries = await readZipEntries(exported)
+    const outputSlide = new TextDecoder().decode(entries[2]!.data)
+
+    expect(outputSlide).toContain('flipH="1"')
+    expect((await importPptx(exported)).elements.el_1).toMatchObject({ kind: 'table', flipH: true })
   })
 
   it('writes edited shape preset geometry while preserving geometry XML', async () => {
