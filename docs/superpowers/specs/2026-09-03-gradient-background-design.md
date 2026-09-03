@@ -1,6 +1,6 @@
 # 渐变背景设计
 
-> 状态：待实现（2026-09-03）
+> 状态：已实现（2026-09-03，`ec9792b`）
 > 日期：2026-09-03
 
 ## 1. 目标
@@ -54,3 +54,5 @@ backgroundGradient : undefined
 - 渐变背景没有 engine 命令与面板，只读（与平色背景一样，背景编辑整体未做）
 - `a:path` 径向渐变背景仍解析成「无背景」（与形状填充同款限制）
 - 渐变背景的 `rotWithShape`/`tileRect` 等属性在被编辑后丢失（与形状填充同款限制）
+- **`resolveSlideBackground` 的签名一行未改**：实现时发现不需要动它 —— 场景直接取 `slide/layout/master` 三级里第一个 `background.fill`，`gradient` 就在那个 `Fill` 上。改签名会牵动所有调用点，而取字段不会。设计文档决策 1 原本写「返回类型改成 `{ color, gradient? }`」，实际实现比它更小。
+- **过程中一次误操作已回滚**：写测试时用 `Write` 覆盖了既有的 `slide-canvas-renderer.test.ts`（含 4 项测试），已 `git checkout` 还原并确认坐标空间那刀的 `toBe(2)` 断言完好，新测试改放 `gradient-background.test.ts`。教训是新增测试要用新文件名，不要与既有测试文件同名。
