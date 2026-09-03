@@ -53,3 +53,88 @@ describe('rewriteThemeXml', () => {
     } satisfies Theme)).toThrow('PPTX export theme')
   })
 })
+
+const fontTheme = '<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Custom"><a:dk1><a:srgbClr val="000000"/></a:dk1></a:clrScheme>'
+  + '<a:fontScheme name="Custom">'
+  + '<a:majorFont><a:latin typeface="Cambria" panose="02040503050406030204" pitchFamily="18" charset="0"/><a:ea typeface=" 宋体 "/><a:cs typeface=""/>'
+  + '<a:font script="Hans" typeface="等线"/></a:majorFont>'
+  + '<a:minorFont><a:ea typeface=""/><a:extLst data-ext="keep"/></a:minorFont>'
+  + '</a:fontScheme></a:themeElements></a:theme>'
+
+describe('rewriteThemeXml font scheme', () => {
+  it('patches one typeface while keeping the unmodeled attributes and sibling nodes', () => {
+    const rewritten = rewriteThemeXml(fontTheme, {
+      id: 'theme_1',
+      colors: {},
+      fonts: { major: { latin: 'Georgia & "Co"' } },
+    })
+
+    expect(rewritten).toContain('<a:latin typeface="Georgia &amp; &quot;Co&quot;" panose="02040503050406030204" pitchFamily="18" charset="0"/>')
+    expect(rewritten).toContain('<a:font script="Hans" typeface="等线"/>')
+    expect(rewritten).toContain('<a:cs typeface=""/>')
+  })
+
+  /** The importer trims `typeface`, so comparing untrimmed would rewrite a theme nobody edited. */
+  it('returns the exact source when the modeled typefaces match, whitespace aside', () => {
+    expect(rewriteThemeXml(fontTheme, {
+      id: 'theme_1',
+      colors: {},
+      fonts: { major: { latin: 'Cambria', ea: '宋体' }, minor: { ea: null } },
+    })).toBe(fontTheme)
+  })
+
+  it('resets a null typeface to the built-in default', () => {
+    const rewritten = rewriteThemeXml(fontTheme, {
+      id: 'theme_1',
+      colors: {},
+      fonts: { major: { latin: null } },
+    })
+
+    expect(rewritten).toContain('<a:latin typeface="Aptos Display" panose="02040503050406030204"')
+  })
+
+  it('inserts a missing script node before the nodes that must follow it', () => {
+    const rewritten = rewriteThemeXml(fontTheme, {
+      id: 'theme_1',
+      colors: {},
+      fonts: { minor: { latin: 'Calibri', cs: 'Arial' } },
+    })
+
+    expect(rewritten).toContain('<a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface="Arial"/><a:extLst data-ext="keep"/></a:minorFont>')
+  })
+
+  it('builds a missing font collection with all three scripts', () => {
+    const rewritten = rewriteThemeXml(sourceTheme, {
+      id: 'theme_1',
+      colors: {},
+      fonts: { minor: { ea: '等线' } },
+    })
+
+    expect(rewritten).toContain('<a:fontScheme data-font="keep"><a:minorFont><a:latin typeface="Aptos"/><a:ea typeface="等线"/><a:cs typeface=""/></a:minorFont></a:fontScheme>')
+  })
+
+  it('leaves the font scheme alone when the model carries no typeface', () => {
+    expect(rewriteThemeXml(fontTheme, { id: 'theme_1', colors: {}, fonts: { major: {} } })).toBe(fontTheme)
+  })
+
+  it('rejects a source without a font scheme once fonts are modeled', () => {
+    const withoutFonts = '<a:theme xmlns:a="a"><a:themeElements><a:clrScheme><a:dk1><a:srgbClr val="000000"/></a:dk1></a:clrScheme></a:themeElements></a:theme>'
+
+    expect(() => rewriteThemeXml(withoutFonts, { id: 'theme_1', colors: {}, fonts: { major: { latin: 'Georgia' } } }))
+      .toThrow('PPTX export theme source malformed: theme_1')
+  })
+
+  it('rejects an unusable typeface with a stable error', () => {
+    expect(() => rewriteThemeXml(fontTheme, {
+      id: 'theme_1',
+      colors: {},
+      fonts: { major: { latin: 'Bad\u0000Font' } },
+    })).toThrow('PPTX export theme font unsupported: theme_1.major.latin')
+
+    expect(() => rewriteThemeXml(fontTheme, {
+      id: 'theme_1',
+      colors: {},
+      fonts: { minor: { latin: '' } },
+    })).toThrow('PPTX export theme font unsupported: theme_1.minor.latin')
+  })
+})

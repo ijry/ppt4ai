@@ -111,10 +111,10 @@ function sourcePackage(): Uint8Array {
   ])
 }
 
-function themeSourcePackage(): Uint8Array {
+function themeSourcePackage(fontScheme = '<a:fontScheme data-font="keep"/>'): Uint8Array {
   const slide = '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="4000000" cy="2000000"/></a:xfrm><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></p:spPr><p:txBody><a:p><a:r><a:t>Title</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>'
   const slideRels = '<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>'
-  const theme = '<a:theme xmlns:a="a" data-theme="keep"><a:themeElements><a:clrScheme name="Custom" data-scheme="keep"><a:dk1><a:srgbClr val="202020"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:accent1><a:srgbClr val="336699"><a:lumMod val="80000"/></a:srgbClr><a:extLst data-ext="keep"/></a:accent1></a:clrScheme><a:fontScheme data-font="keep"/></a:themeElements></a:theme>'
+  const theme = '<a:theme xmlns:a="a" data-theme="keep"><a:themeElements><a:clrScheme name="Custom" data-scheme="keep"><a:dk1><a:srgbClr val="202020"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1><a:accent1><a:srgbClr val="336699"><a:lumMod val="80000"/></a:srgbClr><a:extLst data-ext="keep"/></a:accent1></a:clrScheme>' + fontScheme + '</a:themeElements></a:theme>'
   return writeStoredZip([
     { name: 'ppt/presentation.xml', data: new TextEncoder().encode('<p:presentation xmlns:p="p" xmlns:r="r"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>') },
     { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode('<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>') },
@@ -319,8 +319,39 @@ describe('exportPptx', () => {
     expect(source).toEqual(sourceBefore)
   })
 
-  it('resets an imported theme color to the Office default without mutating inputs', async () => {
-    const source = themeSourcePackage()
+  it('writes an edited theme font and leaves an untouched font scheme byte for byte', async () => {
+    const fontScheme = '<a:fontScheme name="Custom" data-font="keep">'
+      + '<a:majorFont><a:latin typeface="Cambria" panose="02040503050406030204" pitchFamily="18" charset="0"/><a:ea typeface=""/><a:cs typeface=""/><a:font script="Hans" typeface="宋体"/></a:majorFont>'
+      + '<a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont>'
+      + '</a:fontScheme>'
+    const source = themeSourcePackage(fontScheme)
+    const document = await importPptx(source)
+    const themeId = document.masters?.mst_1?.themeId
+    if (!themeId) throw new Error('custom theme was not imported')
+    expect(document.themes?.[themeId]?.fonts).toEqual({ major: { latin: 'Cambria' }, minor: { latin: 'Calibri' } })
+
+    const edited = structuredClone(document)
+    edited.themes![themeId]!.fonts!.major!.latin = 'Georgia'
+    const output = await exportPptx(edited, source)
+    const themeXml = new TextDecoder().decode((await packageEntries(output)).get('ppt/theme/custom.xml'))
+
+    expect(themeXml).toContain('<a:latin typeface="Georgia" panose="02040503050406030204" pitchFamily="18" charset="0"/>')
+    expect(themeXml).toContain('<a:font script="Hans" typeface="宋体"/>')
+    expect(themeXml).toContain('<a:minorFont><a:latin typeface="Calibri"/>')
+    expect((await importPptx(output)).themes?.[themeId]?.fonts).toEqual({ major: { latin: 'Georgia' }, minor: { latin: 'Calibri' } })
+
+    // A color-only edit still takes the writeback path, so this is the check that we rewrite nothing
+    // we did not change — every unmodeled attribute and sibling of the font scheme survives.
+    const colorEdit = structuredClone(document)
+    colorEdit.themes![themeId]!.colors.accent1 = { type: 'srgb', v: 'FF0000' }
+    const colorOutput = await exportPptx(colorEdit, source)
+    const colorThemeXml = new TextDecoder().decode((await packageEntries(colorOutput)).get('ppt/theme/custom.xml'))
+
+    expect(colorThemeXml).toContain(fontScheme)
+    expect(colorThemeXml).toContain('<a:srgbClr val="FF0000"/>')
+  })
+
+  it('resets an imported theme color to the Office default without mutating inputs', async () => {    const source = themeSourcePackage()
     const sourceBefore = new Uint8Array(source)
     const document = await importPptx(source)
     const themeId = document.masters?.mst_1?.themeId

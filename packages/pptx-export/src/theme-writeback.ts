@@ -1,9 +1,12 @@
-import { DEFAULT_THEME_COLORS, type Color, type ColorTransform, type ColorTransformType, type Theme, type ThemeColorSlot } from '@ppt4ai/model'
+import { DEFAULT_THEME_COLORS, DEFAULT_THEME_FONTS, type Color, type ColorTransform, type ColorTransformType, type Theme, type ThemeColorSlot, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
 import { serializeColorXml } from './standalone-xml.js'
+import { escapeXml } from './text-xml.js'
 import { descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 
 const themeColorSlots = ['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'] as const
 const themeColorSlotSet = new Set<string>(themeColorSlots)
+const themeFontSlots = ['major', 'minor'] as const
+const themeFontScripts = ['latin', 'ea', 'cs'] as const
 const colorNodeNames = new Set(['srgbClr', 'schemeClr', 'prstClr', 'sysClr', 'scrgbClr'])
 const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 
@@ -13,6 +16,10 @@ function malformedTheme(theme: Theme): Error {
 
 function unsupportedColor(theme: Theme, slot: string): Error {
   return new Error(`PPTX export theme color unsupported: ${theme.id}.${slot}`)
+}
+
+function unsupportedFont(theme: Theme, slot: ThemeFontSlot, script: ThemeFontScript): Error {
+  return new Error(`PPTX export theme font unsupported: ${theme.id}.${slot}.${script}`)
 }
 
 function parsePercentage(value: string | undefined): number | undefined {
@@ -170,6 +177,53 @@ function expandSelfClosing(xml: string, element: XmlElement, content: string): R
   return { start: element.start, end: element.end, value: `${opening}${content}</${element.name}>` }
 }
 
+function validatedTypeface(theme: Theme, slot: ThemeFontSlot, script: ThemeFontScript, value: string | null | undefined): string {
+  if (value === null || value === undefined) return DEFAULT_THEME_FONTS[slot][script]
+  if (typeof value !== 'string' || value.length === 0 || hasUnsupportedXmlCharacter(value)) throw unsupportedFont(theme, slot, script)
+  return value
+}
+
+/**
+ * Rewrites just the quoted value of one attribute. The unmodeled neighbours a real theme carries —
+ * `panose`, `pitchFamily`, `charset` — keep their bytes, quote style and order.
+ */
+function attributeReplacement(xml: string, element: XmlElement, name: string, value: string): Replacement {
+  const opening = xml.slice(element.start, tagEnd(xml, element.start + 1))
+  const match = new RegExp(`\\s${name}\\s*=\\s*("[^"]*"|'[^']*')`, 'u').exec(opening)
+  if (!match) {
+    const insertAt = element.start + 1 + element.name.length
+    return { start: insertAt, end: insertAt, value: ` ${name}="${escapeXml(value)}"` }
+  }
+  const start = element.start + match.index + match[0].length - match[1]!.length
+  return { start, end: start + match[1]!.length, value: `"${escapeXml(value)}"` }
+}
+
+/** Unknown children — `a:font`, `a:extLst` — sort after every name in the schema sequence. */
+function childRank(order: readonly string[], localName: string): number {
+  const index = order.indexOf(localName)
+  return index >= 0 ? index : order.length
+}
+
+/**
+ * Inserts children at their schema-sequence position. Callers pass them in schema order, so the
+ * ones that share an insertion point stay ordered without depending on how ranges are applied.
+ */
+function insertChildrenXml(xml: string, parent: XmlElement, order: readonly string[], children: ReadonlyArray<{ localName: string; xml: string }>): Replacement[] {
+  const byOffset = new Map<number, string>()
+  for (const child of children) {
+    const rank = childRank(order, child.localName)
+    const successor = parent.children.find((candidate) => childRank(order, candidate.localName) > rank)
+    const offset = successor?.start ?? -1
+    byOffset.set(offset, (byOffset.get(offset) ?? '') + child.xml)
+  }
+  return [...byOffset].map(([offset, content]) => {
+    if (offset >= 0) return { start: offset, end: offset, value: content }
+    if (isSelfClosing(xml, parent)) return expandSelfClosing(xml, parent, content)
+    const insertAt = closingStart(xml, parent)
+    return { start: insertAt, end: insertAt, value: content }
+  })
+}
+
 function effectiveColor(theme: Theme, slot: ThemeColorSlot, color: unknown): Color {
   return color === null ? DEFAULT_THEME_COLORS[slot] : validateColor(theme, slot, color)
 }
@@ -180,6 +234,53 @@ function serializedColor(theme: Theme, slot: ThemeColorSlot, color: Color, prefi
   } catch {
     throw unsupportedColor(theme, slot)
   }
+}
+
+function fontNodeXml(prefix: string, script: ThemeFontScript, typeface: string): string {
+  return `<${prefix}${script} typeface="${escapeXml(typeface)}"/>`
+}
+
+/**
+ * The comparison trims the source value because the importer trims it too, so a theme nobody edited
+ * never gets rewritten over stray whitespace.
+ */
+function fontReplacements(xml: string, theme: Theme, scheme: XmlElement): Replacement[] {
+  const replacements: Replacement[] = []
+  const missingCollections: Array<{ localName: string; xml: string }> = []
+  const schemePrefix = namespacePrefix(scheme.name)
+
+  for (const slot of themeFontSlots) {
+    const face = theme.fonts?.[slot]
+    if (!face || themeFontScripts.every((script) => face[script] === undefined)) continue
+    const collection = scheme.children.find((child) => child.localName === `${slot}Font`)
+    if (!collection) {
+      // CT_FontCollection requires all three scripts, so a collection built from scratch carries the
+      // built-in default wherever the model says nothing — the same value serializeThemeXml writes.
+      const scripts = themeFontScripts.map((script) => fontNodeXml(schemePrefix, script, validatedTypeface(theme, slot, script, face[script]))).join('')
+      missingCollections.push({ localName: `${slot}Font`, xml: `<${schemePrefix}${slot}Font>${scripts}</${schemePrefix}${slot}Font>` })
+      continue
+    }
+
+    const collectionPrefix = namespacePrefix(collection.name)
+    const missingScripts: Array<{ localName: string; xml: string }> = []
+    for (const script of themeFontScripts) {
+      if (face[script] === undefined) continue
+      const typeface = validatedTypeface(theme, slot, script, face[script])
+      const node = collection.children.find((child) => child.localName === script)
+      if (!node) {
+        missingScripts.push({ localName: script, xml: fontNodeXml(collectionPrefix, script, typeface) })
+        continue
+      }
+      if ((node.attributes.typeface ?? '').trim() === typeface) continue
+      replacements.push(attributeReplacement(xml, node, 'typeface', typeface))
+    }
+    if (missingScripts.length > 0) replacements.push(...insertChildrenXml(xml, collection, themeFontScripts, missingScripts))
+  }
+
+  if (missingCollections.length > 0) {
+    replacements.push(...insertChildrenXml(xml, scheme, themeFontSlots.map((slot) => `${slot}Font`), missingCollections))
+  }
+  return replacements
 }
 
 export function rewriteThemeXml(source: string, theme: Theme): string {
@@ -236,6 +337,15 @@ export function rewriteThemeXml(source: string, theme: Theme): string {
       const insertAt = closingStart(source, scheme)
       replacements.push({ start: insertAt, end: insertAt, value: missing.join('') })
     }
+  }
+
+  // Nothing here runs unless the model actually carries a typeface: a source fontScheme we never
+  // touched has to come back byte for byte, self-closing and childless included.
+  const modelHasFonts = themeFontSlots.some((slot) => themeFontScripts.some((script) => theme.fonts?.[slot]?.[script] !== undefined))
+  if (modelHasFonts) {
+    const fontScheme = descendants(roots, 'fontScheme')[0]
+    if (!fontScheme) throw malformedTheme(theme)
+    replacements.push(...fontReplacements(source, theme, fontScheme))
   }
 
   return replacements.length > 0 ? replaceRanges(source, replacements) : source

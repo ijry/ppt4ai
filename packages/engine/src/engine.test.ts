@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EditorEngine } from './index'
-import type { AssetMetadata, Element, ImageElement, Ppt4aiDocument, TextBody, ThemeColorSlot } from '@ppt4ai/model'
+import type { AssetMetadata, Element, ImageElement, Ppt4aiDocument, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 
 function makeDocument(): Ppt4aiDocument {
   return {
@@ -1189,8 +1189,60 @@ describe('EditorEngine', () => {
     expect(engine.getState().history.undoDepth).toBe(0)
   })
 
-  it('ignores a theme color write that changes nothing', () => {
+  it('sets a theme font script and undoes back to no fonts at all', () => {
+    const engine = new EditorEngine(themedDocument())
+
+    const after = engine.dispatch({ type: 'setThemeFont', themeId: 'thm_1', slot: 'major', script: 'latin', typeface: 'Cambria' })
+    expect(after.document.themes?.thm_1?.fonts).toEqual({ major: { latin: 'Cambria' } })
+    expect(after.history.undoDepth).toBe(1)
+
+    const undone = engine.dispatch({ type: 'undo' })
+    expect('fonts' in (undone.document.themes?.thm_1 ?? {})).toBe(false)
+    expect(engine.dispatch({ type: 'redo' }).document.themes?.thm_1?.fonts).toEqual({ major: { latin: 'Cambria' } })
+  })
+
+  it('keeps the other slots and scripts when one script changes', () => {
     const document = themedDocument()
+    document.themes!.thm_1!.fonts = { major: { latin: 'Cambria', ea: '宋体' }, minor: { latin: 'Calibri' } }
+    const engine = new EditorEngine(document)
+
+    const after = engine.dispatch({ type: 'setThemeFont', themeId: 'thm_1', slot: 'major', script: 'latin', typeface: 'Georgia' })
+
+    expect(after.document.themes?.thm_1?.fonts).toEqual({ major: { latin: 'Georgia', ea: '宋体' }, minor: { latin: 'Calibri' } })
+  })
+
+  it('resets a theme font script to the Office default by writing null', () => {
+    const document = themedDocument()
+    document.themes!.thm_1!.fonts = { minor: { latin: 'Calibri' } }
+    const engine = new EditorEngine(document)
+
+    const after = engine.dispatch({ type: 'setThemeFont', themeId: 'thm_1', slot: 'minor', script: 'latin', typeface: null })
+
+    expect(after.document.themes?.thm_1?.fonts?.minor?.latin).toBeNull()
+    expect(engine.dispatch({ type: 'undo' }).document.themes?.thm_1?.fonts?.minor?.latin).toBe('Calibri')
+  })
+
+  it('rejects unknown themes, unsupported slots and scripts, and empty typefaces', () => {
+    const engine = new EditorEngine(themedDocument())
+    const before = engine.getState().document
+
+    expect(() => engine.dispatch({ type: 'setThemeFont', themeId: 'missing', slot: 'major', script: 'latin', typeface: null })).toThrow(/theme not found: missing/)
+    expect(() => engine.dispatch({ type: 'setThemeFont', themeId: 'thm_1', slot: 'nope' as ThemeFontSlot, script: 'latin', typeface: null })).toThrow(/unsupported theme font slot: nope/)
+    expect(() => engine.dispatch({ type: 'setThemeFont', themeId: 'thm_1', slot: 'major', script: 'nope' as ThemeFontScript, typeface: null })).toThrow(/unsupported theme font script: nope/)
+    expect(() => engine.dispatch({ type: 'setThemeFont', themeId: 'thm_1', slot: 'major', script: 'latin', typeface: '' })).toThrow(/theme font is invalid: thm_1.major.latin/)
+    expect(engine.getState().document).toEqual(before)
+    expect(engine.getState().history.undoDepth).toBe(0)
+  })
+
+  it('ignores a theme font write that changes nothing', () => {
+    const document = themedDocument()
+    document.themes!.thm_1!.fonts = { major: { latin: 'Cambria' } }
+    const engine = new EditorEngine(document)
+
+    expect(engine.dispatch({ type: 'setThemeFont', themeId: 'thm_1', slot: 'major', script: 'latin', typeface: 'Cambria' }).history.undoDepth).toBe(0)
+  })
+
+  it('ignores a theme color write that changes nothing', () => {    const document = themedDocument()
     document.themes!.thm_1!.colors.accent1 = { type: 'srgb', v: 'FF0000' }
     const engine = new EditorEngine(document)
 

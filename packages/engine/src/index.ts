@@ -1,5 +1,5 @@
 import { boundsCentre, cascadeTransform, mapChildSpace, rotatePointAround, type GeometryPoint, type GroupTransform } from '@ppt4ai/geometry'
-import { validateDocument, validateTextBody, type AssetMetadata, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot } from '@ppt4ai/model'
+import { validateDocument, validateTextBody, type AssetMetadata, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot, type ThemeFonts, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -76,6 +76,7 @@ export type EngineCommand =
   | { type: 'setTableCellFill'; fill: Fill | null }
   | { type: 'setTableCellBorders'; borders: Partial<Record<TableBorderSide, TableBorder | null>> }
   | { type: 'setThemeColor'; themeId: string; slot: ThemeColorSlot; color: Color | null }
+  | { type: 'setThemeFont'; themeId: string; slot: ThemeFontSlot; script: ThemeFontScript; typeface: string | null }
   | { type: 'mergeTableCells' }
   | { type: 'splitTableCell' }
   | { type: 'insertTableRow'; elementId: string; index: number; count?: number }
@@ -201,6 +202,8 @@ type TableBorderSide = 'left' | 'right' | 'top' | 'bottom'
 const tableBorderSides: TableBorderSide[] = ['left', 'right', 'top', 'bottom']
 
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
+const themeFontSlots = new Set<ThemeFontSlot>(['major', 'minor'])
+const themeFontScripts = new Set<ThemeFontScript>(['latin', 'ea', 'cs'])
 
 function sourceCellAt(table: TableElement, row: number, column: number): TableSourceCell | undefined {
   for (let sourceRow = 0; sourceRow < table.rows.length; sourceRow += 1) {
@@ -709,6 +712,10 @@ export class EditorEngine {
         this.setThemeColor(command.themeId, command.slot, command.color)
         break
       }
+      case 'setThemeFont': {
+        this.setThemeFont(command.themeId, command.slot, command.script, command.typeface)
+        break
+      }
       case 'mergeTableCells': {
         this.mergeTableCells()
         break
@@ -851,6 +858,24 @@ export class EditorEngine {
     const validation = validateDocument(nextDocument)
     if (!validation.valid) throw new Error(`theme color is invalid: ${themeId}.${slot}: ${validation.errors.join('; ')}`)
     this.commit([{ path: ['themes', themeId, 'colors', slot], value: color }])
+  }
+
+  /**
+   * The patch targets the whole `fonts` object because `setAt` refuses to create intermediate
+   * levels: unlike `colors`, neither `fonts` nor `fonts[slot]` is guaranteed to exist, and the
+   * inverse has to be able to restore "there was no fonts at all".
+   */
+  private setThemeFont(themeId: string, slot: ThemeFontSlot, script: ThemeFontScript, typeface: string | null): void {
+    if (!themeFontSlots.has(slot)) throw new Error(`unsupported theme font slot: ${slot}`)
+    if (!themeFontScripts.has(script)) throw new Error(`unsupported theme font script: ${script}`)
+    const nextDocument = clone(this.document)
+    const theme = nextDocument.themes?.[themeId]
+    if (!theme) throw new Error(`theme not found: ${themeId}`)
+    const fonts: ThemeFonts = { ...theme.fonts, [slot]: { ...theme.fonts?.[slot], [script]: typeface } }
+    theme.fonts = fonts
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`theme font is invalid: ${themeId}.${slot}.${script}: ${validation.errors.join('; ')}`)
+    this.commit([{ path: ['themes', themeId, 'fonts'], value: fonts }])
   }
 
   private mergeTableCells(): void {
