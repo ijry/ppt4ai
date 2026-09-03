@@ -1,6 +1,9 @@
 import {
   DEFAULT_THEME_COLORS,
   DEFAULT_THEME_FONTS,
+  DEFAULT_THEME_LINE_WIDTHS,
+  DEFAULT_THEME_STYLE_COUNT,
+  DEFAULT_THEME_STYLE_FILL,
   type Color,
   type Fill,
   type Rect,
@@ -13,6 +16,8 @@ import {
   type ThemeColorSlot,
   type ThemeFontScript,
   type ThemeFontSlot,
+  type ThemeLineStyleEntry,
+  type ThemeStyleEntry,
 } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { attrs, escapeXml, serializeColorXml, serializeFillXml, serializeTextBodyXml, type XmlAttribute } from './text-xml.js'
@@ -122,6 +127,58 @@ function themeFontXml(theme: Theme | undefined, slot: ThemeFontSlot): string {
   return `<a:${slot}Font>${scripts}</a:${slot}Font>`
 }
 
+/**
+ * Pads a modeled list up to the three entries a real Office theme carries, so a common `idx="3"`
+ * reference still lands on something. Never truncates: a longer list is written whole, because
+ * dropping a modeled entry loses data while padding only adds a placeholder.
+ */
+function paddedEntries<T>(entries: readonly T[] | undefined, fallback: (index: number) => T): T[] {
+  const present = entries ?? []
+  const padded = [...present]
+  for (let index = present.length; index < DEFAULT_THEME_STYLE_COUNT; index += 1) padded.push(fallback(index))
+  return padded
+}
+
+/**
+ * A `null` entry is one the model cannot express — a gradient, pattern or picture. It still has to
+ * occupy its slot, because references are positional and skipping it would shift every later index.
+ * `a:noFill` is what it writes: `resolveStyleFill` already resolves a null entry to nothing and the
+ * canvas already paints nothing, so the file and the canvas say the same thing.
+ */
+function themeStyleFillXml(entry: ThemeStyleEntry): string {
+  return entry ? serializeFillXml(entry) : '<a:noFill/>'
+}
+
+/**
+ * A modeled entry is written exactly as modeled: an entry with no `width` gets no `w`, because
+ * omitting `w` in OOXML means "inherit", and inventing one here would be subtly wrong on every
+ * shape pointing at it. Only the padded entries carry a default width, and they are invented whole.
+ */
+function themeLineStyleXml(entry: ThemeLineStyleEntry): string {
+  const dash = entry?.style && entry.style !== 'solid' ? `<a:prstDash val="${entry.style}"/>` : ''
+  return `<a:ln${attrs([['w', entry?.width]])}>${themeStyleFillXml(entry)}${dash}</a:ln>`
+}
+
+/**
+ * The four `fmtScheme` lists. Before this they were written empty while slides kept emitting
+ * `lnRef`/`fillRef`/`bgRef` indexes, so every style reference in a generated package dangled.
+ *
+ * `a:effectStyleLst` is written as three empty effect styles: effects are not modeled, and an
+ * `effectRef` still needs an entry to land on. Resolving to "no effect" is what the renderer does.
+ */
+function serializeFormatSchemeXml(theme: Theme | undefined): string {
+  const scheme = theme?.formatScheme
+  const fills = paddedEntries(scheme?.fillStyles, () => DEFAULT_THEME_STYLE_FILL).map(themeStyleFillXml).join('')
+  const lines = paddedEntries<ThemeLineStyleEntry>(
+    scheme?.lineStyles,
+    (index) => ({ ...DEFAULT_THEME_STYLE_FILL, width: DEFAULT_THEME_LINE_WIDTHS[index] ?? DEFAULT_THEME_LINE_WIDTHS[0] }),
+  ).map(themeLineStyleXml).join('')
+  const backgrounds = paddedEntries(scheme?.backgroundStyles, () => DEFAULT_THEME_STYLE_FILL).map(themeStyleFillXml).join('')
+  const effects = Array.from({ length: DEFAULT_THEME_STYLE_COUNT }, () => '<a:effectStyle><a:effectLst/></a:effectStyle>').join('')
+  return `<a:fmtScheme name="Office"><a:fillStyleLst>${fills}</a:fillStyleLst><a:lnStyleLst>${lines}</a:lnStyleLst>`
+    + `<a:effectStyleLst>${effects}</a:effectStyleLst><a:bgFillStyleLst>${backgrounds}</a:bgFillStyleLst></a:fmtScheme>`
+}
+
 export function serializeThemeXml(theme?: Theme): string {
   const colors = themeColorSlots
     .map((slot) => {
@@ -130,7 +187,7 @@ export function serializeThemeXml(theme?: Theme): string {
     })
     .join('')
   const fonts = `<a:fontScheme name="Office">${themeFontXml(theme, 'major')}${themeFontXml(theme, 'minor')}</a:fontScheme>`
-  return `${xmlHeader}<a:theme xmlns:a="${drawingNamespace}" name="Office"><a:themeElements><a:clrScheme name="Office">${colors}</a:clrScheme>${fonts}<a:fmtScheme name="Office"><a:fillStyleLst/><a:lnStyleLst/><a:effectStyleLst/><a:bgFillStyleLst/></a:fmtScheme></a:themeElements></a:theme>`
+  return `${xmlHeader}<a:theme xmlns:a="${drawingNamespace}" name="Office"><a:themeElements><a:clrScheme name="Office">${colors}</a:clrScheme>${fonts}${serializeFormatSchemeXml(theme)}</a:themeElements></a:theme>`
 }
 
 export function serializeMasterXml(): string {

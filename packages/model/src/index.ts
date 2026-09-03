@@ -91,6 +91,21 @@ export interface ThemeFormatScheme {
 }
 
 /**
+ * A real Office theme carries exactly three entries in each `fmtScheme` list, and the three line
+ * widths below are the ones it ships. These are what standalone export pads a short or missing list
+ * with, so `idx="3"` still lands on an entry — the same rule `DEFAULT_THEME_COLORS` and
+ * `DEFAULT_THEME_FONTS` already set for unknown colour and font slots.
+ *
+ * `phClr` is the placeholder the reference substitutes, so a padded entry takes the shape's own
+ * colour rather than inventing one.
+ */
+export const DEFAULT_THEME_STYLE_COUNT = 3
+
+export const DEFAULT_THEME_LINE_WIDTHS: readonly [number, number, number] = [6350, 12700, 19050]
+
+export const DEFAULT_THEME_STYLE_FILL: Fill = { color: { type: 'scheme', v: 'phClr' } }
+
+/**
  * `p:bg`. Either a direct fill from `p:bgPr` or a `p:bgRef` into the theme's `bgFillStyleLst`.
  * OOXML replaces the whole block rather than merging, so a slide either defines its background or
  * inherits its layout's or master's entirely.
