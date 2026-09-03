@@ -1,4 +1,4 @@
-import type { AssetAdapter } from '@ppt4ai/model'
+import type { AssetAdapter, Rect } from '@ppt4ai/model'
 import type { SceneGraph, SceneImageNode, SceneNode } from '@ppt4ai/render'
 import { paintShapeNode } from './shape-painting'
 import { paintTableNode } from './table-painting'
@@ -52,6 +52,15 @@ function drawNode(context: CanvasRenderingContext2D, node: SceneNode, scale: num
   else throw new Error('image nodes require decoded image data')
 }
 
+/**
+ * Images take a target rect rather than a page mapping, so their EMU bounds have to be mapped here.
+ * The thumbnail worker does the same; before this the slide renderer handed over raw EMU, leaving
+ * images 9525 times larger than every other node.
+ */
+function mapBounds(bounds: Rect, scale: number): Rect {
+  return { x: bounds.x * scale, y: bounds.y * scale, w: bounds.w * scale, h: bounds.h * scale }
+}
+
 export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; decoder?: ImageDecoder }): SlideCanvasRenderer {
   const imageLoader = createImageNodeLoader(options)
   let disposed = false
@@ -73,7 +82,9 @@ export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; deco
       canvas.style.height = `${cssHeight}px`
       context.setTransform(1, 0, 0, 1, 0, 0)
       context.clearRect(0, 0, canvas.width, canvas.height)
-      context.setTransform(devicePixelRatio * EMU_TO_CSS_PIXEL * zoom, 0, 0, devicePixelRatio * EMU_TO_CSS_PIXEL * zoom, 0, 0)
+      // Every painter maps EMU to CSS pixels through `scale`, so the transform only has to carry
+      // CSS pixels to the device pixel backing store. Scaling here as well would apply zoom twice.
+      context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
 
       const scale = EMU_TO_CSS_PIXEL * zoom
       // The page fill goes down first, in the same space the node painters draw in.
@@ -93,7 +104,7 @@ export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; deco
               result.issues.push(imageIssue(node, outcome))
               continue
             }
-            paintImageNode(context, node, outcome.image, node.bounds)
+            paintImageNode(context, node, outcome.image, mapBounds(node.bounds, scale))
           } else {
             drawNode(context, node, scale)
           }

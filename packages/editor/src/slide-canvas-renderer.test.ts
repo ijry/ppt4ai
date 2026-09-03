@@ -112,7 +112,9 @@ describe('slide canvas renderer', () => {
     expect(context.canvas.style.width).toBe('1440px')
     expect(context.canvas.style.height).toBe('810px')
     expect(context.events.filter(([type]) => type === 'setTransform')[0]).toEqual(['setTransform', 1, 0, 0, 1, 0, 0])
-    expect(context.events.filter(([type]) => type === 'setTransform')[1]?.[1]).toBeCloseTo(0.00031496062992125985)
+    // The painters already map EMU to CSS pixels, so the transform only carries CSS to device pixels.
+    // This used to assert the EMU-to-device value, which applied zoom twice; see slide-canvas-space.test.ts.
+    expect(context.events.filter(([type]) => type === 'setTransform')[1]?.[1]).toBe(2)
     expect(context.events.filter(([type]) => ['fill', 'fillText', 'drawImage'].includes(type)).map(([type]) => type)).toEqual(['fill', 'fillText', 'drawImage'])
     expect(result.drawnNodeIds).toEqual(['shape-1', 'text-1', 'table-1', 'image-1'])
     expect(result.skippedNodeIds).toEqual([])

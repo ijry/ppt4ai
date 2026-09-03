@@ -35,7 +35,9 @@ lineTo   : ["lineTo",1280,720]
 1. 它抄了 image 渲染器的 EMU→设备像素变换，却把形状、文本、表格按 `scale = EMU_TO_CSS_PIXEL·zoom` 映射成 CSS 像素再画进去 —— 这两者叠乘，内容缩小 9525·zoom 倍。
 2. 图片却是 `paintImageNode(context, node, outcome.image, node.bounds)`，传的是**原始 EMU** —— 与 thumbnail worker 的 `mapBounds(node.bounds, mapping)` 不同。所以在当前变换下**图片恰好是对的，其余全都不对**。
 
-`thumbnail-worker.ts` 是做对了的那条，而且是**唯一真在跑的那条**（`apps/playground/e2e/thumbnail.spec.ts`）。
+`thumbnail-worker.ts` 是做对了的那条，也是仓里唯一自洽且被产品实际使用的绘制路径。
+
+**关于「它有 e2e 所以更可信」这句话要修正**：`apps/playground/e2e/thumbnail.spec.ts` 确实存在，但**实测当前是红的** —— 而且把本切片的改动全部 stash 之后**同样是红的**，所以它是既有失败、与本刀无关，也因此**不能拿它当本刀的验证依据**。判定 thumbnail worker 做得对，依据是下面那条可判定事实，不是那条 e2e。
 
 **绘制层为「像素」而写，这一点是可判定的**：`paintShapeNode` 的 `Math.max(1, strokeWidth * mapping.scale)`、`dashPattern(style, width)`、表格边框的同款下限，都只有在 `mapping` 产出像素时才有意义。若改成「让绘制层收 `scale=1`、内容走 EMU」，那个一像素下限就变成一 EMU 下限，等于没有下限。**因此该改的是变换，不是绘制层。**
 
@@ -54,7 +56,7 @@ context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
 paintImageNode(context, node, outcome.image, mapBounds(node.bounds, scale))
 ```
 
-内容是 CSS 像素，`dpr` 把它送到设备像素。两处改动都是让 slide 渲染器与 thumbnail worker 说同一种坐标 —— 后者是对的那条，也是有 e2e 的那条。
+内容是 CSS 像素，`dpr` 把它送到设备像素。两处改动都是让 slide 渲染器与 thumbnail worker 说同一种坐标 —— 后者是自洽且被产品实际使用的那条。
 
 **否决「让绘制层收 `scale=1`、内容走 EMU」**（即向 image 渲染器收敛）：那要把一像素下限、虚线长度、字号全部重新定义，而且会让 slide 与 thumbnail 两条路径的 `mapping` 语义分叉 —— 它们共用同一批绘制函数。
 
@@ -82,3 +84,4 @@ paintImageNode(context, node, outcome.image, mapBounds(node.bounds, scale))
 - **未在真实浏览器里验证**。修正依据是三条路径的对照与「绘制层为像素而写」这一可判定事实，不是像素比对截图。要真正闭环需要给 `SlideCanvas` 加一条 playwright 用例，而 `apps/` 目前没有挂载它 —— 那是独立切片。
 - `image-canvas-renderer.ts` 仍是 EMU 空间。它自身一致，本刀不动它；但仓里因此仍有两种 `mapping` 语义。
 - `SlideCanvas.vue` 无 app 挂载，因此本刀的修正在产品里暂时看不到效果。
+- **两条既有失败/配置问题（实测，与本刀无关）**：①`apps/playground/e2e/thumbnail.spec.ts` 当前是红的，把本刀改动全部 stash 后同样是红的；②`playwright.config.ts` 的 `testDir: './apps'` 配合 playwright 默认 `testMatch` 会把 vitest 的 `*.test.ts` 一起收进 e2e 运行，因此 `npx playwright test` 会在 vitest 文件上报错。两条都不在本刀范围。
