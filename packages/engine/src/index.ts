@@ -1,5 +1,5 @@
 import { boundsCentre, cascadeTransform, mapChildSpace, rotatePointAround, type GeometryPoint, type GroupTransform } from '@ppt4ai/geometry'
-import { validateDocument, validateTextBody, type AssetMetadata, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot, type ThemeFonts, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
+import { validateDocument, validateTextBody, type AssetMetadata, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type StrokeStyle, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot, type ThemeFonts, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -66,6 +66,8 @@ export type EngineCommand =
   | { type: 'replaceImageAssetReference'; elementId: string; assetId: string }
   | { type: 'setImageRotation'; elementId: string; rotation: number }
   | { type: 'setElementRotation'; elementId: string; rotation: number }
+  | { type: 'setElementStrokeWidth'; elementId: string; width: number | null }
+  | { type: 'setElementStrokeStyle'; elementId: string; style: StrokeStyle | null }
   | { type: 'rotateSelection'; rotation: number }
   | { type: 'toggleImageFlip'; elementId: string; axis: ImageFlipAxis }
   | { type: 'toggleElementFlip'; elementId: string; axis: ImageFlipAxis }
@@ -670,6 +672,14 @@ export class EditorEngine {
       }
       case 'setElementRotation': {
         this.setElementRotation(command.elementId, command.rotation)
+        break
+      }
+      case 'setElementStrokeWidth': {
+        this.setElementStrokeWidth(command.elementId, command.width)
+        break
+      }
+      case 'setElementStrokeStyle': {
+        this.setElementStrokeStyle(command.elementId, command.style)
         break
       }
       case 'rotateSelection': {
@@ -1308,6 +1318,54 @@ export class EditorEngine {
     if (!Number.isInteger(rotation)) throw new Error('rotation must be an integer')
     const transform = this.normalizeImageTransform({ ...element.transform, rotation })
     this.commitImageTransform(elementId, transform)
+  }
+
+  /**
+   * `strokeWidth` and `strokeStyle` live only on shapes and text, so anything else is refused rather
+   * than silently ignored. `null` deletes the field, which is what the exporter reads as "remove the
+   * attribute" — command and writeback therefore describe the same outcome.
+   */
+  private outlineTarget(elementId: string): Extract<Element, { kind: 'shape' | 'text' }> {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`element does not exist: ${elementId}`)
+    if (element.kind !== 'shape' && element.kind !== 'text') {
+      throw new Error(`element cannot carry an outline: ${elementId}`)
+    }
+    return element
+  }
+
+  private setElementStrokeWidth(elementId: string, width: number | null): void {
+    const element = this.outlineTarget(elementId)
+    // `0` is an explicit hairline in OOXML, distinct from an absent width that inherits the theme.
+    if (width !== null && (!Number.isInteger(width) || width < 0)) {
+      throw new Error('stroke width must be a non-negative integer')
+    }
+    if ((element.strokeWidth ?? null) === width) return
+
+    const nextDocument = clone(this.document)
+    const next = nextDocument.elements[elementId]!
+    if (next.kind !== 'shape' && next.kind !== 'text') throw new Error(`element cannot carry an outline: ${elementId}`)
+    if (width === null) delete next.strokeWidth
+    else next.strokeWidth = width
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`stroke width is invalid: ${elementId}: ${validation.errors.join('; ')}`)
+
+    this.commit([{ path: ['elements', elementId, 'strokeWidth'], value: width === null ? undefined : width }])
+  }
+
+  private setElementStrokeStyle(elementId: string, style: StrokeStyle | null): void {
+    const element = this.outlineTarget(elementId)
+    if ((element.strokeStyle ?? null) === style) return
+
+    const nextDocument = clone(this.document)
+    const next = nextDocument.elements[elementId]!
+    if (next.kind !== 'shape' && next.kind !== 'text') throw new Error(`element cannot carry an outline: ${elementId}`)
+    if (style === null) delete next.strokeStyle
+    else next.strokeStyle = style
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`stroke style is invalid: ${elementId}: ${validation.errors.join('; ')}`)
+
+    this.commit([{ path: ['elements', elementId, 'strokeStyle'], value: style === null ? undefined : style }])
   }
 
   private setElementRotation(elementId: string, rotation: number): void {
