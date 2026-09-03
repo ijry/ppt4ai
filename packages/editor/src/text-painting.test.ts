@@ -232,6 +232,27 @@ describe('text painting', () => {
     expect(drawingContext.events.find(([type]) => type === 'fillText')?.[4]).toMatchObject({ font: '127px "Arial"' })
   })
 
+  it('paints a mixed-script line with one font per script span', () => {
+    const drawingContext = context()
+    const mixedNode = node({
+      layout: {
+        ...node().layout,
+        lines: [{
+          ...withoutMarker(node().layout.lines[0]!),
+          runs: [
+            { text: 'Hi ', x: 100, width: 60, marks: { fontSize: 20, fontFamily: 'Calibri', fontFamilyEa: '宋体' } },
+            { text: '你好', x: 160, width: 80, marks: { fontSize: 20, fontFamily: 'Calibri', fontFamilyEa: '宋体' }, resolvedFontFamily: '宋体' },
+          ],
+        }],
+      },
+    })
+
+    paintTextNode(drawingContext, mixedNode, { scale: 0.001, offsetX: 0, offsetY: 0 })
+
+    const fonts = drawingContext.events.filter(([type]) => type === 'fillText').map((event) => (event[4] as { font: string }).font)
+    expect(fonts).toEqual(['127px "Calibri"', '127px "宋体"'])
+  })
+
   it('restores context when fillText fails', () => {
     const drawingContext = context()
     drawingContext.fillText = () => { throw new Error('text failed') }

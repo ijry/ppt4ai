@@ -756,6 +756,13 @@ function parseRunMarks(runProperties: XmlNode | undefined): TextMarks | undefine
   const latin = child(runProperties, 'latin')
   const typeface = latin && attribute(latin, 'typeface')?.trim()
   if (typeface) marks.fontFamily = typeface
+  // `a:ea` and `a:cs` are the same shape as `a:latin`, one per script.
+  const eastAsian = child(runProperties, 'ea')
+  const eastAsianTypeface = eastAsian && attribute(eastAsian, 'typeface')?.trim()
+  if (eastAsianTypeface) marks.fontFamilyEa = eastAsianTypeface
+  const complex = child(runProperties, 'cs')
+  const complexTypeface = complex && attribute(complex, 'typeface')?.trim()
+  if (complexTypeface) marks.fontFamilyCs = complexTypeface
   // `sz` is in hundredths of a point; the model stores points.
   const size = parseNumber(attribute(runProperties, 'sz'))
   if (size !== undefined && size > 0) marks.fontSize = size / 100

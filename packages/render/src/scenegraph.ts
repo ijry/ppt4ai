@@ -118,11 +118,13 @@ function resolvedFillColor(fill: Fill | undefined, context: SceneThemeContext): 
 }
 
 /**
- * Only set when the theme actually changed the family, so text without a theme reference — nearly
- * all of it — keeps the same scene shape as before, and no run carries a duplicate of its own font.
+ * Picks the typeface slot the layout asked for, then lets the theme resolve any `+mj-lt`-style
+ * reference. Only set when the result differs from what paint would use anyway (`marks.fontFamily`),
+ * so text with neither a script font nor a theme reference keeps the same scene shape as before.
  */
-function resolvedFontFamily(marks: TextMarks | undefined, context: SceneThemeContext): string | undefined {
-  const resolved = resolveThemeFontFamily(marks?.fontFamily, context.theme)
+function resolvedFontFamily(marks: TextMarks | undefined, script: 'ea' | undefined, context: SceneThemeContext): string | undefined {
+  const requested = script === 'ea' ? marks?.fontFamilyEa ?? marks?.fontFamily : marks?.fontFamily
+  const resolved = resolveThemeFontFamily(requested, context.theme)
   return resolved === marks?.fontFamily ? undefined : resolved
 }
 
@@ -130,13 +132,13 @@ function toSceneTextLayout(layout: TextLayout, context: SceneThemeContext): Scen
   return {
     ...layout,
     lines: layout.lines.map((line) => {
-      const markerFontFamily = line.marker ? resolvedFontFamily(line.marker.marks, context) : undefined
+      const markerFontFamily = line.marker ? resolvedFontFamily(line.marker.marks, line.marker.script, context) : undefined
       return {
         ...line,
         ...(line.marker ? { marker: { ...line.marker, ...(markerFontFamily ? { resolvedFontFamily: markerFontFamily } : {}) } } : {}),
         runs: line.runs.map((run) => {
           const resolvedColor = resolvedFillColor(run.marks?.color, context)
-          const fontFamily = resolvedFontFamily(run.marks, context)
+          const fontFamily = resolvedFontFamily(run.marks, run.script, context)
           return { ...run, ...(resolvedColor ? { resolvedColor } : {}), ...(fontFamily ? { resolvedFontFamily: fontFamily } : {}) }
         }),
       }

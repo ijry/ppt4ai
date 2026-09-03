@@ -99,6 +99,14 @@ function serializeBodyProperties(body: TextBody): string {
   return autofit ? `<a:bodyPr${bodyPrAttributes}>${autofit}</a:bodyPr>` : `<a:bodyPr${bodyPrAttributes}/>`
 }
 
+/** `CT_TextCharacterProperties` orders the typefaces latin, ea, cs, so they are emitted in that order. */
+function serializeTypefaces(marks: TextMarks): string {
+  return ([['latin', marks.fontFamily], ['ea', marks.fontFamilyEa], ['cs', marks.fontFamilyCs]] as const)
+    .filter(([, typeface]) => Boolean(typeface))
+    .map(([element, typeface]) => `<a:${element}${attrs([['typeface', typeface]])}/>`)
+    .join('')
+}
+
 function serializeMarks(marks: TextMarks | undefined): string {
   if (!marks) return ''
   return `<a:rPr${attrs([
@@ -107,7 +115,7 @@ function serializeMarks(marks: TextMarks | undefined): string {
     ['i', booleanAttribute(marks.italic)],
     ['u', marks.underline === undefined ? undefined : marks.underline === 'single' ? 'sng' : 'none'],
     ['baseline', marks.baseline],
-  ])}>${serializeFillXml(marks.color)}${marks.fontFamily ? `<a:latin${attrs([['typeface', marks.fontFamily]])}/>` : ''}</a:rPr>`
+  ])}>${serializeFillXml(marks.color)}${serializeTypefaces(marks)}</a:rPr>`
 }
 
 function serializeBullet(bullet: TextBullet): string {

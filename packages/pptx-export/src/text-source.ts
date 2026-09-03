@@ -43,6 +43,10 @@ function sourceRunMarks(runProperties: XmlElement | undefined): TextMarks | unde
   const marks: TextMarks = {}
   const typeface = directChildOf(runProperties, 'latin')?.attributes.typeface?.trim()
   if (typeface) marks.fontFamily = typeface
+  const eastAsian = directChildOf(runProperties, 'ea')?.attributes.typeface?.trim()
+  if (eastAsian) marks.fontFamilyEa = eastAsian
+  const complex = directChildOf(runProperties, 'cs')?.attributes.typeface?.trim()
+  if (complex) marks.fontFamilyCs = complex
   const size = numberAttribute(runProperties, 'sz')
   if (size !== undefined && size > 0) marks.fontSize = size / 100
   const bold = booleanAttributeValue(runProperties.attributes.b)

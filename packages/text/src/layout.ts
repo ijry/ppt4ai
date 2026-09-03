@@ -9,6 +9,8 @@ export interface TextLayoutRun {
   y?: number
   height?: number
   orientation?: 'upright' | 'rotated'
+  /** Present when the run's characters ask for the run's East Asian typeface rather than its Latin one. */
+  script?: 'ea'
 }
 
 export interface TextLayoutMarker {
@@ -19,6 +21,7 @@ export interface TextLayoutMarker {
   y?: number
   height?: number
   orientation?: 'upright' | 'rotated'
+  script?: 'ea'
 }
 
 export interface TextLayoutLine {
@@ -51,6 +54,7 @@ interface Token {
   marks?: TextMarks
   space: boolean
   cjk: boolean
+  script?: 'ea'
 }
 
 interface PendingLine {
@@ -86,13 +90,24 @@ function marksEqual(left: TextMarks | undefined, right: TextMarks | undefined): 
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
+/**
+ * Which typeface slot a character asks for. Only ever set when the run actually carries an East
+ * Asian typeface, so text without one keeps merging into exactly the runs it produced before.
+ * Complex scripts are deliberately not classified — see the design doc.
+ */
+function scriptOf(character: string, marks: TextMarks | undefined): 'ea' | undefined {
+  return marks?.fontFamilyEa && isCjkOrFullWidth(character) ? 'ea' : undefined
+}
+
 function paragraphTokens(paragraph: TextParagraph, fontScale: number): Token[] {
   return paragraph.runs.flatMap((run) => [...run.text].map((character) => {
+    const script = scriptOf(character, run.marks)
     const token: Token = {
       text: character,
       width: measureText(character, run.marks, fontScale),
       space: character === ' ',
       cjk: isCjkOrFullWidth(character),
+      ...(script ? { script } : {}),
     }
     if (run.marks) token.marks = structuredClone(run.marks)
     return token
@@ -182,12 +197,13 @@ function createRuns(tokens: Token[], lineX: number): TextLayoutRun[] {
   let x = lineX
   for (const token of tokens) {
     const previous = runs[runs.length - 1]
-    if (previous && marksEqual(previous.marks, token.marks)) {
+    if (previous && previous.script === token.script && marksEqual(previous.marks, token.marks)) {
       previous.text += token.text
       previous.width += token.width
     } else {
       const run: TextLayoutRun = { text: token.text, x, width: token.width }
       if (token.marks) run.marks = structuredClone(token.marks)
+      if (token.script) run.script = token.script
       runs.push(run)
     }
     x += token.width
@@ -241,6 +257,9 @@ function resolveMarker(paragraph: TextParagraph, state: NumberingState, fontScal
   const marks = markerMarks(paragraph, bullet)
   const marker: TextLayoutMarker = { text, x: markerX, width: measureText(text, marks, fontScale) }
   if (marks) marker.marks = marks
+  // A CJK bullet glyph asks for the East Asian typeface the same way body characters do.
+  const script = scriptOf(text, marks)
+  if (script) marker.script = script
   return marker
 }
 
@@ -279,6 +298,7 @@ function verticalRuns(tokens: Token[], x: number, y: number, columnWidth: number
       orientation: verticalCellOrientation(token.text),
     }
     if (token.marks) run.marks = structuredClone(token.marks)
+    if (token.script) run.script = token.script
     cursorY += height
     return run
   })

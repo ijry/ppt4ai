@@ -56,6 +56,7 @@ describe('TextBody ProseMirror conversion', () => {
             spaceBefore: 40,
             spaceAfter: 60,
             bullet: { type: 'char', char: '•', fontFamily: 'Arial' },
+            defaultMarks: null,
           },
           content: [
             {
@@ -82,6 +83,7 @@ describe('TextBody ProseMirror conversion', () => {
             spaceBefore: null,
             spaceAfter: null,
             bullet: null,
+            defaultMarks: null,
           },
         },
       ],
@@ -93,6 +95,22 @@ describe('TextBody ProseMirror conversion', () => {
 
     roundTrip.paragraphs[0]!.runs[0]!.text = 'changed'
     expect(body.paragraphs[0]?.runs[0]?.text).toBe('Hello')
+  })
+
+  /**
+   * Both fields ride through ProseMirror on paths that used to drop them: `defaultMarks` was missing
+   * from the paragraph attr whitelist, and per-script typefaces are new. Editing text in place must
+   * not be the moment a document loses either.
+   */
+  it('round-trips paragraph default marks and per-script typefaces', () => {
+    const body: TextBody = {
+      paragraphs: [{
+        attrs: { defaultMarks: { fontSize: 12, bold: true } },
+        runs: [{ text: 'Hi 你好', marks: { fontFamily: 'Calibri', fontFamilyEa: '宋体', fontFamilyCs: 'Arial' } }],
+      }],
+    }
+
+    expect(proseMirrorToTextBody(textBodyToProseMirror(body))).toEqual(body)
   })
 
   it('coalesces adjacent text nodes with deeply equal marks', () => {

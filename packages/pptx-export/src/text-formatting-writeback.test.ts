@@ -123,3 +123,40 @@ describe('formatted text survives a writeback edit', () => {
     expect(outputSlide).toContain('<a:t>Formatted</a:t>')
   })
 })
+
+const scriptBody = '<a:bodyPr/><a:p><a:r><a:rPr sz="2400">'
+  + '<a:latin typeface="Calibri"/><a:ea typeface="宋体"/><a:cs typeface="Arial"/>'
+  + '</a:rPr><a:t>Hello 你好</a:t></a:r></a:p>'
+
+describe('per-script typefaces survive a writeback edit', () => {
+  it('leaves the package byte-identical when nothing is edited', async () => {
+    const source = packageWith(scriptBody)
+    const document = await importPptx(source)
+
+    expect(await exportPptx(document, source)).toEqual(source)
+  })
+
+  /**
+   * The gap this closes: editing the text replaces the whole `txBody`, and the serializer used to
+   * write only `<a:latin>` — so a Chinese run lost its typeface the first time anyone touched it.
+   */
+  it('keeps the east asian and complex typefaces when the text changes', async () => {
+    const source = packageWith(scriptBody)
+    const document = await importPptx(source)
+    const text = document.elements.el_1
+    if (text?.kind !== 'text') throw new Error('fixture did not import as text')
+    const marks = text.body?.paragraphs[0]?.runs[0]?.marks
+    text.body = { paragraphs: [{ runs: [{ text: '再见 bye', ...(marks ? { marks } : {}) }] }] }
+
+    const output = await exportPptx(document, source)
+    const outputSlide = await slideXmlOf(output)
+
+    expect(outputSlide).toContain('<a:latin typeface="Calibri"/><a:ea typeface="宋体"/><a:cs typeface="Arial"/>')
+    expect((await importedText(output)).body?.paragraphs[0]?.runs[0]?.marks).toEqual({
+      fontFamily: 'Calibri',
+      fontFamilyEa: '宋体',
+      fontFamilyCs: 'Arial',
+      fontSize: 24,
+    })
+  })
+})

@@ -16,6 +16,8 @@ const paragraphAttrNames: readonly (keyof TextParagraphAttrs)[] = [
   'spaceBefore',
   'spaceAfter',
   'bullet',
+  // Without this the in-place editor drops a paragraph's `a:pPr/a:defRPr` on every round trip.
+  'defaultMarks',
 ]
 
 export class TextEditorModelError extends Error {

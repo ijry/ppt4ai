@@ -97,7 +97,12 @@ export interface Fill {
 }
 
 export interface TextMarks {
+  /** `a:latin`: the Latin-script typeface, and the fallback for every script we do not classify. */
   fontFamily?: string
+  /** `a:ea`: the East Asian typeface, chosen per character for CJK and full-width text. */
+  fontFamilyEa?: string
+  /** `a:cs`: the complex-script typeface. Round-tripped but never selected for painting yet. */
+  fontFamilyCs?: string
   fontSize?: number
   bold?: boolean
   italic?: boolean
@@ -891,6 +896,9 @@ function validateTextMarks(value: unknown, path: string, errors: string[]): void
   }
   const marks = value as Record<string, unknown>
   if ('fontFamily' in marks && typeof marks.fontFamily !== 'string') errors.push(`${path}.fontFamily must be a string`)
+  for (const key of ['fontFamilyEa', 'fontFamilyCs']) {
+    if (key in marks && (typeof marks[key] !== 'string' || (marks[key] as string).length === 0)) errors.push(`${path}.${key} must be a non-empty string`)
+  }
   if ('fontSize' in marks) validateFiniteNumber(marks.fontSize, `${path}.fontSize`, errors, (number) => number > 0, 'must be positive')
   for (const key of ['bold', 'italic']) {
     if (key in marks && typeof marks[key] !== 'boolean') errors.push(`${path}.${key} must be boolean`)
