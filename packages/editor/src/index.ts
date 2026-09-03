@@ -114,3 +114,6 @@ export { colorFromHex, hexFromColor, THEME_FONT_ROWS, THEME_SLOT_GROUPS, themeFo
 export type { ThemePanelEmit, ThemePanelFontModel, ThemePanelProps, ThemePanelSlotModel, ThemeSlotGroup } from './theme-panel'
 export { createThemeEditorController } from './theme-editor-controller'
 export type { ThemeEditorController, ThemeEditorControllerOptions } from './theme-editor-controller'
+export { default as ShapePaintToolbar } from './ShapePaintToolbar.vue'
+export { emuFromPoints, pointsFromEmu, STROKE_STYLE_OPTIONS } from './shape-paint-toolbar'
+export type { ShapePaintToolbarEmit, ShapePaintToolbarProps } from './shape-paint-toolbar'
