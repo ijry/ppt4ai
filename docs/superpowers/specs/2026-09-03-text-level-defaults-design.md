@@ -1,7 +1,8 @@
 # 文本分级默认格式设计
 
-> 状态：待实现（2026-09-03）
+> 状态：✅ 已实现（2026-09-03）
 > 日期：2026-09-03
+> 验证：探针测试证实三层默认格式已全部读取并生效
 
 ## 1. 目标
 
@@ -104,3 +105,19 @@ export function resolveTextBodyDefaults(element: Element, layout?: SlideLayout, 
 - `p:presentation/p:defaultTextStyle`（演示文稿级默认，优先级最低的一层）仍不读
 - 形状自身 `txBody` 里的 `a:lstStyle`（非占位符形状）仍不读 —— 只读 layout/master 占位符那两处
 - `a:lvlNpPr` 的 `defTabSz`/`rtl`/`eaLnBrk` 等未建模属性在整体重写 `txBody` 时仍会丢
+
+## 7. 验证结果（2026-09-03）
+
+探针测试证实三层默认格式已全部实现并正常工作：
+
+1. **Master `p:txStyles`** ✅ 已读取到 `master.textStyles.title` 和 `.body`
+2. **Layout `a:lstStyle`** ✅ 已读取到 `layout.defaults.title.listStyle`
+3. **段落 `a:pPr/a:defRPr`** ✅ 已读取到 `paragraph.attrs.defaultMarks`
+
+测试验证：
+- 导入端 `importer.ts` 中 `parseListStyle`、`parseTextStyles` 已实现
+- 渲染端 `scenegraph.ts` 中 `resolveRunMarks` 已合并三层默认格式
+- 导出端 `master-layout-writeback.ts` 通过"最小差异替换"策略保留源文件的 `lstStyle` 和 `defRPr`
+- 存在完整的测试套件 `level-defaults.test.ts` 验证三层合并逻辑
+
+本设计文档写作时认为"三层一层都没读"，但实际上在文档写作前的某次提交中该功能已经完整实现。
