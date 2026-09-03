@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
@@ -362,28 +362,104 @@ function shapePropertyInsertion(xml: string, properties: XmlElement, value: stri
   return [insertElementContent(xml, properties, value)]
 }
 
-function strokeReplacements(xml: string, sourceElement: XmlElement, stroke: Fill | undefined): Replacement[] {
+/**
+ * `a:ln/@w`. Absent and `w="0"` are different things in OOXML — absent inherits the theme line
+ * width, zero is an explicit hairline — so a model without a width removes the attribute rather than
+ * leaving the source value behind, which would put the file and the model at odds.
+ */
+function lineWidthReplacements(xml: string, line: XmlElement, width: number | undefined): Replacement[] {
+  const source = line.attributes.w
+  const sourceWidth = source === undefined ? undefined : Number(source)
+  if (width === undefined && sourceWidth === undefined) return []
+  if (width !== undefined && width === sourceWidth) return []
+  const openingEnd = xml.indexOf('>', line.start)
+  if (openingEnd < 0) throw new Error('PPTX export source line malformed')
+  const opening = xml.slice(line.start, openingEnd)
+  const existing = /\s+w\s*=\s*"[^"]*"/u.exec(opening)
+  if (width === undefined) {
+    if (!existing) return []
+    const start = line.start + existing.index
+    return [{ start, end: start + existing[0].length, value: '' }]
+  }
+  if (existing) {
+    const start = line.start + existing.index
+    return [{ start, end: start + existing[0].length, value: ` w="${width}"` }]
+  }
+  // No `w` yet: it goes right after the element name, where every other attribute writer puts one.
+  const nameEnd = line.start + 1 + line.name.length
+  return [{ start: nameEnd, end: nameEnd, value: ` w="${width}"` }]
+}
+
+/**
+ * The same collapse the importer applies to `a:prstDash/@val`: eleven OOXML tokens become three.
+ * Mirrored here rather than shared for the reason `color-source.ts` gives.
+ */
+function collapsedDashStyle(value: string | undefined): StrokeStyle | undefined {
+  if (!value || value === 'solid') return undefined
+  return value === 'dot' || value === 'sysDot' ? 'dot' : 'dash'
+}
+
+/**
+ * `a:ln/a:prstDash`. `solid` never reaches the model, so a model with no style means "back to the
+ * default" and the node is removed rather than written as `val="solid"`.
+ *
+ * The comparison runs the source token through the importer's collapse first, so a source
+ * `lgDashDot` — which the model can only hold as `dash` — counts as unchanged and survives verbatim.
+ * Comparing against the raw token instead would rewrite it to `dash` on any unrelated edit, which is
+ * exactly what the dash slice added an assertion to prevent.
+ */
+function lineDashReplacements(xml: string, line: XmlElement, style: StrokeStyle | undefined): Replacement[] {
+  const dashNode = line.children.find((child) => child.localName === 'prstDash')
+  const sourceStyle = collapsedDashStyle(dashNode?.attributes.val)
+  const wanted = style === 'solid' ? undefined : style
+  if (wanted === sourceStyle) return []
+  if (wanted === undefined) {
+    return dashNode ? [{ start: dashNode.start, end: dashNode.end, value: '' }] : []
+  }
+  const value = `<${qualifiedName(line.name, 'prstDash')} val="${wanted}"/>`
+  if (dashNode) return [{ start: dashNode.start, end: dashNode.end, value }]
+  // ECMA-376 puts `prstDash` after the fill, so it follows the fill node when there is one.
+  const fillNode = line.children.find((child) => fillNodeNames.has(child.localName))
+  if (fillNode) return [{ start: fillNode.end, end: fillNode.end, value }]
+  return lineReplacements(xml, line, value)
+}
+
+function strokeReplacements(
+  xml: string,
+  sourceElement: XmlElement,
+  stroke: Fill | undefined,
+  strokeWidth?: number,
+  strokeStyle?: StrokeStyle,
+): Replacement[] {
   const properties = sourceShapeProperties(sourceElement)
   if (!properties) return []
   const line = properties.children.find((child) => child.localName === 'ln')
   const fillNode = line?.children.find((child) => fillNodeNames.has(child.localName))
   const existing = sourceFill(fillNode)
-  if (fillsEqual(existing, stroke)) return []
+  const replacements: Replacement[] = []
 
-  if (stroke) {
-    if (!line) {
-      const value = '<a:ln>' + serializeFillXml(stroke) + '</a:ln>'
-      return shapePropertyInsertion(xml, properties, value)
+  if (!fillsEqual(existing, stroke)) {
+    if (stroke) {
+      if (!line) {
+        const dash = strokeStyle && strokeStyle !== 'solid' ? `<a:prstDash val="${strokeStyle}"/>` : ''
+        const widthAttribute = strokeWidth === undefined ? '' : ` w="${strokeWidth}"`
+        const value = `<a:ln${widthAttribute}>${serializeFillXml(stroke)}${dash}</a:ln>`
+        return shapePropertyInsertion(xml, properties, value)
+      }
+      const value = serializeFillForLine(stroke, line.name)
+      replacements.push(...(fillNode ? [{ start: fillNode.start, end: fillNode.end, value }] : lineReplacements(xml, line, value)))
+    } else if (line && fillNode && existing) {
+      replacements.push({ start: fillNode.start, end: fillNode.end, value: serializeNoFill(line.name) })
     }
-    const value = serializeFillForLine(stroke, line.name)
-    if (fillNode) return [{ start: fillNode.start, end: fillNode.end, value }]
-    return lineReplacements(xml, line, value)
   }
 
-  if (line && fillNode && existing) {
-    return [{ start: fillNode.start, end: fillNode.end, value: serializeNoFill(line.name) }]
+  // Width and dash are siblings of `stroke` on the element, not part of `Fill`, so each compares on
+  // its own. Rewriting the whole `<a:ln>` instead would drop `cap`/`cmpd`/`algn`.
+  if (line) {
+    replacements.push(...lineWidthReplacements(xml, line, strokeWidth))
+    replacements.push(...lineDashReplacements(xml, line, strokeStyle))
   }
-  return []
+  return replacements
 }
 
 function importedPreset(value: string | undefined): PresetGeometry {
@@ -893,14 +969,14 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
         replacements.push(...transformReplacements(xml, sourceElement, element))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
-        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke))
+        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle))
       } else if (element.kind === 'text') {
         throw new Error(`PPTX export text source mismatch for element ${element.id}`)
       } else if (element.kind === 'shape') {
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
         replacements.push(...transformReplacements(xml, sourceElement, element))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
-        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke))
+        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle))
         replacements.push(...geometryReplacements(xml, sourceElement, element.preset))
       } else {
         throw new Error(`PPTX export shape source mismatch for element ${element.id}`)
