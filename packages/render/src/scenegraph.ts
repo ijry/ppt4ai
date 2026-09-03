@@ -13,6 +13,8 @@ export interface SceneGraph {
   groups?: SceneGroup[]
   /** Resolved from the slide, its layout or its master, whichever declares one first. */
   background?: ResolvedColor
+  /** Present only for a linear gradient background; `background` stays set as the flat fallback. */
+  backgroundGradient?: ResolvedGradient
 }
 
 export interface SceneGroup {
@@ -556,12 +558,15 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
   for (const elementId of slide.elementIds) appendElement(elementId)
 
   const background = resolveSlideBackground(slide, layout, master, theme, context.colorMap)
+  const backgroundFill = slide.background?.fill ?? layout?.background?.fill ?? master?.background?.fill
+  const backgroundGradient = backgroundFill?.gradient ? resolvedFillGradient(backgroundFill, context) : undefined
 
   return {
     slideId,
     page: { ...value.page },
     nodes,
     ...(background ? { background } : {}),
+    ...(backgroundGradient ? { backgroundGradient } : {}),
     ...(groups.length > 0 ? { groups } : {}),
   }
 }

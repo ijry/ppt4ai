@@ -1,4 +1,5 @@
-import type { Rect } from '@ppt4ai/model'
+import type { Rect, ResolvedColor, ResolvedGradient } from '@ppt4ai/model'
+import { gradientAxis } from '@ppt4ai/geometry'
 import type { SceneGraph, SceneImageNode, SceneShapeNode, SceneTableNode, SceneTextNode } from '@ppt4ai/render'
 import { decodeBrowserImage } from './browser-image-decoder'
 import { paintImageNode } from './image-painting'
@@ -77,6 +78,33 @@ function mapBounds(bounds: Rect, mapping: ShapePageMapping): Rect {
     h: bounds.h * mapping.scale,
   }
 }
+
+function colorStyle(color: ResolvedColor): { style: string; alpha: number } {
+  return { style: `#${color.rgb.toUpperCase()}`, alpha: color.alpha / 100000 }
+}
+
+function rgbaStyle(hex: string, alpha: number): string {
+  const red = Number.parseInt(hex.slice(1, 3), 16)
+  const green = Number.parseInt(hex.slice(3, 5), 16)
+  const blue = Number.parseInt(hex.slice(5, 7), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+function createBackgroundGradient(
+  context: OffscreenCanvasRenderingContext2D,
+  gradient: ResolvedGradient,
+  bounds: Rect,
+): CanvasGradient {
+  const axis = gradientAxis(bounds, gradient.angle ?? 0, gradient.scaled ?? false)
+  const canvasGradient = context.createLinearGradient(axis.from.x, axis.from.y, axis.to.x, axis.to.y)
+  for (const stop of gradient.stops) {
+    const { style, alpha } = colorStyle(stop.color)
+    const offset = Math.min(1, Math.max(0, stop.pos / 100000))
+    canvasGradient.addColorStop(offset, alpha >= 1 ? style : rgbaStyle(style, alpha))
+  }
+  return canvasGradient
+}
+
 
 export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): ThumbnailWorkerRuntime {
   let canvas: OffscreenCanvas | undefined
@@ -157,9 +185,14 @@ export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): 
       // Same order the canvas renderer uses: the page fill goes down before any node.
       const background = request.scene.background
       if (background) {
-        context.fillStyle = `#${background.rgb.toUpperCase()}`
-        context.globalAlpha = background.alpha / 100000
-        context.fillRect(mapping.offsetX, mapping.offsetY, request.scene.page.w * mapping.scale, request.scene.page.h * mapping.scale)
+        const bgBounds = { x: mapping.offsetX, y: mapping.offsetY, w: request.scene.page.w * mapping.scale, h: request.scene.page.h * mapping.scale }
+        if (request.scene.backgroundGradient) {
+          context.fillStyle = createBackgroundGradient(context, request.scene.backgroundGradient, bgBounds)
+        } else {
+          context.fillStyle = `#${background.rgb.toUpperCase()}`
+          context.globalAlpha = background.alpha / 100000
+        }
+        context.fillRect(bgBounds.x, bgBounds.y, bgBounds.w, bgBounds.h)
         context.globalAlpha = 1
       }
       for (const node of request.scene.nodes) {

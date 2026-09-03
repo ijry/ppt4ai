@@ -1,4 +1,5 @@
-import type { AssetAdapter, Rect } from '@ppt4ai/model'
+import type { AssetAdapter, Rect, ResolvedColor, ResolvedGradient } from '@ppt4ai/model'
+import { gradientAxis } from '@ppt4ai/geometry'
 import type { SceneGraph, SceneImageNode, SceneNode } from '@ppt4ai/render'
 import { paintShapeNode } from './shape-painting'
 import { paintTableNode } from './table-painting'
@@ -61,6 +62,37 @@ function mapBounds(bounds: Rect, scale: number): Rect {
   return { x: bounds.x * scale, y: bounds.y * scale, w: bounds.w * scale, h: bounds.h * scale }
 }
 
+function colorStyle(color: ResolvedColor): { style: string; alpha: number } {
+  return { style: `#${color.rgb.toUpperCase()}`, alpha: color.alpha / 100000 }
+}
+
+function rgbaStyle(hex: string, alpha: number): string {
+  const red = Number.parseInt(hex.slice(1, 3), 16)
+  const green = Number.parseInt(hex.slice(3, 5), 16)
+  const blue = Number.parseInt(hex.slice(5, 7), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+/**
+ * Background gradients use the same axis formula but over the page bounds, not a shape's bounds.
+ * The mapped bounds are already in CSS pixels, matching where the shape painters work.
+ */
+function createBackgroundGradient(
+  context: CanvasRenderingContext2D,
+  gradient: ResolvedGradient,
+  mappedBounds: Rect,
+): CanvasGradient {
+  const axis = gradientAxis(mappedBounds, gradient.angle ?? 0, gradient.scaled ?? false)
+  const canvasGradient = context.createLinearGradient(axis.from.x, axis.from.y, axis.to.x, axis.to.y)
+  for (const stop of gradient.stops) {
+    const { style, alpha } = colorStyle(stop.color)
+    const offset = Math.min(1, Math.max(0, stop.pos / 100000))
+    canvasGradient.addColorStop(offset, alpha >= 1 ? style : rgbaStyle(style, alpha))
+  }
+  return canvasGradient
+}
+
+
 export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; decoder?: ImageDecoder }): SlideCanvasRenderer {
   const imageLoader = createImageNodeLoader(options)
   let disposed = false
@@ -89,9 +121,14 @@ export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; deco
       const scale = EMU_TO_CSS_PIXEL * zoom
       // The page fill goes down first, in the same space the node painters draw in.
       if (scene.background) {
-        context.fillStyle = `#${scene.background.rgb.toUpperCase()}`
-        context.globalAlpha = scene.background.alpha / 100000
-        context.fillRect(0, 0, scene.page.w * scale, scene.page.h * scale)
+        const mappedBounds = { x: 0, y: 0, w: scene.page.w * scale, h: scene.page.h * scale }
+        if (scene.backgroundGradient) {
+          context.fillStyle = createBackgroundGradient(context, scene.backgroundGradient, mappedBounds)
+        } else {
+          context.fillStyle = `#${scene.background.rgb.toUpperCase()}`
+          context.globalAlpha = scene.background.alpha / 100000
+        }
+        context.fillRect(0, 0, mappedBounds.w, mappedBounds.h)
         context.globalAlpha = 1
       }
       for (const node of scene.nodes) {
