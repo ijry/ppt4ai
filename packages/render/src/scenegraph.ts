@@ -39,6 +39,8 @@ export interface SceneShapeNode {
   /** Present only for a linear gradient fill; `resolvedFillColor` stays set as the flat fallback. */
   resolvedFillGradient?: ResolvedGradient
   resolvedStrokeColor?: ResolvedColor
+  /** Present only for a linear gradient outline; `resolvedStrokeColor` stays set as the flat fallback. */
+  resolvedStrokeGradient?: ResolvedGradient
   /** `a:ln/@w` in EMU, carried through so paint can set a real line width. */
   strokeWidth?: number
   strokeStyle?: StrokeStyle
@@ -77,6 +79,7 @@ export interface SceneTextNode {
   resolvedFillColor?: ResolvedColor
   resolvedFillGradient?: ResolvedGradient
   resolvedStrokeColor?: ResolvedColor
+  resolvedStrokeGradient?: ResolvedGradient
   strokeWidth?: number
   strokeStyle?: StrokeStyle
   transform?: ElementTransform
@@ -301,6 +304,11 @@ function shapeStrokeColor(element: { stroke?: Fill; styleRef?: ShapeStyleReferen
   return resolvedFillColor(element.stroke, context) ?? resolveStyleLine(element.styleRef?.line, context.theme, context.colorMap)
 }
 
+/** Symmetric with `shapeFillGradient`; theme line entries carry no gradient, so there is no fallback. */
+function shapeStrokeGradient(element: { stroke?: Fill }, context: SceneThemeContext): ResolvedGradient | undefined {
+  return resolvedFillGradient(element.stroke, context)
+}
+
 /**
  * `spPr/a:ln` and `p:style/a:lnRef` merge per property in OOXML: a direct line overrides only what
  * it declares, so a shape that recoloured its outline without restating the width still gets the
@@ -332,6 +340,8 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   const fillGradient = shapeFillGradient(element, context)
   if (fillGradient) node.resolvedFillGradient = fillGradient
   if (strokeColor) node.resolvedStrokeColor = strokeColor
+  const strokeGradient = shapeStrokeGradient(element, context)
+  if (strokeGradient) node.resolvedStrokeGradient = strokeGradient
   const stroke = shapeStroke(element, context)
   if (stroke.width !== undefined) node.strokeWidth = stroke.width
   if (stroke.style !== undefined) node.strokeStyle = stroke.style
@@ -372,6 +382,8 @@ function createTextNode(
   const fillGradient = shapeFillGradient(element, context)
   if (fillGradient) node.resolvedFillGradient = fillGradient
   if (strokeColor) node.resolvedStrokeColor = strokeColor
+  const strokeGradient = shapeStrokeGradient(element, context)
+  if (strokeGradient) node.resolvedStrokeGradient = strokeGradient
   const stroke = shapeStroke(element, context)
   if (stroke.width !== undefined) node.strokeWidth = stroke.width
   if (stroke.style !== undefined) node.strokeStyle = stroke.style

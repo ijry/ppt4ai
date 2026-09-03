@@ -195,6 +195,7 @@ export function paintTextNode(context: TextContext, node: SceneTextNode, mapping
         ...(node.resolvedFillColor ? { fill: node.resolvedFillColor } : {}),
         ...(node.resolvedFillGradient ? { fillGradient: node.resolvedFillGradient, fillBounds: node.bounds } : {}),
         ...(node.resolvedStrokeColor ? { stroke: node.resolvedStrokeColor } : {}),
+        ...(node.resolvedStrokeGradient ? { strokeGradient: node.resolvedStrokeGradient, strokeBounds: node.bounds } : {}),
         ...(node.strokeWidth === undefined ? {} : { strokeWidth: node.strokeWidth }),
         ...(node.strokeStyle === undefined ? {} : { strokeStyle: node.strokeStyle }),
       })

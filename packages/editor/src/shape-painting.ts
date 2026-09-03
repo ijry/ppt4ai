@@ -117,6 +117,8 @@ export function paintPathFills(
     /** Needed only for a gradient: the axis is computed across the mapped box, not the path. */
     fillBounds?: Rect
     stroke?: ResolvedColor
+    strokeGradient?: ResolvedGradient
+    strokeBounds?: Rect
     strokeWidth?: number
     strokeStyle?: StrokeStyle
   },
@@ -126,6 +128,10 @@ export function paintPathFills(
   const gradient = colors.fillGradient && colors.fillBounds
     ? fillGradient(context, colors.fillGradient, mapRect(colors.fillBounds, mapping))
     : undefined
+  // The outline spans the same box as the fill, so it uses the same axis helper.
+  const strokeRamp = colors.strokeGradient && colors.strokeBounds
+    ? fillGradient(context, colors.strokeGradient, mapRect(colors.strokeBounds, mapping))
+    : undefined
   if (fill) {
     tracePath(context, path, mapping)
     context.fillStyle = gradient ?? fill.style
@@ -134,8 +140,8 @@ export function paintPathFills(
   }
   if (stroke) {
     tracePath(context, path, mapping)
-    context.strokeStyle = stroke.style
-    context.globalAlpha = stroke.alpha
+    context.strokeStyle = strokeRamp ?? stroke.style
+    context.globalAlpha = strokeRamp ? 1 : stroke.alpha
     // Same floor table borders use: at thumbnail scale a real width lands below one pixel.
     const width = colors.strokeWidth !== undefined ? Math.max(1, colors.strokeWidth * mapping.scale) : 1
     context.lineWidth = width
@@ -169,8 +175,10 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
       }
       if (stroke) {
         createPath(context, node, mapping)
-        context.strokeStyle = stroke.style
-        context.globalAlpha = stroke.alpha
+        context.strokeStyle = node.resolvedStrokeGradient
+          ? fillGradient(context, node.resolvedStrokeGradient, bounds)
+          : stroke.style
+        context.globalAlpha = node.resolvedStrokeGradient ? 1 : stroke.alpha
         const width = node.strokeWidth !== undefined ? Math.max(1, node.strokeWidth * mapping.scale) : 1
         context.lineWidth = width
         context.setLineDash(dashPattern(node.strokeStyle ?? 'solid', width))
