@@ -56,9 +56,20 @@ const enUS = {
   },
   panel: {
     theme: {
-      title: 'Theme colors',
+      title: 'Theme',
+      colors: 'Colors',
+      fonts: 'Fonts',
       reset: 'Reset to Office default',
       inherited: 'Inherited from source theme',
+      fontSlots: {
+        major: 'Heading font',
+        minor: 'Body font',
+      },
+      fontScripts: {
+        latin: 'Latin',
+        ea: 'East Asian',
+        cs: 'Complex',
+      },
       groups: {
         neutral: 'Dark and light',
         accent: 'Accents',

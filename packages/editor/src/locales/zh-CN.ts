@@ -56,9 +56,20 @@ const zhCN = {
   },
   panel: {
     theme: {
-      title: '主题颜色',
+      title: '主题',
+      colors: '颜色',
+      fonts: '字体',
       reset: '重置为 Office 默认值',
       inherited: '继承源主题',
+      fontSlots: {
+        major: '标题字体',
+        minor: '正文字体',
+      },
+      fontScripts: {
+        latin: '西文',
+        ea: '中日韩',
+        cs: '复杂文字',
+      },
       groups: {
         neutral: '明暗色',
         accent: '强调色',

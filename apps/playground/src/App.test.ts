@@ -551,6 +551,25 @@ describe('Playground asset host wiring', () => {
     mountedApps.splice(mountedApps.indexOf(app), 1)
   })
 
+  it('renders the theme font rows and applies an edit to the active page', async () => {
+    const { app, host } = mountApp()
+    await nextTick()
+
+    const panel = host.querySelector('[data-theme-panel]')!
+    expect(panel.querySelectorAll('input[data-font]')).toHaveLength(6)
+    expect((panel.querySelector('input[data-font="minor-latin"]') as HTMLInputElement).value).toBe('Aptos')
+
+    const input = panel.querySelector('input[data-font="major-latin"]') as HTMLInputElement
+    input.value = 'Cambria'
+    input.dispatchEvent(new Event('change'))
+    await nextTick()
+
+    expect(host.querySelector('[data-testid="undo-depth"]')?.textContent).toContain('1')
+
+    app.unmount()
+    mountedApps.splice(mountedApps.indexOf(app), 1)
+  })
+
   it('resets a theme colour slot to the Office default', async () => {
     const { app, host } = mountApp()
     await nextTick()

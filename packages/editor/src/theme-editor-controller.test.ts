@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EditorEngine } from '@ppt4ai/engine'
-import { DEFAULT_THEME_COLORS, type Ppt4aiDocument } from '@ppt4ai/model'
+import { DEFAULT_THEME_COLORS, DEFAULT_THEME_FONTS, type Ppt4aiDocument } from '@ppt4ai/model'
 import { createThemeEditorController } from './theme-editor-controller'
 
 function documentWithTheme(): Ppt4aiDocument {
@@ -62,6 +62,36 @@ describe('createThemeEditorController', () => {
     expect(controller.setColor('accent3', { type: 'srgb', v: '112233' }).document.themes?.thm_1?.colors.accent3).toEqual({ type: 'srgb', v: '112233' })
     expect(controller.resetColor('accent1').document.themes?.thm_1?.colors.accent1).toBeNull()
     expect(controller.getState().history.undoDepth).toBe(2)
+  })
+
+  it('dispatches font edits and resets for the active theme', () => {
+    const engine = new EditorEngine(documentWithTheme())
+    const controller = createThemeEditorController({ engine, slideId: 'sld_1' })
+
+    expect(controller.setFont('major', 'latin', 'Cambria').document.themes?.thm_1?.fonts).toEqual({ major: { latin: 'Cambria' } })
+    expect(controller.resetFont('minor', 'latin').document.themes?.thm_1?.fonts?.minor?.latin).toBeNull()
+    expect(controller.getState().history.undoDepth).toBe(2)
+  })
+
+  it('maps explicit, reset, and inherited typefaces to display models', () => {
+    const document = documentWithTheme()
+    document.themes!.thm_1!.fonts = { major: { latin: 'Cambria', ea: null } }
+    const controller = createThemeEditorController({ engine: new EditorEngine(document), slideId: 'sld_1' })
+    const byRow = new Map(controller.fonts().map((row) => [`${row.slot}-${row.script}`, row]))
+
+    expect(controller.fonts()).toHaveLength(6)
+    expect(byRow.get('major-latin')).toMatchObject({ typeface: 'Cambria', isDefault: false, inherited: false })
+    expect(byRow.get('major-ea')).toMatchObject({ isDefault: true, inherited: false })
+    expect(byRow.get('minor-latin')).toMatchObject({ typeface: DEFAULT_THEME_FONTS.minor.latin, inherited: true })
+  })
+
+  it('returns no font rows when no theme is reachable', () => {
+    const document = documentWithTheme()
+    delete document.masters!.mst_1!.themeId
+    const controller = createThemeEditorController({ engine: new EditorEngine(document), slideId: 'sld_1' })
+
+    expect(controller.fonts()).toEqual([])
+    expect(() => controller.setFont('major', 'latin', 'Cambria')).toThrow(/no active theme for slide: sld_1/)
   })
 
   it('throws when editing without a reachable theme', () => {

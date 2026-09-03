@@ -1,6 +1,6 @@
 import type { EditorEngine, EngineState } from '@ppt4ai/engine'
-import { DEFAULT_THEME_COLORS, type Color, type Ppt4aiDocument, type ThemeColorSlot } from '@ppt4ai/model'
-import { hexFromColor, THEME_SLOT_GROUPS, themeSlotGroup, type ThemePanelSlotModel } from './theme-panel'
+import { DEFAULT_THEME_COLORS, type Color, type Ppt4aiDocument, type ThemeColorSlot, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
+import { hexFromColor, THEME_SLOT_GROUPS, themeFontModels, themeSlotGroup, type ThemePanelFontModel, type ThemePanelSlotModel } from './theme-panel'
 
 export interface ThemeEditorControllerOptions {
   engine: EditorEngine
@@ -11,8 +11,11 @@ export interface ThemeEditorController {
   getState(): EngineState
   activeThemeId(slideId?: string): string | undefined
   slots(slideId?: string): readonly ThemePanelSlotModel[]
+  fonts(slideId?: string): readonly ThemePanelFontModel[]
   setColor(slot: ThemeColorSlot, color: Color): EngineState
   resetColor(slot: ThemeColorSlot): EngineState
+  setFont(slot: ThemeFontSlot, script: ThemeFontScript, typeface: string): EngineState
+  resetFont(slot: ThemeFontSlot, script: ThemeFontScript): EngineState
 }
 
 const allSlots: readonly ThemeColorSlot[] = THEME_SLOT_GROUPS.flatMap((group) => [...group.slots])
@@ -40,6 +43,13 @@ export function createThemeEditorController(options: ThemeEditorControllerOption
     return options.engine.dispatch({ type: 'setThemeColor', themeId, slot, color })
   }
 
+  const dispatchFont = (slot: ThemeFontSlot, script: ThemeFontScript, typeface: string | null): EngineState => {
+    const slideId = targetSlide()
+    const themeId = resolveThemeId(options.engine.getState().document, slideId)
+    if (!themeId) throw new Error(`no active theme for slide: ${slideId}`)
+    return options.engine.dispatch({ type: 'setThemeFont', themeId, slot, script, typeface })
+  }
+
   return {
     getState: () => options.engine.getState(),
     activeThemeId: (slideId) => resolveThemeId(options.engine.getState().document, targetSlide(slideId)),
@@ -61,5 +71,13 @@ export function createThemeEditorController(options: ThemeEditorControllerOption
     },
     setColor: (slot, color) => dispatchColor(slot, color),
     resetColor: (slot) => dispatchColor(slot, null),
+    fonts(slideId): readonly ThemePanelFontModel[] {
+      const document = options.engine.getState().document
+      const themeId = resolveThemeId(document, targetSlide(slideId))
+      const theme = themeId ? document.themes?.[themeId] : undefined
+      return theme ? themeFontModels(theme.fonts) : []
+    },
+    setFont: (slot, script, typeface) => dispatchFont(slot, script, typeface),
+    resetFont: (slot, script) => dispatchFont(slot, script, null),
   }
 }

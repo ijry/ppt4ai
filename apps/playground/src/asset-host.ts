@@ -1,6 +1,6 @@
 import { EditorEngine, type EngineState, type ImageFlipAxis, type SnapOptions } from '@ppt4ai/engine'
 import { createImageAssetController, ImageAssetControllerError } from '@ppt4ai/editor'
-import type { AssetAdapter, AssetMetadata, Color, Element, ImageElement, Ppt4aiDocument, Rect, TextBody, ThemeColorSlot } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Color, Element, ImageElement, Ppt4aiDocument, Rect, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
 export interface PlaygroundAssetHostSnapshot {
@@ -34,6 +34,7 @@ export interface PlaygroundAssetHost {
   flipSelection(axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
   setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): PlaygroundAssetHostSnapshot
+  setThemeFont(themeId: string, slot: ThemeFontSlot, script: ThemeFontScript, typeface: string | null): PlaygroundAssetHostSnapshot
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
   insertAsset(assetId: string): PlaygroundAssetHostSnapshot
   replaceSelectedImage(assetId: string): PlaygroundAssetHostSnapshot
@@ -322,6 +323,16 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
         status = { kind: 'success', message: 'theme-color-updated' }
       } catch {
         return fail('theme-color-failed')
+      }
+      return snapshot()
+    },
+    setThemeFont(themeId, slot, script, typeface) {
+      if (!engine.getState().document.themes?.[themeId]) return fail('theme-missing')
+      try {
+        engine.dispatch({ type: 'setThemeFont', themeId, slot, script, typeface })
+        status = { kind: 'success', message: 'theme-font-updated' }
+      } catch {
+        return fail('theme-font-failed')
       }
       return snapshot()
     },

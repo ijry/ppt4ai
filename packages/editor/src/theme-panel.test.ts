@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_THEME_COLORS, type ThemeColorSlot } from '@ppt4ai/model'
-import { colorFromHex, hexFromColor, THEME_SLOT_GROUPS, themeSlotGroup } from './theme-panel'
+import { DEFAULT_THEME_COLORS, DEFAULT_THEME_FONTS, type ThemeColorSlot } from '@ppt4ai/model'
+import { colorFromHex, hexFromColor, THEME_FONT_ROWS, THEME_SLOT_GROUPS, themeFontModels, themeSlotGroup } from './theme-panel'
 
 describe('theme panel metadata', () => {
   it('covers all twelve slots exactly once across groups', () => {
@@ -35,5 +35,25 @@ describe('theme panel color conversion', () => {
     expect(colorFromHex('#00ff00')).toEqual({ type: 'srgb', v: '00FF00' })
     expect(colorFromHex('nope')).toBeUndefined()
     expect(colorFromHex('#FFF')).toBeUndefined()
+  })
+})
+
+describe('theme panel font models', () => {
+  it('covers both slots and all three scripts in a fixed order', () => {
+    const rows = themeFontModels(undefined)
+
+    expect(THEME_FONT_ROWS.flatMap((row) => [...row.scripts])).toHaveLength(6)
+    expect(rows.map((row) => `${row.slot}-${row.script}`)).toEqual([
+      'major-latin', 'major-ea', 'major-cs', 'minor-latin', 'minor-ea', 'minor-cs',
+    ])
+  })
+
+  it('marks explicit, reset, and inherited typefaces', () => {
+    const rows = themeFontModels({ major: { latin: 'Cambria', ea: null }, minor: {} })
+    const byRow = new Map(rows.map((row) => [`${row.slot}-${row.script}`, row]))
+
+    expect(byRow.get('major-latin')).toMatchObject({ typeface: 'Cambria', isDefault: false, inherited: false })
+    expect(byRow.get('major-ea')).toMatchObject({ typeface: DEFAULT_THEME_FONTS.major.ea, isDefault: true, inherited: false })
+    expect(byRow.get('minor-latin')).toMatchObject({ typeface: DEFAULT_THEME_FONTS.minor.latin, isDefault: false, inherited: true })
   })
 })

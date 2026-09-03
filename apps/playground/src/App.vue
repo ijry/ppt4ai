@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import type { Color, TextBody, ThemeColorSlot } from '@ppt4ai/model'
+import type { Color, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import { DEFAULT_THEME_COLORS } from '@ppt4ai/model'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
-import { AssetLibrary, hexFromColor, PptEditor, THEME_SLOT_GROUPS, ThemePanel, themeSlotGroup, ThumbnailCanvas, type ThemePanelSlotModel } from '@ppt4ai/editor'
+import { AssetLibrary, hexFromColor, PptEditor, THEME_SLOT_GROUPS, ThemePanel, themeFontModels, themeSlotGroup, ThumbnailCanvas, type ThemePanelFontModel, type ThemePanelSlotModel } from '@ppt4ai/editor'
 import { normalizeTextElement } from '@ppt4ai/text'
 import { useI18n } from 'vue-i18n'
 import { ImageFileReadError, readImageUploadFile, type PlaygroundImageUploadInput } from './image-file-upload'
 import { createPlaygroundPresentationHost } from './presentation-host'
+
+/**
+ * Suggestions for the theme font boxes, not a claim about what is installed: browsers cannot
+ * enumerate system fonts, and a theme typeface does not have to exist locally to be written.
+ */
+const THEME_FONT_SUGGESTIONS: readonly string[] = ['Aptos', 'Aptos Display', 'Arial', 'Calibri', 'Cambria', 'Georgia', 'Times New Roman', '宋体', '等线', '微软雅黑']
 
 const { t } = useI18n()
 const assetHost = createPlaygroundPresentationHost()
@@ -65,12 +71,26 @@ const themeSlots = computed<ThemePanelSlotModel[]>(() => {
   })
 })
 
+const themeFonts = computed<ThemePanelFontModel[]>(() => {
+  const themeId = activeThemeId.value
+  const theme = themeId ? activeSlideSnapshot.value.engineState.document.themes?.[themeId] : undefined
+  return theme ? themeFontModels(theme.fonts) : []
+})
+
 function setThemeColor(slot: ThemeColorSlot, color: Color): void {
   assetSnapshot.value = assetHost.setThemeColor(slot, color)
 }
 
 function resetThemeColor(slot: ThemeColorSlot): void {
   assetSnapshot.value = assetHost.setThemeColor(slot, null)
+}
+
+function setThemeFont(slot: ThemeFontSlot, script: ThemeFontScript, typeface: string): void {
+  assetSnapshot.value = assetHost.setThemeFont(slot, script, typeface)
+}
+
+function resetThemeFont(slot: ThemeFontSlot, script: ThemeFontScript): void {
+  assetSnapshot.value = assetHost.setThemeFont(slot, script, null)
 }
 
 function selectAsset(assetId: string): void {
@@ -377,8 +397,12 @@ async function uploadFile(event: Event): Promise<void> {
         <ThemePanel
           :active="activeThemeId !== undefined"
           :slots="themeSlots"
+          :fonts="themeFonts"
+          :font-families="THEME_FONT_SUGGESTIONS"
           @set-color="setThemeColor"
           @reset-color="resetThemeColor"
+          @set-font="setThemeFont"
+          @reset-font="resetThemeFont"
         />
         <section class="border border-slate-200 bg-white p-4 text-sm" :aria-label="t('playground.assetHost.title')">
           <h2 class="font-semibold">{{ t('playground.assetHost.title') }}</h2>

@@ -499,4 +499,25 @@ describe('createPlaygroundAssetHost', () => {
     expect(result.status).toEqual({ kind: 'error', message: 'theme-missing' })
     expect(result.engineState.history.undoDepth).toBe(0)
   })
+
+  it('edits and resets a theme font script through the engine', () => {
+    const host = createPlaygroundAssetHost()
+
+    const edited = host.setThemeFont('thm_playground', 'major', 'latin', 'Cambria')
+    expect(edited.status).toEqual({ kind: 'success', message: 'theme-font-updated' })
+    expect(edited.engineState.document.themes?.thm_playground?.fonts).toEqual({ major: { latin: 'Cambria' } })
+
+    const reset = host.setThemeFont('thm_playground', 'major', 'latin', null)
+    expect(reset.engineState.document.themes?.thm_playground?.fonts?.major?.latin).toBeNull()
+
+    expect(host.undo().engineState.document.themes?.thm_playground?.fonts?.major?.latin).toBe('Cambria')
+  })
+
+  it('reports stable error statuses for a missing theme and an unusable typeface', () => {
+    const host = createPlaygroundAssetHost()
+
+    expect(host.setThemeFont('thm_absent', 'major', 'latin', 'Cambria').status).toEqual({ kind: 'error', message: 'theme-missing' })
+    expect(host.setThemeFont('thm_playground', 'major', 'latin', '').status).toEqual({ kind: 'error', message: 'theme-font-failed' })
+    expect(host.getSnapshot().engineState.history.undoDepth).toBe(0)
+  })
 })

@@ -285,6 +285,20 @@ describe('createPlaygroundPresentationHost', () => {
     expect(state.history).toEqual({ undoDepth: 1, redoDepth: 0 })
   })
 
+  it('routes theme font edits to the active page and its engine history', () => {
+    const host = createPlaygroundPresentationHost()
+    host.selectSlide('sld_playground_blue')
+
+    const result = host.setThemeFont('minor', 'ea', '等线')
+    const active = result.slides.sld_playground_blue!.engineState
+    const other = result.slides.sld_playground!.engineState
+
+    expect(result.status).toEqual({ kind: 'success', message: 'theme-font-updated' })
+    expect(active.document.themes?.thm_playground?.fonts).toEqual({ minor: { ea: '等线' } })
+    expect(active.history).toEqual({ undoDepth: 1, redoDepth: 0 })
+    expect(other.document.themes?.thm_playground?.fonts).toBeUndefined()
+  })
+
   it('routes theme colour edits to the active page and its engine history', () => {
     const host = createPlaygroundPresentationHost()
     host.selectSlide('sld_playground_blue')
