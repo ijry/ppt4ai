@@ -364,6 +364,13 @@ function parseStroke(shape: XmlNode): Fill | undefined {
   return parseDirectFill(line)
 }
 
+/** `a:ln/@w` in EMU. An unusable value is ignored rather than stored, the rule other measurements follow. */
+function parseStrokeWidth(shape: XmlNode): number | undefined {
+  const line = child(shapeProperties(shape) ?? shape, 'ln')
+  const width = line ? parseIntegerAttribute(attribute(line, 'w')) : undefined
+  return width !== undefined && width >= 0 ? width : undefined
+}
+
 function parseStyleBorder(line: XmlNode | undefined): TableBorder | undefined {
   if (!line) return undefined
   const widthAttribute = attribute(line, 'w')
@@ -1035,6 +1042,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     if (fill) element.fill = fill
     const stroke = parseStroke(shape)
     if (stroke) element.stroke = stroke
+    const textStrokeWidth = parseStrokeWidth(shape)
+    if (textStrokeWidth !== undefined) element.strokeWidth = textStrokeWidth
     const styleRef = parseShapeStyleReference(shape)
     if (styleRef) element.styleRef = styleRef
     return element
@@ -1053,6 +1062,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   if (fill) element.fill = fill
   const stroke = parseStroke(shape)
   if (stroke) element.stroke = stroke
+  const shapeStrokeWidth = parseStrokeWidth(shape)
+  if (shapeStrokeWidth !== undefined) element.strokeWidth = shapeStrokeWidth
   const shapeStyleRef = parseShapeStyleReference(shape)
   if (shapeStyleRef) element.styleRef = shapeStyleRef
   return element

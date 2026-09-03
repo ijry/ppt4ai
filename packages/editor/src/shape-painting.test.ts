@@ -9,6 +9,7 @@ class RecordingContext {
   fillStyle = ''
   strokeStyle = ''
   globalAlpha = 1
+  lineWidth = 1
 
   save(): void { this.events.push(['save']) }
   restore(): void { this.events.push(['restore']) }
@@ -23,7 +24,7 @@ class RecordingContext {
   }
   closePath(): void { this.events.push(['closePath']) }
   fill(): void { this.events.push(['fill', this.fillStyle, this.globalAlpha]) }
-  stroke(): void { this.events.push(['stroke', this.strokeStyle, this.globalAlpha]) }
+  stroke(): void { this.events.push(['stroke', this.strokeStyle, this.globalAlpha, this.lineWidth]) }
 }
 
 function context(): RecordingContext & CanvasRenderingContext2D {
@@ -58,11 +59,29 @@ describe('shape painting', () => {
     expect(drawingContext.events).toContainEqual(['lineTo', 225, 47])
     expect(drawingContext.events).toContainEqual(['ellipse', 175, 97, 50, 50, 0, -Math.PI / 2, 0])
     expect(drawingContext.events).toContainEqual(['fill', '#336699', 0.5])
-    expect(drawingContext.events).toContainEqual(['stroke', '#FF0000', 0.25])
+    expect(drawingContext.events).toContainEqual(['stroke', '#FF0000', 0.25, 1])
     expect(drawingContext.events[0]).toEqual(['save'])
     expect(drawingContext.events.at(-1)).toEqual(['restore'])
   })
 
+  it('sets the line width from the node, floored at one pixel', () => {
+    const wide = context()
+    paintShapeNode(wide, node({ resolvedStrokeColor: { rgb: 'FF0000', alpha: 100000 }, strokeWidth: 76200 }), { scale: 0.001, offsetX: 0, offsetY: 0 })
+    expect(wide.events.find(([type]) => type === 'stroke')?.[3]).toBeCloseTo(76.2)
+
+    // At thumbnail scale a real width lands below a pixel, the same floor table borders use.
+    const tiny = context()
+    paintShapeNode(tiny, node({ resolvedStrokeColor: { rgb: 'FF0000', alpha: 100000 }, strokeWidth: 12700 }), { scale: 0.00001, offsetX: 0, offsetY: 0 })
+    expect(tiny.events.find(([type]) => type === 'stroke')?.[3]).toBe(1)
+  })
+
+  it('leaves the line width alone when the node carries none', () => {
+    const drawingContext = context()
+
+    paintShapeNode(drawingContext, node({ resolvedStrokeColor: { rgb: 'FF0000', alpha: 100000 } }), { scale: 2, offsetX: 0, offsetY: 0 })
+
+    expect(drawingContext.events.find(([type]) => type === 'stroke')?.[3]).toBe(1)
+  })
   it('paints every supported preset path', () => {
     const paths: SceneShapeNode['path'][] = [
       [

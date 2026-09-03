@@ -205,7 +205,8 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   const preset = isText ? element.preset ?? 'rect' : element.preset
   const placeholder = serializePlaceholder(element.placeholder)
   const nonVisualProperties = `<p:nvSpPr><p:cNvPr id="${shapeId}" name="${escapeXml(element.id)}"/><p:cNvSpPr${isText ? ' txBox="1"' : ''}/><p:nvPr>${placeholder}</p:nvPr></p:nvSpPr>`
-  const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${serializeGeometry(preset)}${serializeFillXml(element.fill)}${element.stroke ? `<a:ln>${serializeFillXml(element.stroke)}</a:ln>` : ''}</p:spPr>`
+  const line = element.stroke ? `<a:ln${attrs([['w', element.strokeWidth]])}>${serializeFillXml(element.stroke)}</a:ln>` : ''
+  const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${serializeGeometry(preset)}${serializeFillXml(element.fill)}${line}</p:spPr>`
   const textBody = isText
     ? serializeTextBodyXml(element.body ?? { paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }] })
     : ''

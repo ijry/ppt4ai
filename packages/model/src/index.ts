@@ -192,6 +192,8 @@ export interface ShapeElement {
   flipV?: boolean
   fill?: Fill
   stroke?: Fill
+  /** `a:ln/@w` in EMU. Absent means the source said nothing, so painting keeps its hairline default. */
+  strokeWidth?: number
   styleRef?: ShapeStyleReference
   placeholder?: string
 }
@@ -226,6 +228,7 @@ export interface TextElement {
   body?: TextBody
   fill?: Fill
   stroke?: Fill
+  strokeWidth?: number
   styleRef?: ShapeStyleReference
   placeholder?: string
 }
@@ -1506,6 +1509,9 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.styleRef !== undefined) {
       validateShapeStyleReference(element.styleRef, `elements.${elementId}.styleRef`, errors)
+    }
+    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeWidth !== undefined) {
+      validateFiniteNumber(element.strokeWidth, `elements.${elementId}.strokeWidth`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')
     }
   }
 

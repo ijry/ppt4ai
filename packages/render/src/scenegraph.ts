@@ -35,6 +35,8 @@ export interface SceneShapeNode {
   stroke?: Fill
   resolvedFillColor?: ResolvedColor
   resolvedStrokeColor?: ResolvedColor
+  /** `a:ln/@w` in EMU, carried through so paint can set a real line width. */
+  strokeWidth?: number
   transform?: ElementTransform
 }
 
@@ -69,6 +71,7 @@ export interface SceneTextNode {
   stroke?: Fill
   resolvedFillColor?: ResolvedColor
   resolvedStrokeColor?: ResolvedColor
+  strokeWidth?: number
   transform?: ElementTransform
 }
 
@@ -269,6 +272,7 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   const strokeColor = shapeStrokeColor(element, context)
   if (fillColor) node.resolvedFillColor = fillColor
   if (strokeColor) node.resolvedStrokeColor = strokeColor
+  if (element.strokeWidth !== undefined) node.strokeWidth = element.strokeWidth
   const transform = elementTransform(element)
   if (transform) node.transform = transform
   return node
@@ -299,6 +303,7 @@ function createTextNode(
   if (fillColor || strokeColor) node.path = createPresetPath(element.preset ?? 'rect', element.bounds)
   if (fillColor) node.resolvedFillColor = fillColor
   if (strokeColor) node.resolvedStrokeColor = strokeColor
+  if (element.strokeWidth !== undefined) node.strokeWidth = element.strokeWidth
   const transform = elementTransform(element)
   if (transform) node.transform = transform
   return node

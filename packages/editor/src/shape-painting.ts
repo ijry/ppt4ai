@@ -75,7 +75,7 @@ export function paintPathFills(
   context: ShapeContext,
   path: readonly PathCommand[],
   mapping: ShapePageMapping,
-  colors: { fill?: ResolvedColor; stroke?: ResolvedColor },
+  colors: { fill?: ResolvedColor; stroke?: ResolvedColor; strokeWidth?: number },
 ): void {
   const fill = colors.fill ? colorStyle(colors.fill) : undefined
   const stroke = colors.stroke ? colorStyle(colors.stroke) : undefined
@@ -89,6 +89,8 @@ export function paintPathFills(
     tracePath(context, path, mapping)
     context.strokeStyle = stroke.style
     context.globalAlpha = stroke.alpha
+    // Same floor table borders use: at thumbnail scale a real width lands below one pixel.
+    if (colors.strokeWidth !== undefined) context.lineWidth = Math.max(1, colors.strokeWidth * mapping.scale)
     context.stroke()
   }
 }
@@ -116,6 +118,7 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
         createPath(context, node, mapping)
         context.strokeStyle = stroke.style
         context.globalAlpha = stroke.alpha
+        if (node.strokeWidth !== undefined) context.lineWidth = Math.max(1, node.strokeWidth * mapping.scale)
         context.stroke()
       }
     })

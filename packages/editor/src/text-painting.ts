@@ -194,6 +194,7 @@ export function paintTextNode(context: TextContext, node: SceneTextNode, mapping
       paintPathFills(context, node.path, mapping, {
         ...(node.resolvedFillColor ? { fill: node.resolvedFillColor } : {}),
         ...(node.resolvedStrokeColor ? { stroke: node.resolvedStrokeColor } : {}),
+        ...(node.strokeWidth === undefined ? {} : { strokeWidth: node.strokeWidth }),
       })
     }
     paintTextLayout(context, node.layout, mapping)
