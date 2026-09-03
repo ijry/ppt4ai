@@ -226,6 +226,48 @@ describe('stroke width survives a writeback edit', () => {
     expect(outputSlide).toContain('val="FF0000"')
   })
 })
+
+/** The dash style is read but never written back, so the source node has to survive untouched. */
+describe('stroke dash survives a writeback edit', () => {
+  function dashedPackage(): Uint8Array {
+    const slide = '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree>'
+      + '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Dashed"/><p:nvPr/></p:nvSpPr>'
+      + '<p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>'
+      + '<a:prstGeom prst="rect"/><a:ln w="76200"><a:solidFill><a:srgbClr val="203864"/></a:solidFill>'
+      + '<a:prstDash val="lgDashDot"/></a:ln>'
+      + '</p:spPr></p:sp></p:spTree></p:cSld></p:sld>'
+    return writeStoredZip([
+      { name: 'ppt/presentation.xml', data: new TextEncoder().encode(presentation) },
+      { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(presentationRels) },
+      { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(slide) },
+    ])
+  }
+
+  it('leaves the package byte-identical when nothing is edited', async () => {
+    const source = dashedPackage()
+
+    expect(await exportPptx(await importPptx(source), source)).toEqual(source)
+  })
+
+  /**
+   * The model collapsed `lgDashDot` to `dash`, so writing the model back would lose the source's
+   * own token. Writeback never emits `a:prstDash`, which is why the original survives verbatim.
+   */
+  it('keeps the source dash token when the colour changes', async () => {
+    const source = dashedPackage()
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    if (shape?.kind !== 'shape') throw new Error('fixture did not import as a shape')
+    expect(shape.strokeStyle).toBe('dash')
+    shape.stroke = { color: { type: 'srgb', v: 'FF0000' } }
+
+    const outputSlide = await slideXmlOf(await exportPptx(document, source))
+
+    expect(outputSlide).toContain('<a:prstDash val="lgDashDot"/>')
+    expect(outputSlide).not.toContain('val="dash"')
+    expect(outputSlide).toContain('val="FF0000"')
+  })
+})
 const scriptBody = '<a:bodyPr/><a:p><a:r><a:rPr sz="2400">'
   + '<a:latin typeface="Calibri"/><a:ea typeface="宋体"/><a:cs typeface="Arial"/>'
   + '</a:rPr><a:t>Hello 你好</a:t></a:r></a:p>'

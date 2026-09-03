@@ -1,6 +1,7 @@
 import type { Rect, ResolvedColor, TableBorder, TableCellBorders } from '@ppt4ai/model'
 import type { SceneTableLayoutCell, SceneTableNode } from '@ppt4ai/render'
 import { withRotation } from './rotation-transform'
+import { dashPattern } from './shape-painting'
 import { paintTextLayout, type TextPageMapping } from './text-painting'
 
 export interface TablePageMapping extends TextPageMapping {}
@@ -76,12 +77,6 @@ function borderWidth(border: TableBorder, mapping: TablePageMapping): number {
   const width = finite(border.width ?? DEFAULT_BORDER_WIDTH, 'table border width')
   if (width < 0) throw new Error('table border width must be non-negative')
   return Math.max(1, width * mapping.scale)
-}
-
-function dashPattern(style: Exclude<NonNullable<TableBorder['style']>, 'none'>, width: number): number[] {
-  if (style === 'solid') return []
-  if (style === 'dash') return [4 * width, 3 * width]
-  return [width, 2 * width]
 }
 
 function borderPoints(bounds: Rect, side: BorderSide): [number, number, number, number] {

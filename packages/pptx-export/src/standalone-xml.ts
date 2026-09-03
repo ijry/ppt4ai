@@ -205,7 +205,10 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   const preset = isText ? element.preset ?? 'rect' : element.preset
   const placeholder = serializePlaceholder(element.placeholder)
   const nonVisualProperties = `<p:nvSpPr><p:cNvPr id="${shapeId}" name="${escapeXml(element.id)}"/><p:cNvSpPr${isText ? ' txBox="1"' : ''}/><p:nvPr>${placeholder}</p:nvPr></p:nvSpPr>`
-  const line = element.stroke ? `<a:ln${attrs([['w', element.strokeWidth]])}>${serializeFillXml(element.stroke)}</a:ln>` : ''
+  // `a:prstDash` is a child of `a:ln` and follows the fill in the ECMA-376 sequence, not an attribute.
+  // `dash` and `dot` are both valid `val` tokens, so the narrowed model values write out verbatim.
+  const prstDash = element.strokeStyle && element.strokeStyle !== 'solid' ? `<a:prstDash val="${element.strokeStyle}"/>` : ''
+  const line = element.stroke ? `<a:ln${attrs([['w', element.strokeWidth]])}>${serializeFillXml(element.stroke)}${prstDash}</a:ln>` : ''
   const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${serializeGeometry(preset)}${serializeFillXml(element.fill)}${line}</p:spPr>`
   const textBody = isText
     ? serializeTextBodyXml(element.body ?? { paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }] })

@@ -116,6 +116,8 @@ export interface ResolvedColor {
   alpha: number
 }
 
+export type StrokeStyle = 'solid' | 'dash' | 'dot'
+
 export interface Fill {
   color: Color
 }
@@ -194,6 +196,8 @@ export interface ShapeElement {
   stroke?: Fill
   /** `a:ln/@w` in EMU. Absent means the source said nothing, so painting keeps its hairline default. */
   strokeWidth?: number
+  /** `a:ln/a:prstDash`, narrowed to what painting can express. */
+  strokeStyle?: StrokeStyle
   styleRef?: ShapeStyleReference
   placeholder?: string
 }
@@ -229,6 +233,7 @@ export interface TextElement {
   fill?: Fill
   stroke?: Fill
   strokeWidth?: number
+  strokeStyle?: StrokeStyle
   styleRef?: ShapeStyleReference
   placeholder?: string
 }
@@ -836,6 +841,7 @@ const tableBorderStyles = new Set(['solid', 'dash', 'dot', 'none'])
 const tableStyleRegions = new Set<TableStyleRegionName>(['wholeTable', 'band1H', 'band2H', 'band1V', 'band2V', 'firstRow', 'lastRow', 'firstCol', 'lastCol'])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
 const presetGeometries = new Set<PresetGeometry>(['rect', 'roundRect', 'ellipse', 'triangle'])
+const strokeStyles = new Set<StrokeStyle>(['solid', 'dash', 'dot'])
 const fontCollectionIndexes = new Set(['major', 'minor', 'none'])
 const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
@@ -1509,6 +1515,9 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.styleRef !== undefined) {
       validateShapeStyleReference(element.styleRef, `elements.${elementId}.styleRef`, errors)
+    }
+    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeStyle !== undefined && !strokeStyles.has(element.strokeStyle)) {
+      errors.push(`elements.${elementId}.strokeStyle must be solid, dash, or dot`)
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.strokeWidth !== undefined) {
       validateFiniteNumber(element.strokeWidth, `elements.${elementId}.strokeWidth`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')

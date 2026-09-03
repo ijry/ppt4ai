@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -256,15 +256,25 @@ function parseFill(shape: XmlNode): Fill | undefined {
   return fill ? (parseColor(fill) ? { color: parseColor(fill)! } : undefined) : undefined
 }
 
+/**
+ * `a:prstDash/@val` narrowed to the three styles painting can express. OOXML has eleven tokens;
+ * every dashed variant (`lgDash`, `dashDot`, `sysDash`, …) collapses to `dash` because the painter
+ * has one dashed pattern, and only `dot`-family tokens keep their own pattern. Absent means solid.
+ */
+function parseDashStyle(line: XmlNode | undefined): StrokeStyle {
+  const dash = line && child(line, 'prstDash')
+  const value = dash && attribute(dash, 'val')
+  if (!value || value === 'solid') return 'solid'
+  return value === 'dot' || value === 'sysDot' ? 'dot' : 'dash'
+}
+
 function parseTableBorder(line: XmlNode | undefined): TableBorder | undefined {
   if (!line) return undefined
   const color = parseColor(child(line, 'solidFill'))
   if (!color) return undefined
   const widthValue = parseNumber(attribute(line, 'w'))
   const width = widthValue !== undefined && widthValue > 0 ? widthValue : undefined
-  const dash = child(line, 'prstDash')
-  const dashValue = dash && attribute(dash, 'val')
-  const style = dashValue === 'dot' ? 'dot' : dashValue && dashValue !== 'solid' ? 'dash' : 'solid'
+  const style = parseDashStyle(line)
   return { color, ...(width === undefined ? {} : { width }), style }
 }
 
@@ -378,8 +388,7 @@ function parseStyleBorder(line: XmlNode | undefined): TableBorder | undefined {
   if (widthAttribute !== undefined && width === undefined) return undefined
   const color = parseColor(child(line, 'solidFill'))
   if (!color) return undefined
-  const dashValue = attribute(child(line, 'prstDash') ?? line, 'val')
-  const style = dashValue === 'dot' ? 'dot' : dashValue && dashValue !== 'solid' ? 'dash' : 'solid'
+  const style = parseDashStyle(line)
   return { color, ...(width === undefined ? {} : { width }), style }
 }
 
@@ -1044,6 +1053,9 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     if (stroke) element.stroke = stroke
     const textStrokeWidth = parseStrokeWidth(shape)
     if (textStrokeWidth !== undefined) element.strokeWidth = textStrokeWidth
+    const line = child(shapeProperties(shape) ?? shape, 'ln')
+    const textStrokeStyle = stroke ? parseDashStyle(line) : undefined
+    if (textStrokeStyle && textStrokeStyle !== 'solid') element.strokeStyle = textStrokeStyle
     const styleRef = parseShapeStyleReference(shape)
     if (styleRef) element.styleRef = styleRef
     return element
@@ -1064,6 +1076,9 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   if (stroke) element.stroke = stroke
   const shapeStrokeWidth = parseStrokeWidth(shape)
   if (shapeStrokeWidth !== undefined) element.strokeWidth = shapeStrokeWidth
+  const shapeLine = child(shapeProperties(shape) ?? shape, 'ln')
+  const shapeStrokeStyle = stroke ? parseDashStyle(shapeLine) : undefined
+  if (shapeStrokeStyle && shapeStrokeStyle !== 'solid') element.strokeStyle = shapeStrokeStyle
   const shapeStyleRef = parseShapeStyleReference(shape)
   if (shapeStyleRef) element.styleRef = shapeStyleRef
   return element

@@ -27,6 +27,7 @@ class RecordingContext {
   }
   beginPath(): void { this.events.push(['beginPath']) }
   closePath(): void { this.events.push(['closePath']) }
+  setLineDash(pattern: number[]): void { this.events.push(['setLineDash', ...pattern]) }
   fill(): void { this.events.push(['fill', { fillStyle: this.fillStyle, globalAlpha: this.globalAlpha }]) }
   ellipse(...args: number[]): void { this.events.push(['ellipse', ...args]) }
   moveTo(x: number, y: number): void { this.events.push(['moveTo', x, y]) }
@@ -273,6 +274,26 @@ describe('text painting', () => {
 
     const order = drawingContext.events.map(([type]) => type).filter((type) => type === 'fill' || type === 'stroke' || type === 'fillText')
     expect(order.slice(0, 3)).toEqual(['fill', 'stroke', 'fillText'])
+  })
+
+  /** The dash style has to reach paintPathFills, or a dashed text box outline paints solid. */
+  it('carries the node dash style and width into the geometry stroke', () => {
+    const drawingContext = context()
+    const dashedNode = node({
+      path: [
+        { type: 'move', x: 0, y: 0 },
+        { type: 'line', x: 1000, y: 0 },
+        { type: 'close' },
+      ],
+      resolvedStrokeColor: { rgb: '203864', alpha: 100000 },
+      strokeWidth: 10000,
+      strokeStyle: 'dash',
+    })
+
+    paintTextNode(drawingContext, dashedNode, { scale: 0.001, offsetX: 0, offsetY: 0 })
+
+    expect(drawingContext.events).toContainEqual(['setLineDash', 40, 30])
+    expect(drawingContext.events.find(([type]) => type === 'stroke')?.[1]).toMatchObject({ lineWidth: 10 })
   })
 
   /** Plain text has no geometry, so nothing may be filled behind it. */

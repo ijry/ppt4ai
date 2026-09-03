@@ -23,6 +23,7 @@ class RecordingContext {
     this.events.push(['ellipse', cx, cy, rx, ry, rotation, start, end])
   }
   closePath(): void { this.events.push(['closePath']) }
+  setLineDash(pattern: number[]): void { this.events.push(['setLineDash', ...pattern]) }
   fill(): void { this.events.push(['fill', this.fillStyle, this.globalAlpha]) }
   stroke(): void { this.events.push(['stroke', this.strokeStyle, this.globalAlpha, this.lineWidth]) }
 }
@@ -82,6 +83,36 @@ describe('shape painting', () => {
 
     expect(drawingContext.events.find(([type]) => type === 'stroke')?.[3]).toBe(1)
   })
+
+  /** Before this, a dashed outline painted solid: the painter never called setLineDash at all. */
+  it('sets the dash pattern from the node, in units of the painted line width', () => {
+    const dashed = context()
+    paintShapeNode(dashed, node({ resolvedStrokeColor: { rgb: 'FF0000', alpha: 100000 }, strokeWidth: 10000, strokeStyle: 'dash' }), { scale: 0.001, offsetX: 0, offsetY: 0 })
+    expect(dashed.events).toContainEqual(['setLineDash', 40, 30])
+
+    const dotted = context()
+    paintShapeNode(dotted, node({ resolvedStrokeColor: { rgb: 'FF0000', alpha: 100000 }, strokeWidth: 10000, strokeStyle: 'dot' }), { scale: 0.001, offsetX: 0, offsetY: 0 })
+    expect(dotted.events).toContainEqual(['setLineDash', 10, 20])
+  })
+
+  /** An empty pattern is an explicit reset: without it a previous element's dashes leak through. */
+  it('resets the dash pattern for a solid outline', () => {
+    const drawingContext = context()
+
+    paintShapeNode(drawingContext, node({ resolvedStrokeColor: { rgb: 'FF0000', alpha: 100000 }, strokeWidth: 10000 }), { scale: 0.001, offsetX: 0, offsetY: 0 })
+
+    expect(drawingContext.events).toContainEqual(['setLineDash'])
+  })
+
+  /** With no width the pattern still needs a basis, and 1 matches the hairline the painter draws. */
+  it('scales the dash pattern off one pixel when the node carries no width', () => {
+    const drawingContext = context()
+
+    paintShapeNode(drawingContext, node({ resolvedStrokeColor: { rgb: 'FF0000', alpha: 100000 }, strokeStyle: 'dash' }), { scale: 2, offsetX: 0, offsetY: 0 })
+
+    expect(drawingContext.events).toContainEqual(['setLineDash', 4, 3])
+  })
+
   it('paints every supported preset path', () => {
     const paths: SceneShapeNode['path'][] = [
       [

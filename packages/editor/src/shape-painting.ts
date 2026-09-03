@@ -1,5 +1,5 @@
 import type { PathCommand } from '@ppt4ai/geometry'
-import type { Rect, ResolvedColor } from '@ppt4ai/model'
+import type { Rect, ResolvedColor, StrokeStyle } from '@ppt4ai/model'
 import type { SceneShapeNode } from '@ppt4ai/render'
 import { withFlipAndRotation } from './rotation-transform'
 
@@ -22,6 +22,16 @@ function colorStyle(color: ResolvedColor): { style: string; alpha: number } {
     throw new Error('shape alpha must be between 0 and 100000')
   }
   return { style: `#${color.rgb.toUpperCase()}`, alpha: color.alpha / 100000 }
+}
+
+/**
+ * Canvas dash pattern for a stroke style, in the same units as the line width so a thick dash keeps
+ * its proportions. Exported because table borders paint the same three styles and had their own copy.
+ */
+export function dashPattern(style: StrokeStyle, width: number): number[] {
+  if (style === 'solid') return []
+  if (style === 'dash') return [4 * width, 3 * width]
+  return [width, 2 * width]
 }
 
 function validateMapping(mapping: ShapePageMapping): void {
@@ -75,7 +85,7 @@ export function paintPathFills(
   context: ShapeContext,
   path: readonly PathCommand[],
   mapping: ShapePageMapping,
-  colors: { fill?: ResolvedColor; stroke?: ResolvedColor; strokeWidth?: number },
+  colors: { fill?: ResolvedColor; stroke?: ResolvedColor; strokeWidth?: number; strokeStyle?: StrokeStyle },
 ): void {
   const fill = colors.fill ? colorStyle(colors.fill) : undefined
   const stroke = colors.stroke ? colorStyle(colors.stroke) : undefined
@@ -90,7 +100,9 @@ export function paintPathFills(
     context.strokeStyle = stroke.style
     context.globalAlpha = stroke.alpha
     // Same floor table borders use: at thumbnail scale a real width lands below one pixel.
-    if (colors.strokeWidth !== undefined) context.lineWidth = Math.max(1, colors.strokeWidth * mapping.scale)
+    const width = colors.strokeWidth !== undefined ? Math.max(1, colors.strokeWidth * mapping.scale) : 1
+    context.lineWidth = width
+    context.setLineDash(dashPattern(colors.strokeStyle ?? 'solid', width))
     context.stroke()
   }
 }
@@ -118,7 +130,9 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
         createPath(context, node, mapping)
         context.strokeStyle = stroke.style
         context.globalAlpha = stroke.alpha
-        if (node.strokeWidth !== undefined) context.lineWidth = Math.max(1, node.strokeWidth * mapping.scale)
+        const width = node.strokeWidth !== undefined ? Math.max(1, node.strokeWidth * mapping.scale) : 1
+        context.lineWidth = width
+        context.setLineDash(dashPattern(node.strokeStyle ?? 'solid', width))
         context.stroke()
       }
     })

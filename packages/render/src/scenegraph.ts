@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleLine, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleLine, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -37,6 +37,7 @@ export interface SceneShapeNode {
   resolvedStrokeColor?: ResolvedColor
   /** `a:ln/@w` in EMU, carried through so paint can set a real line width. */
   strokeWidth?: number
+  strokeStyle?: StrokeStyle
   transform?: ElementTransform
 }
 
@@ -72,6 +73,7 @@ export interface SceneTextNode {
   resolvedFillColor?: ResolvedColor
   resolvedStrokeColor?: ResolvedColor
   strokeWidth?: number
+  strokeStyle?: StrokeStyle
   transform?: ElementTransform
 }
 
@@ -273,6 +275,7 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   if (fillColor) node.resolvedFillColor = fillColor
   if (strokeColor) node.resolvedStrokeColor = strokeColor
   if (element.strokeWidth !== undefined) node.strokeWidth = element.strokeWidth
+  if (element.strokeStyle !== undefined) node.strokeStyle = element.strokeStyle
   const transform = elementTransform(element)
   if (transform) node.transform = transform
   return node
@@ -304,6 +307,7 @@ function createTextNode(
   if (fillColor) node.resolvedFillColor = fillColor
   if (strokeColor) node.resolvedStrokeColor = strokeColor
   if (element.strokeWidth !== undefined) node.strokeWidth = element.strokeWidth
+  if (element.strokeStyle !== undefined) node.strokeStyle = element.strokeStyle
   const transform = elementTransform(element)
   if (transform) node.transform = transform
   return node
