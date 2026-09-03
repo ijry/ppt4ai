@@ -71,6 +71,17 @@ export type ThemeStyleEntry = Fill | null
 export interface ThemeFormatScheme {
   fillStyles?: ThemeStyleEntry[]
   lineStyles?: ThemeStyleEntry[]
+  backgroundStyles?: ThemeStyleEntry[]
+}
+
+/**
+ * `p:bg`. Either a direct fill from `p:bgPr` or a `p:bgRef` into the theme's `bgFillStyleLst`.
+ * OOXML replaces the whole block rather than merging, so a slide either defines its background or
+ * inherits its layout's or master's entirely.
+ */
+export interface SlideBackground {
+  fill?: Fill
+  styleRef?: StyleReference
 }
 
 export interface Theme {
@@ -397,6 +408,7 @@ export interface SlideMasterSource {
 export interface SlideLayout {
   id: string
   masterId: string
+  background?: SlideBackground
   defaults?: Record<string, ElementDefaults>
   colorMapOverride?: Partial<ColorMap>
   source?: SlideLayoutSource
@@ -404,6 +416,7 @@ export interface SlideLayout {
 
 export interface SlideMaster {
   id: string
+  background?: SlideBackground
   defaults?: Record<string, ElementDefaults>
   themeId?: string
   colorMap?: Partial<ColorMap>
@@ -421,6 +434,7 @@ export interface SlideSource {
 export interface Slide {
   id: string
   elementIds: string[]
+  background?: SlideBackground
   layoutId?: string
   masterId?: string
   colorMapOverride?: Partial<ColorMap>
@@ -626,6 +640,27 @@ export function resolveStyleFill(reference: StyleReference | undefined, theme?: 
 
 export function resolveStyleLine(reference: StyleReference | undefined, theme?: Theme, colorMap: ColorMap = DEFAULT_COLOR_MAP): ResolvedColor | undefined {
   return resolveStyleEntry(reference, theme?.formatScheme?.lineStyles, theme, colorMap)
+}
+
+/**
+ * `p:bg` replaces rather than merges, so the nearest of slide, layout and master wins whole.
+ *
+ * `ST_BackgroundStyleIndex` counts from 1001 for the first `bgFillStyleLst` entry, where `fillRef`
+ * counts from 1 — the model keeps the file's own number, so the offset is undone here.
+ */
+export function resolveSlideBackground(
+  slide: Slide | undefined,
+  layout?: SlideLayout,
+  master?: SlideMaster,
+  theme?: Theme,
+  colorMap: ColorMap = DEFAULT_COLOR_MAP,
+): ResolvedColor | undefined {
+  const background = slide?.background ?? layout?.background ?? master?.background
+  if (!background) return undefined
+  if (background.fill) return resolveColorSource(background.fill.color, theme, colorMap, new Set<string>(), 0)
+  const reference = background.styleRef
+  if (!reference || reference.idx < 1001) return undefined
+  return resolveStyleEntry({ ...reference, idx: reference.idx - 1000 }, theme?.formatScheme?.backgroundStyles, theme, colorMap)
 }
 
 const themeFontReferences: Readonly<Record<string, { slot: ThemeFontSlot; script: ThemeFontScript }>> = {
@@ -935,6 +970,16 @@ function validateShapeStyleReference(value: unknown, path: string, errors: strin
   const font = styleRef.font as Record<string, unknown>
   if (typeof font.idx !== 'string' || !fontCollectionIndexes.has(font.idx)) errors.push(`${path}.font.idx must be major, minor, or none`)
   if (font.color !== undefined) validateColor(font.color, `${path}.font.color`, errors)
+}
+
+function validateSlideBackground(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const background = value as Record<string, unknown>
+  if (background.fill !== undefined) validateFill(background.fill, `${path}.fill`, errors)
+  if (background.styleRef !== undefined) validateStyleReference(background.styleRef, `${path}.styleRef`, errors)
 }
 
 function validateColorMap(value: unknown, path: string, errors: string[]): void {
@@ -1362,7 +1407,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       if ('formatScheme' in theme && theme.formatScheme !== undefined) {
         const scheme = theme.formatScheme
         if (!scheme || typeof scheme !== 'object' || Array.isArray(scheme)) errors.push(`${themePath}.formatScheme must be an object`)
-        else for (const key of ['fillStyles', 'lineStyles'] as const) {
+        else for (const key of ['fillStyles', 'lineStyles', 'backgroundStyles'] as const) {
           const entries = (scheme as Record<string, unknown>)[key]
           if (entries !== undefined) validateThemeStyleEntries(entries, `${themePath}.formatScheme.${key}`, errors)
         }
@@ -1391,6 +1436,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       if ('colorMap' in master && master.colorMap !== undefined) validateColorMap(master.colorMap, `${masterPath}.colorMap`, errors)
       if ('defaults' in master && master.defaults !== undefined) validateDefaultRotations(master.defaults, `${masterPath}.defaults`, errors)
       if ('textStyles' in master && master.textStyles !== undefined) validateTextStyles(master.textStyles, `${masterPath}.textStyles`, errors)
+      if ('background' in master && master.background !== undefined) validateSlideBackground(master.background, `${masterPath}.background`, errors)
     }
   }
 
@@ -1413,11 +1459,13 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       }
       if ('colorMapOverride' in layout && layout.colorMapOverride !== undefined) validateColorMap(layout.colorMapOverride, `${layoutPath}.colorMapOverride`, errors)
       if ('defaults' in layout && layout.defaults !== undefined) validateDefaultRotations(layout.defaults, `${layoutPath}.defaults`, errors)
+      if ('background' in layout && layout.background !== undefined) validateSlideBackground(layout.background, `${layoutPath}.background`, errors)
     }
   }
 
   for (const [slideId, slide] of Object.entries(value.slides)) {
     if (slide.colorMapOverride !== undefined) validateColorMap(slide.colorMapOverride, `slides.${slideId}.colorMapOverride`, errors)
+    if (slide.background !== undefined) validateSlideBackground(slide.background, `slides.${slideId}.background`, errors)
   }
 
   for (const [elementId, element] of Object.entries(value.elements)) {

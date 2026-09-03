@@ -128,7 +128,7 @@ function serializeSlideElements(document: Ppt4aiDocument, slideId: string, asset
     nextShapeId += 1
   }
   return {
-    xml: serializeSlideXml(serializedElements),
+    xml: serializeSlideXml(serializedElements, document.slides[slideId]?.background),
     relationships: serializeSlideRelationshipsXml(imageRelationships),
   }
 }

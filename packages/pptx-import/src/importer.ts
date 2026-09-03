@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideLayout, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -192,14 +192,26 @@ function parseThemeStyleEntries(list: XmlNode | undefined, solidOwner?: (node: X
   return entries.length > 0 ? entries : undefined
 }
 
+/** `p:bg` is either a direct fill in `p:bgPr` or a `p:bgRef` into the theme's background style list. */
+function parseBackground(container: XmlNode | undefined): SlideBackground | undefined {
+  const background = container && child(container, 'bg')
+  if (!background) return undefined
+  const properties = child(background, 'bgPr')
+  const fill = properties ? parseDirectFill(properties) : undefined
+  if (fill) return { fill }
+  const styleRef = parseStyleReferenceNode(child(background, 'bgRef'))
+  return styleRef ? { styleRef } : undefined
+}
+
 function parseFormatScheme(root: XmlNode): ThemeFormatScheme | undefined {
   const scheme = findDescendants(root, 'fmtScheme')[0]
   if (!scheme) return undefined
   const fillStyles = parseThemeStyleEntries(child(scheme, 'fillStyleLst'))
   // A line entry wraps its fill in `a:ln`, which also carries the width we do not model.
   const lineStyles = parseThemeStyleEntries(child(scheme, 'lnStyleLst'), (node) => node)
-  if (!fillStyles && !lineStyles) return undefined
-  return { ...(fillStyles ? { fillStyles } : {}), ...(lineStyles ? { lineStyles } : {}) }
+  const backgroundStyles = parseThemeStyleEntries(child(scheme, 'bgFillStyleLst'))
+  if (!fillStyles && !lineStyles && !backgroundStyles) return undefined
+  return { ...(fillStyles ? { fillStyles } : {}), ...(lineStyles ? { lineStyles } : {}), ...(backgroundStyles ? { backgroundStyles } : {}) }
 }
 
 function parseTheme(xml: string, id: string, partPath: string): Theme | undefined {
@@ -314,13 +326,16 @@ function parseShapeFill(shape: XmlNode): Fill | undefined {
 }
 
 /** `<a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef>`: the entry index plus the colour its `phClr` stands for. */
-function parseStyleReference(style: XmlNode | undefined, name: string): StyleReference | undefined {
-  const reference = style && child(style, name)
+function parseStyleReferenceNode(reference: XmlNode | undefined): StyleReference | undefined {
   if (!reference) return undefined
   const idx = parseIntegerAttribute(attribute(reference, 'idx'))
   if (idx === undefined || idx < 0) return undefined
   const color = parseColor(reference)
   return { idx, ...(color ? { color } : {}) }
+}
+
+function parseStyleReference(style: XmlNode | undefined, name: string): StyleReference | undefined {
+  return parseStyleReferenceNode(style && child(style, name))
 }
 
 function parseShapeStyleReference(shape: XmlNode): ShapeStyleReference | undefined {
@@ -1075,7 +1090,8 @@ function parseMaster(xml: string, id: string, themeId: string | undefined, partP
   }
   const colorMap = parseColorMap(findDescendants(root, 'clrMap')[0])
   const textStyles = parseTextStyles(root)
-  return { id, defaults, ...(themeId ? { themeId } : {}), ...(colorMap ? { colorMap } : {}), ...(textStyles ? { textStyles } : {}), source: { partPath } }
+  const background = parseBackground(findDescendants(root, 'cSld')[0])
+  return { id, defaults, ...(background ? { background } : {}), ...(themeId ? { themeId } : {}), ...(colorMap ? { colorMap } : {}), ...(textStyles ? { textStyles } : {}), source: { partPath } }
 }
 
 function parseLayout(xml: string, id: string, masterId: string, partPath: string): SlideLayout {
@@ -1086,7 +1102,8 @@ function parseLayout(xml: string, id: string, masterId: string, partPath: string
     if (parsed) defaults[parsed[0]] = parsed[1]
   }
   const colorMapOverride = parseColorMapOverride(root)
-  return { id, masterId, defaults, ...(colorMapOverride ? { colorMapOverride } : {}), source: { partPath } }
+  const background = parseBackground(findDescendants(root, 'cSld')[0])
+  return { id, masterId, defaults, ...(background ? { background } : {}), ...(colorMapOverride ? { colorMapOverride } : {}), source: { partPath } }
 }
 
 function parsePart(entries: Record<string, Uint8Array>, path: string): ImportedPart | undefined {
@@ -1290,7 +1307,8 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
           presentationId: reference.attributes.id,
         }
       : undefined
-    slides[slideId] = { id: slideId, elementIds, ...(layoutId ? { layoutId } : {}), ...(masterId ? { masterId } : {}), ...(colorMapOverride ? { colorMapOverride } : {}), ...(source ? { source } : {}) }
+    const slideBackground = parseBackground(findDescendants(slidePart.xml, 'cSld')[0])
+    slides[slideId] = { id: slideId, elementIds, ...(slideBackground ? { background: slideBackground } : {}), ...(layoutId ? { layoutId } : {}), ...(masterId ? { masterId } : {}), ...(colorMapOverride ? { colorMapOverride } : {}), ...(source ? { source } : {}) }
     slideOrder.push(slideId)
   }
 

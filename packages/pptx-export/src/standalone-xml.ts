@@ -6,6 +6,7 @@ import {
   type Rect,
   type ShapeElement,
   type ShapeStyleReference,
+  type SlideBackground,
   type TableElement,
   type TextElement,
   type Theme,
@@ -219,8 +220,18 @@ export function serializeTableFrameXml(table: TableElement, shapeId: number): st
   return `<p:graphicFrame>${nonVisualProperties}${transform}${graphic}</p:graphicFrame>`
 }
 
-export function serializeSlideXml(elements: string[]): string {
-  return `${xmlHeader}<p:sld xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${elements.join('')}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`
+/** `p:bg` comes before `p:spTree` inside `p:cSld`, and `p:bgPr` needs an effect list to be valid. */
+function serializeBackgroundXml(background: SlideBackground | undefined): string {
+  if (background?.fill) return `<p:bg><p:bgPr>${serializeFillXml(background.fill)}<a:effectLst/></p:bgPr></p:bg>`
+  if (background?.styleRef) {
+    const color = background.styleRef.color
+    return `<p:bg><p:bgRef idx="${background.styleRef.idx}">${color ? serializeColorXml(color) : ''}</p:bgRef></p:bg>`
+  }
+  return ''
+}
+
+export function serializeSlideXml(elements: string[], background?: SlideBackground): string {
+  return `${xmlHeader}<p:sld xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}"><p:cSld>${serializeBackgroundXml(background)}<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${elements.join('')}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`
 }
 
 export function serializeEmptySlideXml(): string {

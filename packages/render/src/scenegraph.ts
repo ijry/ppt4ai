@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveStyleFill, resolveStyleLine, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleLine, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -11,6 +11,8 @@ export interface SceneGraph {
   }
   nodes: SceneNode[]
   groups?: SceneGroup[]
+  /** Resolved from the slide, its layout or its master, whichever declares one first. */
+  background?: ResolvedColor
 }
 
 export interface SceneGroup {
@@ -494,10 +496,13 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
   }
   for (const elementId of slide.elementIds) appendElement(elementId)
 
+  const background = resolveSlideBackground(slide, layout, master, theme, context.colorMap)
+
   return {
     slideId,
     page: { ...value.page },
     nodes,
+    ...(background ? { background } : {}),
     ...(groups.length > 0 ? { groups } : {}),
   }
 }

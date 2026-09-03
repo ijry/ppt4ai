@@ -76,6 +76,13 @@ export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; deco
       context.setTransform(devicePixelRatio * EMU_TO_CSS_PIXEL * zoom, 0, 0, devicePixelRatio * EMU_TO_CSS_PIXEL * zoom, 0, 0)
 
       const scale = EMU_TO_CSS_PIXEL * zoom
+      // The page fill goes down first, in the same space the node painters draw in.
+      if (scene.background) {
+        context.fillStyle = `#${scene.background.rgb.toUpperCase()}`
+        context.globalAlpha = scene.background.alpha / 100000
+        context.fillRect(0, 0, scene.page.w * scale, scene.page.h * scale)
+        context.globalAlpha = 1
+      }
       for (const node of scene.nodes) {
         if (viewport.signal?.aborted) break
         try {

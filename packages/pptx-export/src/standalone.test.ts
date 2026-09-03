@@ -360,6 +360,31 @@ describe('createPptx', () => {
     expect(importedText).toMatchObject({ kind: 'text', preset: 'ellipse' })
   })
 
+  it('writes a slide background and reads it back', async () => {
+    const document = structuredClone(emptyDocument)
+    document.slides.sld_1!.background = { fill: { color: { type: 'srgb', v: '1F3864' } } }
+
+    const output = await createPptx(document)
+    const xml = await slideXml(output)
+    const imported = await importPptx(output)
+
+    expect(xml).toContain('<p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="1F3864"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree>')
+    expect(imported.slides.sld_1?.background).toEqual({ fill: { color: { type: 'srgb', v: '1F3864' } } })
+  })
+
+  it('writes a background style reference with the index the model holds', async () => {
+    const document = structuredClone(emptyDocument)
+    document.slides.sld_1!.background = { styleRef: { idx: 1001, color: { type: 'scheme', v: 'lt1' } } }
+
+    const xml = await slideXml(await createPptx(document))
+
+    expect(xml).toContain('<p:bg><p:bgRef idx="1001"><a:schemeClr val="lt1"/></p:bgRef></p:bg>')
+  })
+
+  it('writes no background block when the slide has none', async () => {
+    expect(await slideXml(await createPptx(structuredClone(emptyDocument)))).toContain('<p:cSld><p:spTree>')
+  })
+
   it('writes a complete shape style block and reads it back', async () => {
     const document = structuredClone(shapeTextDocument)
     const shapeElement = document.elements[document.slides.sld_1?.elementIds[0] ?? '']

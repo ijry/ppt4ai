@@ -154,6 +154,14 @@ export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): 
       const drawnNodeIds: string[] = []
       const skippedNodeIds: string[] = []
       const issues: ThumbnailRenderResponse['result']['issues'] = []
+      // Same order the canvas renderer uses: the page fill goes down before any node.
+      const background = request.scene.background
+      if (background) {
+        context.fillStyle = `#${background.rgb.toUpperCase()}`
+        context.globalAlpha = background.alpha / 100000
+        context.fillRect(mapping.offsetX, mapping.offsetY, request.scene.page.w * mapping.scale, request.scene.page.h * mapping.scale)
+        context.globalAlpha = 1
+      }
       for (const node of request.scene.nodes) {
         if (isCancelled(request.requestId)) return
         if (node.kind !== 'shape' && node.kind !== 'text' && node.kind !== 'table' && node.kind !== 'image') continue

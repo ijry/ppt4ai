@@ -50,6 +50,7 @@ function createRecordingContext(): CanvasRenderingContext2D & { events: DrawingE
     scale: (...values: number[]) => events.push(['scale', ...values]),
     setLineDash: (...values: number[]) => events.push(['setLineDash', ...values]),
     clearRect: (...values: number[]) => events.push(['clearRect', ...values]),
+    fillRect: (...values: number[]) => events.push(['fillRect', ...values]),
     setTransform: (...values: number[]) => events.push(['setTransform', ...values]),
   } as unknown as CanvasRenderingContext2D & { events: DrawingEvent[]; canvas: HTMLCanvasElement }
 }
@@ -118,6 +119,28 @@ describe('slide canvas renderer', () => {
     expect(result.issues).toEqual([])
     expect(adapter.getCalls).toEqual(['asset-1'])
     expect(structuredClone(result)).toEqual(result)
+  })
+
+  /** A dark deck must not render on the canvas default; the page fill goes down before any node. */
+  it('fills the page with the scene background before drawing nodes', async () => {
+    const context = createRecordingContext()
+    const renderer = createSlideCanvasRenderer({ adapter: new RecordingAdapter() })
+    const withBackground = { ...scene(), nodes: [], background: { rgb: '1F3864', alpha: 100000 } }
+
+    await renderer.render(withBackground, context, { zoom: 1, devicePixelRatio: 1 })
+
+    const fillRect = context.events.find(([type]) => type === 'fillRect')
+    expect(fillRect?.slice(0, 3)).toEqual(['fillRect', 0, 0])
+    expect(context.fillStyle).toBe('#1F3864')
+  })
+
+  it('fills nothing when the scene declares no background', async () => {
+    const context = createRecordingContext()
+    const renderer = createSlideCanvasRenderer({ adapter: new RecordingAdapter() })
+
+    await renderer.render({ ...scene(), nodes: [] }, context, {})
+
+    expect(context.events.some(([type]) => type === 'fillRect')).toBe(false)
   })
 
   it('reports a failed node and continues drawing later nodes', async () => {
