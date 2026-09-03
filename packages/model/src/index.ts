@@ -811,6 +811,36 @@ export function resolveThemeFontFamily(family: string | undefined, theme?: Theme
   return effective.length > 0 ? effective : undefined
 }
 
+/**
+ * The text colour a `<p:style><a:fontRef>` supplies for the shape's runs. It is the lowest priority
+ * source — below a run's own colour and below the level defaults — because it is a shape-level entry
+ * in the style matrix, not a declaration on the text.
+ *
+ * Unlike `fillRef`/`lnRef` this needs no list lookup: the colour sits on the reference itself, and
+ * `idx` selects a font collection rather than a `fmtScheme` entry.
+ */
+export function resolveStyleFontColor(
+  reference: ShapeStyleReference['font'] | undefined,
+  theme?: Theme,
+  colorMap: ColorMap = DEFAULT_COLOR_MAP,
+): ResolvedColor | undefined {
+  if (!reference?.color) return undefined
+  return resolveColorSource(reference.color, theme, colorMap, new Set<string>(), 0)
+}
+
+/**
+ * The typeface a `<p:style><a:fontRef idx>` selects. `major`/`minor` resolve through the same table
+ * `+mj-lt`-style references use, so there is one mapping from a font collection to a family.
+ * `none` yields nothing rather than a guess.
+ */
+export function resolveStyleFontFamily(
+  reference: ShapeStyleReference['font'] | undefined,
+  theme?: Theme,
+): string | undefined {
+  if (!reference || reference.idx === 'none') return undefined
+  return resolveThemeFontFamily(reference.idx === 'major' ? '+mj-lt' : '+mn-lt', theme)
+}
+
 function elementKey(element: Element): string {
   return element.kind === 'group' ? element.id : element.placeholder ?? element.id
 }

@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -162,17 +162,27 @@ function resolvedFontFamily(marks: TextMarks | undefined, script: 'ea' | undefin
   return resolved === marks?.fontFamily ? undefined : resolved
 }
 
-function toSceneTextLayout(layout: TextLayout, context: SceneThemeContext): SceneTextLayout {
+/**
+ * `styleFallback` carries what `<p:style><a:fontRef>` supplies for the shape. It is applied last, so
+ * a run's own colour or family — including one that came from the level defaults — always wins.
+ */
+function toSceneTextLayout(
+  layout: TextLayout,
+  context: SceneThemeContext,
+  styleFallback: { color?: ResolvedColor; fontFamily?: string } = {},
+): SceneTextLayout {
   return {
     ...layout,
     lines: layout.lines.map((line) => {
       const markerFontFamily = line.marker ? resolvedFontFamily(line.marker.marks, line.marker.script, context) : undefined
+      const markerFamily = markerFontFamily ?? (line.marker?.marks?.fontFamily ? undefined : styleFallback.fontFamily)
       return {
         ...line,
-        ...(line.marker ? { marker: { ...line.marker, ...(markerFontFamily ? { resolvedFontFamily: markerFontFamily } : {}) } } : {}),
+        ...(line.marker ? { marker: { ...line.marker, ...(markerFamily ? { resolvedFontFamily: markerFamily } : {}) } } : {}),
         runs: line.runs.map((run) => {
-          const resolvedColor = resolvedFillColor(run.marks?.color, context)
+          const resolvedColor = resolvedFillColor(run.marks?.color, context) ?? styleFallback.color
           const fontFamily = resolvedFontFamily(run.marks, run.script, context)
+            ?? (run.marks?.fontFamily ? undefined : styleFallback.fontFamily)
           return { ...run, ...(resolvedColor ? { resolvedColor } : {}), ...(fontFamily ? { resolvedFontFamily: fontFamily } : {}) }
         }),
       }
@@ -338,12 +348,17 @@ function createTextNode(
 ): SceneTextNode {
   const normalized = normalizeTextElement(element)
   const body = mergeLevelDefaults(normalized, element, layout, master)
+  const styleFontColor = resolveStyleFontColor(element.styleRef?.font, context.theme, context.colorMap)
+  const styleFontFamily = resolveStyleFontFamily(element.styleRef?.font, context.theme)
   const node: SceneTextNode = {
     id: element.id,
     kind: 'text',
     bounds: element.bounds,
     text: element.text ?? body.paragraphs.map((paragraph) => paragraph.runs.map((run) => run.text).join('')).join('\n'),
-    layout: toSceneTextLayout(layoutText({ bounds: element.bounds, body }), context),
+    layout: toSceneTextLayout(layoutText({ bounds: element.bounds, body }), context, {
+      ...(styleFontColor ? { color: styleFontColor } : {}),
+      ...(styleFontFamily ? { fontFamily: styleFontFamily } : {}),
+    }),
   }
   if (element.fill) node.fill = element.fill
   if (element.stroke) node.stroke = element.stroke
