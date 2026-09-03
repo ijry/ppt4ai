@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -279,6 +279,12 @@ function shapeFillColor(element: { fill?: Fill; styleRef?: ShapeStyleReference }
   return resolvedFillColor(element.fill, context) ?? resolveStyleFill(element.styleRef?.fill, context.theme, context.colorMap)
 }
 
+/** Direct formatting wins, then the theme entry — the same order the fill colour follows. */
+function shapeFillGradient(element: { fill?: Fill; styleRef?: ShapeStyleReference }, context: SceneThemeContext): ResolvedGradient | undefined {
+  return resolvedFillGradient(element.fill, context)
+    ?? resolveStyleFillGradient(element.styleRef?.fill, context.theme, context.colorMap)
+}
+
 function shapeStrokeColor(element: { stroke?: Fill; styleRef?: ShapeStyleReference }, context: SceneThemeContext): ResolvedColor | undefined {
   return resolvedFillColor(element.stroke, context) ?? resolveStyleLine(element.styleRef?.line, context.theme, context.colorMap)
 }
@@ -311,7 +317,7 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   const fillColor = shapeFillColor(element, context)
   const strokeColor = shapeStrokeColor(element, context)
   if (fillColor) node.resolvedFillColor = fillColor
-  const fillGradient = resolvedFillGradient(element.fill, context)
+  const fillGradient = shapeFillGradient(element, context)
   if (fillGradient) node.resolvedFillGradient = fillGradient
   if (strokeColor) node.resolvedStrokeColor = strokeColor
   const stroke = shapeStroke(element, context)
@@ -346,7 +352,7 @@ function createTextNode(
   // covers a filled text box whose source declared no geometry.
   if (fillColor || strokeColor) node.path = createPresetPath(element.preset ?? 'rect', element.bounds)
   if (fillColor) node.resolvedFillColor = fillColor
-  const fillGradient = resolvedFillGradient(element.fill, context)
+  const fillGradient = shapeFillGradient(element, context)
   if (fillGradient) node.resolvedFillGradient = fillGradient
   if (strokeColor) node.resolvedStrokeColor = strokeColor
   const stroke = shapeStroke(element, context)

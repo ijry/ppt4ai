@@ -77,6 +77,28 @@ describe('standalone format scheme serialization', () => {
     expect(formatSchemeXml(themeWith(undefined)))
       .toContain('<a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst>')
   })
+
+  /** Gradient entries reach the file through the same serializer shape fills use. */
+  it('writes a gradient entry as gradFill', () => {
+    const xml = formatSchemeXml(themeWith({
+      fillStyles: [{
+        color: { type: 'scheme', v: 'phClr' },
+        gradient: {
+          stops: [
+            { pos: 0, color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'tint', value: 67000 }] } },
+            { pos: 100000, color: { type: 'scheme', v: 'phClr' } },
+          ],
+          angle: 5400000,
+          scaled: false,
+        },
+      }],
+    }))
+
+    expect(xml).toContain('<a:gradFill><a:gsLst>'
+      + '<a:gs pos="0"><a:schemeClr val="phClr"><a:tint val="67000"/></a:schemeClr></a:gs>'
+      + '<a:gs pos="100000"><a:schemeClr val="phClr"/></a:gs>'
+      + '</a:gsLst><a:lin ang="5400000" scaled="0"/></a:gradFill>')
+  })
 })
 
 const document: Ppt4aiDocument = {

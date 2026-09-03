@@ -720,6 +720,35 @@ export function resolveStyleLine(reference: StyleReference | undefined, theme?: 
 }
 
 /**
+ * The gradient of the `a:fillStyleLst` entry a `fillRef` points at, with `phClr` substituted per
+ * stop. Substituting only the entry's own `color` would leave every stop unresolved, because a stock
+ * Office gradient entry is `phClr` all the way down.
+ *
+ * Separate from `resolveStyleFill` for the same reason `resolveStyleLineStroke` is separate from
+ * `resolveStyleLine`: changing the existing return type would touch every call site.
+ */
+export function resolveStyleFillGradient(
+  reference: StyleReference | undefined,
+  theme?: Theme,
+  colorMap: ColorMap = DEFAULT_COLOR_MAP,
+): ResolvedGradient | undefined {
+  const entry = styleEntryAt(reference, theme?.formatScheme?.fillStyles)
+  const gradient = entry?.gradient
+  if (!gradient) return undefined
+  const stops = gradient.stops.flatMap((stop) => {
+    const substituted = substitutePlaceholderColor(stop.color, reference?.color)
+    const color = substituted ? resolveColorSource(substituted, theme, colorMap, new Set<string>(), 0) : undefined
+    return color ? [{ pos: stop.pos, color }] : []
+  })
+  if (stops.length < 2) return undefined
+  return {
+    stops,
+    ...(gradient.angle === undefined ? {} : { angle: gradient.angle }),
+    ...(gradient.scaled === undefined ? {} : { scaled: gradient.scaled }),
+  }
+}
+
+/**
  * The width and dash of the `a:lnStyleLst` entry a `lnRef` points at. Separate from
  * `resolveStyleLine` because the colour needs `phClr` substitution and the colour map, while these
  * two need only the index. A `null` entry yields nothing rather than an invented width.

@@ -141,7 +141,12 @@ describe('rewriteThemeXml font scheme', () => {
 
 const matrixTheme = '<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Custom"><a:accent1><a:srgbClr val="336699"/></a:accent1></a:clrScheme>'
   + '<a:fontScheme name="Custom"/>'
-  + '<a:fmtScheme name="Custom"><a:lnStyleLst>'
+  + '<a:fmtScheme name="Custom"><a:fillStyleLst>'
+  + '<a:gradFill rotWithShape="1"><a:gsLst>'
+  + '<a:gs pos="0"><a:schemeClr val="phClr"><a:satMod val="105000"/><a:tint val="67000"/></a:schemeClr></a:gs>'
+  + '<a:gs pos="100000"><a:schemeClr val="phClr"><a:shade val="100000"/></a:schemeClr></a:gs>'
+  + '</a:gsLst><a:lin ang="5400000" scaled="0"/></a:gradFill>'
+  + '</a:fillStyleLst><a:lnStyleLst>'
   + '<a:ln w="6350" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln>'
   + '<a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="lgDashDot"/></a:ln>'
   + '</a:lnStyleLst></a:fmtScheme></a:themeElements></a:theme>'
@@ -168,6 +173,33 @@ describe('rewriteThemeXml format scheme', () => {
     expect(rewritten).toContain('<a:ln w="6350" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln>')
     expect(rewritten).toContain('<a:prstDash val="lgDashDot"/>')
     expect(rewritten).not.toContain('val="dash"')
+  })
+
+  /**
+   * `satMod` is not in `ColorTransformType`, so the model dropped it on import. Writeback never
+   * visits `fmtScheme`, which is the only reason the source gradient survives it intact.
+   */
+  it('leaves a gradient fill entry untouched, unmodeled transforms and all', () => {
+    const rewritten = rewriteThemeXml(matrixTheme, {
+      id: 'theme_1',
+      colors: { accent1: { type: 'srgb', v: 'FF0000' } },
+      formatScheme: {
+        fillStyles: [{
+          color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'tint', value: 67000 }] },
+          gradient: {
+            stops: [
+              { pos: 0, color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'tint', value: 67000 }] } },
+              { pos: 100000, color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'shade', value: 100000 }] } },
+            ],
+            angle: 5400000,
+            scaled: false,
+          },
+        }],
+      },
+    })
+
+    expect(rewritten).toContain('<a:gradFill rotWithShape="1">')
+    expect(rewritten).toContain('<a:satMod val="105000"/>')
   })
 
   it('returns the exact source when only the format scheme is modeled', () => {

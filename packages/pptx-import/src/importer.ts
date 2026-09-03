@@ -177,16 +177,13 @@ function parseThemeFonts(root: XmlNode): ThemeFonts | undefined {
 }
 
 /**
- * `a:fillStyleLst` / `a:bgFillStyleLst` in document order. Only solid entries can be modelled, so a
- * gradient, pattern or picture entry becomes `null` — a shape pointing at it stays unfilled rather
- * than getting an invented approximation.
+ * `a:fillStyleLst` / `a:bgFillStyleLst` in document order. Solid and linear gradient entries are
+ * modeled; a pattern, picture or `a:path` gradient entry becomes `null` — a shape pointing at it
+ * stays unfilled rather than getting an invented approximation.
  */
 function parseThemeStyleEntries(list: XmlNode | undefined): ThemeStyleEntry[] | undefined {
   if (!list) return undefined
-  const entries: ThemeStyleEntry[] = list.children.map((node) => {
-    const color = parseColor(localName(node.name) === 'solidFill' ? node : child(node, 'solidFill'))
-    return color ? { color } : null
-  })
+  const entries: ThemeStyleEntry[] = list.children.map((node) => parseFillNode(node) ?? null)
   return entries.length > 0 ? entries : undefined
 }
 
@@ -328,13 +325,11 @@ function parseGradientStops(gradient: XmlNode): GradientStop[] {
 }
 
 /**
- * A linear `a:gradFill`. `a:path` gradients stay unmodeled, so this returns `undefined` for them
- * exactly as the solid-only parser did. Two usable stops are the minimum for a gradient; one stop is
- * the flat colour PowerPoint also paints, and none is no fill at all.
+ * A linear `a:gradFill` node. `a:path` gradients stay unmodeled, so this returns `undefined` for
+ * them exactly as the solid-only parser did. Two usable stops are the minimum for a gradient; one
+ * stop is the flat colour PowerPoint also paints, and none is no fill at all.
  */
-function parseGradientFill(node: XmlNode | undefined): Fill | undefined {
-  const gradient = node && child(node, 'gradFill')
-  if (!gradient) return undefined
+function parseGradientNode(gradient: XmlNode): Fill | undefined {
   const linear = child(gradient, 'lin')
   if (!linear) return undefined
   const stops = parseGradientStops(gradient)
@@ -353,11 +348,29 @@ function parseGradientFill(node: XmlNode | undefined): Fill | undefined {
   }
 }
 
+/**
+ * One fill node, whichever kind it is. Theme style entries *are* fill nodes while a shape's fill is
+ * wrapped in `spPr`, so both go through here and the gradient rules are written once.
+ */
+function parseFillNode(node: XmlNode | undefined): Fill | undefined {
+  if (!node) return undefined
+  const name = localName(node.name)
+  if (name === 'solidFill') {
+    const color = parseColor(node)
+    return color ? { color } : undefined
+  }
+  return name === 'gradFill' ? parseGradientNode(node) : undefined
+}
+
 function parseDirectFill(node: XmlNode | undefined): Fill | undefined {
   if (!node) return undefined
-  const fill = child(node, 'solidFill')
-  const color = parseColor(fill)
-  return color ? { color } : parseGradientFill(node)
+  const solid = child(node, 'solidFill')
+  if (solid) {
+    const color = parseColor(solid)
+    if (color) return { color }
+  }
+  const gradient = child(node, 'gradFill')
+  return gradient ? parseGradientNode(gradient) : undefined
 }
 
 function shapeProperties(shape: XmlNode): XmlNode | undefined {
