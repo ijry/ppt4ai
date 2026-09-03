@@ -5,6 +5,7 @@ import {
   type Fill,
   type Rect,
   type ShapeElement,
+  type ShapeStyleReference,
   type TableElement,
   type TextElement,
   type Theme,
@@ -180,6 +181,22 @@ function serializePlaceholder(placeholder: string | undefined): string {
   return `<p:ph${attrs([['type', type], ['idx', index || undefined]])}/>`
 }
 
+/**
+ * `CT_ShapeStyle` requires all four references, so an incomplete model emits nothing rather than a
+ * fabricated `idx` that would paint a colour we never resolved.
+ */
+function serializeShapeStyleXml(styleRef: ShapeStyleReference | undefined): string {
+  if (!styleRef?.fill || !styleRef.line || !styleRef.effect || !styleRef.font) return ''
+  const reference = (name: string, idx: number | string, color: Color | undefined): string =>
+    `<a:${name} idx="${idx}">${color ? serializeColorXml(color) : ''}</a:${name}>`
+  return '<p:style>'
+    + reference('lnRef', styleRef.line.idx, styleRef.line.color)
+    + reference('fillRef', styleRef.fill.idx, styleRef.fill.color)
+    + reference('effectRef', styleRef.effect.idx, styleRef.effect.color)
+    + reference('fontRef', styleRef.font.idx, styleRef.font.color)
+    + '</p:style>'
+}
+
 export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: number): string {
   const isText = element.kind === 'text'
   // A text element only has a preset when it came from a shape that carried text; `rect` is what a
@@ -191,7 +208,7 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   const textBody = isText
     ? serializeTextBodyXml(element.body ?? { paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }] })
     : ''
-  return `<p:sp>${nonVisualProperties}${shapeProperties}${textBody}</p:sp>`
+  return `<p:sp>${nonVisualProperties}${shapeProperties}${serializeShapeStyleXml(element.styleRef)}${textBody}</p:sp>`
 }
 
 export function serializeTableFrameXml(table: TableElement, shapeId: number): string {

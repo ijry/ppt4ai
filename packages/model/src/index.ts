@@ -61,10 +61,23 @@ export interface ThemeSource {
   partPath: string
 }
 
+/**
+ * One entry of `a:fillStyleLst` or `a:lnStyleLst`. `null` marks an entry we cannot express — a
+ * gradient, pattern or picture fill — so a shape pointing at it stays unfilled rather than being
+ * painted an invented approximation.
+ */
+export type ThemeStyleEntry = Fill | null
+
+export interface ThemeFormatScheme {
+  fillStyles?: ThemeStyleEntry[]
+  lineStyles?: ThemeStyleEntry[]
+}
+
 export interface Theme {
   id: string
   colors: Partial<Record<ThemeColorSlot, Color | null>>
   fonts?: ThemeFonts
+  formatScheme?: ThemeFormatScheme
   source?: ThemeSource
 }
 
@@ -168,7 +181,25 @@ export interface ShapeElement {
   flipV?: boolean
   fill?: Fill
   stroke?: Fill
+  styleRef?: ShapeStyleReference
   placeholder?: string
+}
+
+/** `<a:fillRef idx>` and friends: which `fmtScheme` entry to use, and the colour its `phClr` stands for. */
+export interface StyleReference {
+  idx: number
+  color?: Color
+}
+
+/**
+ * `<p:style>`. `fill` and `line` drive painting; `effect` and `font` are kept only so a complete
+ * block can be written back — `CT_ShapeStyle` requires all four.
+ */
+export interface ShapeStyleReference {
+  fill?: StyleReference
+  line?: StyleReference
+  effect?: StyleReference
+  font?: { idx: 'major' | 'minor' | 'none'; color?: Color }
 }
 
 export interface TextElement {
@@ -184,6 +215,7 @@ export interface TextElement {
   body?: TextBody
   fill?: Fill
   stroke?: Fill
+  styleRef?: ShapeStyleReference
   placeholder?: string
 }
 
@@ -563,6 +595,39 @@ export function resolveColor(color: Color, theme?: Theme, colorMap: ColorMap = D
   return resolveColorSource(color, theme, colorMap, new Set<string>(), 0)
 }
 
+/**
+ * Substitutes the style entry's `phClr` with the colour the shape's ref supplies. The ref colour's
+ * own transforms come first — they settle the base colour — and the entry's follow as modifiers.
+ */
+function substitutePlaceholderColor(entry: Color, placeholder: Color | undefined): Color | undefined {
+  if (entry.type !== 'scheme' || entry.v !== 'phClr') return entry
+  if (!placeholder) return undefined
+  const transforms = [...(placeholder.transforms ?? []), ...(entry.transforms ?? [])]
+  return { type: placeholder.type, v: placeholder.v, ...(transforms.length > 0 ? { transforms } : {}) }
+}
+
+function resolveStyleEntry(
+  reference: StyleReference | undefined,
+  entries: ThemeStyleEntry[] | undefined,
+  theme: Theme | undefined,
+  colorMap: ColorMap,
+): ResolvedColor | undefined {
+  // `idx="0"` is OOXML for "none", and the list is 1-based.
+  if (!reference || reference.idx <= 0) return undefined
+  const entry = entries?.[reference.idx - 1]
+  if (!entry) return undefined
+  const color = substitutePlaceholderColor(entry.color, reference.color)
+  return color ? resolveColorSource(color, theme, colorMap, new Set<string>(), 0) : undefined
+}
+
+export function resolveStyleFill(reference: StyleReference | undefined, theme?: Theme, colorMap: ColorMap = DEFAULT_COLOR_MAP): ResolvedColor | undefined {
+  return resolveStyleEntry(reference, theme?.formatScheme?.fillStyles, theme, colorMap)
+}
+
+export function resolveStyleLine(reference: StyleReference | undefined, theme?: Theme, colorMap: ColorMap = DEFAULT_COLOR_MAP): ResolvedColor | undefined {
+  return resolveStyleEntry(reference, theme?.formatScheme?.lineStyles, theme, colorMap)
+}
+
 const themeFontReferences: Readonly<Record<string, { slot: ThemeFontSlot; script: ThemeFontScript }>> = {
   '+mj-lt': { slot: 'major', script: 'latin' },
   '+mj-ea': { slot: 'major', script: 'ea' },
@@ -733,6 +798,7 @@ const tableBorderStyles = new Set(['solid', 'dash', 'dot', 'none'])
 const tableStyleRegions = new Set<TableStyleRegionName>(['wholeTable', 'band1H', 'band2H', 'band1V', 'band2V', 'firstRow', 'lastRow', 'firstCol', 'lastCol'])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
 const presetGeometries = new Set<PresetGeometry>(['rect', 'roundRect', 'ellipse', 'triangle'])
+const fontCollectionIndexes = new Set(['major', 'minor', 'none'])
 const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 const themeFontSlots = new Set<ThemeFontSlot>(['major', 'minor'])
@@ -830,6 +896,45 @@ function validateThemeFonts(value: unknown, path: string, errors: string[]): voi
       if (typeface !== null && (typeof typeface !== 'string' || typeface.length === 0)) errors.push(`${typefacePath} must be a non-empty string or null`)
     }
   }
+}
+
+function validateThemeStyleEntries(value: unknown, path: string, errors: string[]): void {
+  if (!Array.isArray(value)) {
+    errors.push(`${path} must be an array`)
+    return
+  }
+  value.forEach((entry, index) => {
+    if (entry !== null) validateFill(entry, `${path}[${index}]`, errors)
+  })
+}
+
+function validateStyleReference(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const reference = value as Record<string, unknown>
+  validateFiniteNumber(reference.idx, `${path}.idx`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')
+  if (reference.color !== undefined) validateColor(reference.color, `${path}.color`, errors)
+}
+
+function validateShapeStyleReference(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const styleRef = value as Record<string, unknown>
+  for (const key of ['fill', 'line', 'effect'] as const) {
+    if (styleRef[key] !== undefined) validateStyleReference(styleRef[key], `${path}.${key}`, errors)
+  }
+  if (styleRef.font === undefined) return
+  if (!styleRef.font || typeof styleRef.font !== 'object' || Array.isArray(styleRef.font)) {
+    errors.push(`${path}.font must be an object`)
+    return
+  }
+  const font = styleRef.font as Record<string, unknown>
+  if (typeof font.idx !== 'string' || !fontCollectionIndexes.has(font.idx)) errors.push(`${path}.font.idx must be major, minor, or none`)
+  if (font.color !== undefined) validateColor(font.color, `${path}.font.color`, errors)
 }
 
 function validateColorMap(value: unknown, path: string, errors: string[]): void {
@@ -1254,6 +1359,14 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
         if (color !== null) validateColor(color, colorPath, errors)
       }
       if ('fonts' in theme && theme.fonts !== undefined) validateThemeFonts(theme.fonts, `${themePath}.fonts`, errors)
+      if ('formatScheme' in theme && theme.formatScheme !== undefined) {
+        const scheme = theme.formatScheme
+        if (!scheme || typeof scheme !== 'object' || Array.isArray(scheme)) errors.push(`${themePath}.formatScheme must be an object`)
+        else for (const key of ['fillStyles', 'lineStyles'] as const) {
+          const entries = (scheme as Record<string, unknown>)[key]
+          if (entries !== undefined) validateThemeStyleEntries(entries, `${themePath}.formatScheme.${key}`, errors)
+        }
+      }
     }
   }
 
@@ -1342,6 +1455,9 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       validateImageAppearance(element, `elements.${elementId}`, errors)
     } else if (element.kind === 'text' && element.preset !== undefined && !presetGeometries.has(element.preset)) {
       errors.push(`elements.${elementId}.preset must be a supported preset geometry`)
+    }
+    if ((element.kind === 'shape' || element.kind === 'text') && element.styleRef !== undefined) {
+      validateShapeStyleReference(element.styleRef, `elements.${elementId}.styleRef`, errors)
     }
   }
 

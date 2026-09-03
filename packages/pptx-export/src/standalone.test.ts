@@ -360,6 +360,37 @@ describe('createPptx', () => {
     expect(importedText).toMatchObject({ kind: 'text', preset: 'ellipse' })
   })
 
+  it('writes a complete shape style block and reads it back', async () => {
+    const document = structuredClone(shapeTextDocument)
+    const shapeElement = document.elements[document.slides.sld_1?.elementIds[0] ?? '']
+    if (shapeElement?.kind !== 'shape') throw new Error('fixture first element is not a shape')
+    shapeElement.styleRef = {
+      line: { idx: 2, color: { type: 'scheme', v: 'accent1', transforms: [{ type: 'shade', value: 50000 }] } },
+      fill: { idx: 1, color: { type: 'scheme', v: 'accent1' } },
+      effect: { idx: 0, color: { type: 'scheme', v: 'accent1' } },
+      font: { idx: 'minor', color: { type: 'scheme', v: 'lt1' } },
+    }
+
+    const output = await createPptx(document)
+    const xml = await slideXml(output)
+    const imported = await importPptx(output)
+
+    expect(xml).toContain('<p:style><a:lnRef idx="2"><a:schemeClr val="accent1"><a:shade val="50000"/></a:schemeClr></a:lnRef>')
+    expect(xml).toContain('<a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef>')
+    expect(xml).toContain('<a:fontRef idx="minor"><a:schemeClr val="lt1"/></a:fontRef></p:style>')
+    expect(imported.elements[imported.slides.sld_1?.elementIds[0] ?? '']).toMatchObject({ styleRef: shapeElement.styleRef })
+  })
+
+  /** `CT_ShapeStyle` needs all four references, so an incomplete model must emit nothing. */
+  it('omits the style block when a reference is missing', async () => {
+    const document = structuredClone(shapeTextDocument)
+    const shapeElement = document.elements[document.slides.sld_1?.elementIds[0] ?? '']
+    if (shapeElement?.kind !== 'shape') throw new Error('fixture first element is not a shape')
+    shapeElement.styleRef = { fill: { idx: 1, color: { type: 'scheme', v: 'accent1' } } }
+
+    expect(await slideXml(await createPptx(document))).not.toContain('<p:style>')
+  })
+
   it('serializes top-level shapes and text bodies in document order', async () => {
     const before = structuredClone(shapeTextDocument)
     const first = await createPptx(shapeTextDocument)

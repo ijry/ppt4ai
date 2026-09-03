@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideLayout, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -176,6 +176,32 @@ function parseThemeFonts(root: XmlNode): ThemeFonts | undefined {
   return { ...(major ? { major } : {}), ...(minor ? { minor } : {}) }
 }
 
+/**
+ * `a:fillStyleLst` / `a:lnStyleLst` in document order. Only solid entries can be modelled, so a
+ * gradient, pattern or picture entry becomes `null` — a shape pointing at it stays unfilled rather
+ * than getting an invented approximation.
+ */
+function parseThemeStyleEntries(list: XmlNode | undefined, solidOwner?: (node: XmlNode) => XmlNode | undefined): ThemeStyleEntry[] | undefined {
+  if (!list) return undefined
+  const entries: ThemeStyleEntry[] = list.children.map((node) => {
+    const owner = solidOwner ? solidOwner(node) : node
+    const solid = owner && localName(owner.name) === 'solidFill' ? owner : owner && child(owner, 'solidFill')
+    const color = solid ? parseColor(solid) : undefined
+    return color ? { color } : null
+  })
+  return entries.length > 0 ? entries : undefined
+}
+
+function parseFormatScheme(root: XmlNode): ThemeFormatScheme | undefined {
+  const scheme = findDescendants(root, 'fmtScheme')[0]
+  if (!scheme) return undefined
+  const fillStyles = parseThemeStyleEntries(child(scheme, 'fillStyleLst'))
+  // A line entry wraps its fill in `a:ln`, which also carries the width we do not model.
+  const lineStyles = parseThemeStyleEntries(child(scheme, 'lnStyleLst'), (node) => node)
+  if (!fillStyles && !lineStyles) return undefined
+  return { ...(fillStyles ? { fillStyles } : {}), ...(lineStyles ? { lineStyles } : {}) }
+}
+
 function parseTheme(xml: string, id: string, partPath: string): Theme | undefined {
   let root: XmlNode
   try {
@@ -192,8 +218,9 @@ function parseTheme(xml: string, id: string, partPath: string): Theme | undefine
     if (color) colors[slot] = color
   }
   const fonts = parseThemeFonts(root)
-  if (Object.keys(colors).length === 0 && !fonts) return undefined
-  return { id, colors, ...(fonts ? { fonts } : {}), source: { partPath } }
+  const formatScheme = parseFormatScheme(root)
+  if (Object.keys(colors).length === 0 && !fonts && !formatScheme) return undefined
+  return { id, colors, ...(fonts ? { fonts } : {}), ...(formatScheme ? { formatScheme } : {}), source: { partPath } }
 }
 
 function parseColorMap(node: XmlNode | undefined): Partial<ColorMap> | undefined {
@@ -284,6 +311,37 @@ function parseShapeFlips(shape: XmlNode): { flipH?: boolean; flipV?: boolean } {
 
 function parseShapeFill(shape: XmlNode): Fill | undefined {
   return parseDirectFill(shapeProperties(shape))
+}
+
+/** `<a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef>`: the entry index plus the colour its `phClr` stands for. */
+function parseStyleReference(style: XmlNode | undefined, name: string): StyleReference | undefined {
+  const reference = style && child(style, name)
+  if (!reference) return undefined
+  const idx = parseIntegerAttribute(attribute(reference, 'idx'))
+  if (idx === undefined || idx < 0) return undefined
+  const color = parseColor(reference)
+  return { idx, ...(color ? { color } : {}) }
+}
+
+function parseShapeStyleReference(shape: XmlNode): ShapeStyleReference | undefined {
+  const style = child(shape, 'style')
+  if (!style) return undefined
+  const fill = parseStyleReference(style, 'fillRef')
+  const line = parseStyleReference(style, 'lnRef')
+  const effect = parseStyleReference(style, 'effectRef')
+  const fontNode = child(style, 'fontRef')
+  const fontIndex = fontNode ? attribute(fontNode, 'idx')?.trim() : undefined
+  const fontColor = fontNode ? parseColor(fontNode) : undefined
+  const font: ShapeStyleReference['font'] = fontIndex === 'major' || fontIndex === 'minor' || fontIndex === 'none'
+    ? { idx: fontIndex, ...(fontColor ? { color: fontColor } : {}) }
+    : undefined
+  const styleRef: ShapeStyleReference = {
+    ...(fill ? { fill } : {}),
+    ...(line ? { line } : {}),
+    ...(effect ? { effect } : {}),
+    ...(font ? { font } : {}),
+  }
+  return Object.keys(styleRef).length > 0 ? styleRef : undefined
 }
 
 function parseStroke(shape: XmlNode): Fill | undefined {
@@ -962,6 +1020,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     if (fill) element.fill = fill
     const stroke = parseStroke(shape)
     if (stroke) element.stroke = stroke
+    const styleRef = parseShapeStyleReference(shape)
+    if (styleRef) element.styleRef = styleRef
     return element
   }
   if (!bounds) return undefined
@@ -978,6 +1038,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   if (fill) element.fill = fill
   const stroke = parseStroke(shape)
   if (stroke) element.stroke = stroke
+  const shapeStyleRef = parseShapeStyleReference(shape)
+  if (shapeStyleRef) element.styleRef = shapeStyleRef
   return element
 }
 

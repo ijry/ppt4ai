@@ -149,6 +149,34 @@ describe('geometry on a shape that carries text', () => {
     expect(await exportPptx(await importPptx(source), source)).toEqual(source)
   })
 
+  /** `<p:style>` is a sibling of `spPr`, so range writeback must never touch it. */
+  it('leaves a p:style block untouched when the text changes', async () => {
+    const styleBlock = '<p:style><a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef>'
+      + '<a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef>'
+      + '<a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef>'
+      + '<a:fontRef idx="minor"><a:schemeClr val="lt1"/></a:fontRef></p:style>'
+    const slide = '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree>'
+      + '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Styled"/><p:nvPr/></p:nvSpPr>'
+      + '<p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>'
+      + '<a:prstGeom prst="rect"/></p:spPr>'
+      + styleBlock
+      + '<p:txBody><a:bodyPr/><a:p><a:r><a:t>Label</a:t></a:r></a:p></p:txBody></p:sp>'
+      + '</p:spTree></p:cSld></p:sld>'
+    const source = writeStoredZip([
+      { name: 'ppt/presentation.xml', data: new TextEncoder().encode(presentation) },
+      { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(presentationRels) },
+      { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(slide) },
+    ])
+    const document = await importPptx(source)
+    expect(await exportPptx(document, source)).toEqual(source)
+
+    const text = document.elements.el_1
+    if (text?.kind !== 'text') throw new Error('fixture did not import as text')
+    text.body = { paragraphs: [{ runs: [{ text: 'Edited' }] }] }
+
+    expect(await slideXmlOf(await exportPptx(document, source))).toContain(styleBlock)
+  })
+
   it('keeps the geometry when the text changes', async () => {
     const source = styledShapePackage()
     const document = await importPptx(source)
