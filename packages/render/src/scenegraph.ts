@@ -61,6 +61,8 @@ export interface SceneTextNode {
   bounds: Rect
   text: string
   layout: SceneTextLayout
+  /** Present when the element carries a fill or stroke, so the text sits on real geometry. */
+  path?: PathCommand[]
   fill?: Fill
   stroke?: Fill
   resolvedFillColor?: ResolvedColor
@@ -274,6 +276,10 @@ function createTextNode(
   }
   if (element.fill) node.fill = element.fill
   if (element.stroke) node.stroke = element.stroke
+  // A shape that carries text still paints its own geometry. Only built when there is something to
+  // paint with, so plain text keeps the scene shape it had before, and `rect` covers a filled text
+  // box whose source declared no geometry.
+  if (element.fill || element.stroke) node.path = createPresetPath(element.preset ?? 'rect', element.bounds)
   const fillColor = resolvedFillColor(element.fill, context)
   const strokeColor = resolvedFillColor(element.stroke, context)
   if (fillColor) node.resolvedFillColor = fillColor

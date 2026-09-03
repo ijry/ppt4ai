@@ -692,6 +692,11 @@ function parsePreset(shape: XmlNode): PresetGeometry {
   return 'rect'
 }
 
+/** Only set when the source declares geometry, so a plain text box does not gain a preset it never had. */
+function parseOptionalPreset(shape: XmlNode): PresetGeometry | undefined {
+  return findDescendants(shape, 'prstGeom')[0] ? parsePreset(shape) : undefined
+}
+
 function parsePlaceholder(shape: XmlNode): string | undefined {
   const placeholder = findDescendants(shape, 'ph')[0]
   if (!placeholder) return undefined
@@ -948,6 +953,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   if (text.present) {
     if (!bounds) return undefined
     const element: Extract<Element, { kind: 'text' }> = { id, kind: 'text', bounds, ...(rotation === undefined ? {} : { rotation }), ...flips, text: text.value }
+    const preset = parseOptionalPreset(shape)
+    if (preset) element.preset = preset
     const body = parseTextBody(shape)
     if (body) element.body = body
     if (placeholder) element.placeholder = placeholder

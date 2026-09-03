@@ -26,6 +26,9 @@ class RecordingContext {
     }])
   }
   beginPath(): void { this.events.push(['beginPath']) }
+  closePath(): void { this.events.push(['closePath']) }
+  fill(): void { this.events.push(['fill', { fillStyle: this.fillStyle, globalAlpha: this.globalAlpha }]) }
+  ellipse(...args: number[]): void { this.events.push(['ellipse', ...args]) }
   moveTo(x: number, y: number): void { this.events.push(['moveTo', x, y]) }
   lineTo(x: number, y: number): void { this.events.push(['lineTo', x, y]) }
   stroke(): void { this.events.push(['stroke', {
@@ -251,6 +254,34 @@ describe('text painting', () => {
 
     const fonts = drawingContext.events.filter(([type]) => type === 'fillText').map((event) => (event[4] as { font: string }).font)
     expect(fonts).toEqual(['127px "Calibri"', '127px "宋体"'])
+  })
+
+  it('paints the geometry behind the text, fill then stroke then runs', () => {
+    const drawingContext = context()
+    const filledNode = node({
+      path: [
+        { type: 'move', x: 0, y: 0 },
+        { type: 'line', x: 1000, y: 0 },
+        { type: 'line', x: 1000, y: 500 },
+        { type: 'close' },
+      ],
+      resolvedFillColor: { rgb: '4472C4', alpha: 100000 },
+      resolvedStrokeColor: { rgb: '203864', alpha: 100000 },
+    })
+
+    paintTextNode(drawingContext, filledNode, { scale: 0.001, offsetX: 0, offsetY: 0 })
+
+    const order = drawingContext.events.map(([type]) => type).filter((type) => type === 'fill' || type === 'stroke' || type === 'fillText')
+    expect(order.slice(0, 3)).toEqual(['fill', 'stroke', 'fillText'])
+  })
+
+  /** Plain text has no geometry, so nothing may be filled behind it. */
+  it('paints no geometry when the node carries no path', () => {
+    const drawingContext = context()
+
+    paintTextNode(drawingContext, node(), { scale: 0.001, offsetX: 0, offsetY: 0 })
+
+    expect(drawingContext.events.some(([type]) => type === 'fill')).toBe(false)
   })
 
   it('restores context when fillText fails', () => {

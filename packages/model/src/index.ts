@@ -178,6 +178,8 @@ export interface TextElement {
   rotation?: number
   flipH?: boolean
   flipV?: boolean
+  /** A shape that carries text keeps its own geometry here; plain text boxes leave it absent. */
+  preset?: PresetGeometry
   text?: string
   body?: TextBody
   fill?: Fill
@@ -730,6 +732,7 @@ const bulletSchemes = new Set(['arabic', 'alphaLower', 'alphaUpper'])
 const tableBorderStyles = new Set(['solid', 'dash', 'dot', 'none'])
 const tableStyleRegions = new Set<TableStyleRegionName>(['wholeTable', 'band1H', 'band2H', 'band1V', 'band2V', 'firstRow', 'lastRow', 'firstCol', 'lastCol'])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
+const presetGeometries = new Set<PresetGeometry>(['rect', 'roundRect', 'ellipse', 'triangle'])
 const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 const themeFontSlots = new Set<ThemeFontSlot>(['major', 'minor'])
@@ -866,7 +869,7 @@ function validateImageAppearance(element: ImageElement, path: string, errors: st
     }
   }
 
-  if (element.maskPreset !== undefined && !new Set<PresetGeometry>(['rect', 'roundRect', 'ellipse', 'triangle']).has(element.maskPreset)) {
+  if (element.maskPreset !== undefined && !presetGeometries.has(element.maskPreset)) {
     errors.push(`${path}.maskPreset must be a supported image mask preset`)
   }
 
@@ -1337,6 +1340,8 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       if (typeof element.assetId !== 'string' || element.assetId.length === 0) errors.push(`image element ${elementId} assetId must be a non-empty string`)
       else if (!value.assets?.[element.assetId]) errors.push(`image element ${elementId} references missing asset: ${element.assetId}`)
       validateImageAppearance(element, `elements.${elementId}`, errors)
+    } else if (element.kind === 'text' && element.preset !== undefined && !presetGeometries.has(element.preset)) {
+      errors.push(`elements.${elementId}.preset must be a supported preset geometry`)
     }
   }
 

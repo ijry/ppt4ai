@@ -2,6 +2,7 @@ import type { ResolvedColor, TextMarks } from '@ppt4ai/model'
 import type { SceneTextLayout, SceneTextLayoutLine, SceneTextLayoutMarker, SceneTextLayoutRun, SceneTextNode } from '@ppt4ai/render'
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE } from '@ppt4ai/text'
 import { withRotation } from './rotation-transform'
+import { paintPathFills } from './shape-painting'
 
 export interface TextPageMapping {
   scale: number
@@ -187,5 +188,14 @@ export function paintTextNode(context: TextContext, node: SceneTextNode, mapping
     w: finite(node.bounds.w, 'text bounds w') * mapping.scale,
     h: finite(node.bounds.h, 'text bounds h') * mapping.scale,
   }
-  withRotation(context, bounds, node.transform, () => paintTextLayout(context, node.layout, mapping))
+  withRotation(context, bounds, node.transform, () => {
+    // A shape that carries text paints its geometry first, in the same order paintShapeNode uses.
+    if (node.path) {
+      paintPathFills(context, node.path, mapping, {
+        ...(node.resolvedFillColor ? { fill: node.resolvedFillColor } : {}),
+        ...(node.resolvedStrokeColor ? { stroke: node.resolvedStrokeColor } : {}),
+      })
+    }
+    paintTextLayout(context, node.layout, mapping)
+  })
 }

@@ -1,3 +1,4 @@
+import type { PathCommand } from '@ppt4ai/geometry'
 import type { Rect, ResolvedColor } from '@ppt4ai/model'
 import type { SceneShapeNode } from '@ppt4ai/render'
 import { withFlipAndRotation } from './rotation-transform'
@@ -39,12 +40,13 @@ function mapRect(bounds: Rect, mapping: ShapePageMapping): Rect {
   }
 }
 
-function createPath(context: ShapeContext, node: SceneShapeNode, mapping: ShapePageMapping): void {
+/** Shared with text painting: a shape that carries text paints the same geometry behind its runs. */
+export function tracePath(context: ShapeContext, path: readonly PathCommand[], mapping: ShapePageMapping): void {
   const mapX = (value: number): number => mapping.offsetX + finite(value, 'shape x') * mapping.scale
   const mapY = (value: number): number => mapping.offsetY + finite(value, 'shape y') * mapping.scale
 
   context.beginPath()
-  for (const command of node.path) {
+  for (const command of path) {
     if (command.type === 'move') {
       context.moveTo(mapX(command.x), mapY(command.y))
     } else if (command.type === 'line') {
@@ -66,6 +68,33 @@ function createPath(context: ShapeContext, node: SceneShapeNode, mapping: ShapeP
       context.closePath()
     }
   }
+}
+
+/** Both fill and stroke retrace the path, because filling consumes it. */
+export function paintPathFills(
+  context: ShapeContext,
+  path: readonly PathCommand[],
+  mapping: ShapePageMapping,
+  colors: { fill?: ResolvedColor; stroke?: ResolvedColor },
+): void {
+  const fill = colors.fill ? colorStyle(colors.fill) : undefined
+  const stroke = colors.stroke ? colorStyle(colors.stroke) : undefined
+  if (fill) {
+    tracePath(context, path, mapping)
+    context.fillStyle = fill.style
+    context.globalAlpha = fill.alpha
+    context.fill()
+  }
+  if (stroke) {
+    tracePath(context, path, mapping)
+    context.strokeStyle = stroke.style
+    context.globalAlpha = stroke.alpha
+    context.stroke()
+  }
+}
+
+function createPath(context: ShapeContext, node: SceneShapeNode, mapping: ShapePageMapping): void {
+  tracePath(context, node.path, mapping)
 }
 
 export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapping: ShapePageMapping): void {

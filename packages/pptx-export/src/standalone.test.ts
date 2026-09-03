@@ -344,6 +344,22 @@ describe('createPptx', () => {
     expect(new TextDecoder().decode(themeBytes)).toContain('<a:accent1><a:srgbClr val="111111"/></a:accent1>')
   })
 
+  it('writes a text element preset so a shape that carries text keeps its geometry', async () => {
+    const document = structuredClone(shapeTextDocument)
+    const text = document.elements[document.slides.sld_1?.elementIds[1] ?? '']
+    if (text?.kind !== 'text') throw new Error('fixture second element is not text')
+    text.preset = 'ellipse'
+    text.fill = { color: { type: 'srgb', v: '4472C4' } }
+
+    const output = await createPptx(document)
+    const xml = await slideXml(output)
+    const imported = await importPptx(output)
+    const importedText = imported.elements[imported.slides.sld_1?.elementIds[1] ?? '']
+
+    expect(xml).toContain('<a:prstGeom prst="ellipse">')
+    expect(importedText).toMatchObject({ kind: 'text', preset: 'ellipse' })
+  })
+
   it('serializes top-level shapes and text bodies in document order', async () => {
     const before = structuredClone(shapeTextDocument)
     const first = await createPptx(shapeTextDocument)

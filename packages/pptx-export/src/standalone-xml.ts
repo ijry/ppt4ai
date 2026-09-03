@@ -182,7 +182,9 @@ function serializePlaceholder(placeholder: string | undefined): string {
 
 export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: number): string {
   const isText = element.kind === 'text'
-  const preset = isText ? 'rect' : element.preset
+  // A text element only has a preset when it came from a shape that carried text; `rect` is what a
+  // plain text box writes, and what PowerPoint reads for a box with no geometry of its own.
+  const preset = isText ? element.preset ?? 'rect' : element.preset
   const placeholder = serializePlaceholder(element.placeholder)
   const nonVisualProperties = `<p:nvSpPr><p:cNvPr id="${shapeId}" name="${escapeXml(element.id)}"/><p:cNvSpPr${isText ? ' txBox="1"' : ''}/><p:nvPr>${placeholder}</p:nvPr></p:nvSpPr>`
   const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${serializeGeometry(preset)}${serializeFillXml(element.fill)}${element.stroke ? `<a:ln>${serializeFillXml(element.stroke)}</a:ln>` : ''}</p:spPr>`

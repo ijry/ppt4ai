@@ -124,6 +124,45 @@ describe('formatted text survives a writeback edit', () => {
   })
 })
 
+const geometryBody = '<a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>'
+  + '<a:solidFill><a:srgbClr val="4472C4"/></a:solidFill>'
+
+describe('geometry on a shape that carries text', () => {
+  function styledShapePackage(): Uint8Array {
+    const slide = '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree>'
+      + '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Rounded"/><p:nvPr/></p:nvSpPr>'
+      + '<p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>'
+      + `${geometryBody}</p:spPr>`
+      + '<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Label</a:t></a:r></a:p></p:txBody></p:sp>'
+      + '</p:spTree></p:cSld></p:sld>'
+    return writeStoredZip([
+      { name: 'ppt/presentation.xml', data: new TextEncoder().encode(presentation) },
+      { name: 'ppt/_rels/presentation.xml.rels', data: new TextEncoder().encode(presentationRels) },
+      { name: 'ppt/slides/slide1.xml', data: new TextEncoder().encode(slide) },
+    ])
+  }
+
+  /** Reading the preset must not make the exporter think the geometry changed. */
+  it('leaves the package byte-identical when nothing is edited', async () => {
+    const source = styledShapePackage()
+
+    expect(await exportPptx(await importPptx(source), source)).toEqual(source)
+  })
+
+  it('keeps the geometry when the text changes', async () => {
+    const source = styledShapePackage()
+    const document = await importPptx(source)
+    const text = document.elements.el_1
+    if (text?.kind !== 'text') throw new Error('fixture did not import as text')
+    text.body = { paragraphs: [{ runs: [{ text: 'Edited' }] }] }
+
+    const output = await exportPptx(document, source)
+
+    expect(await slideXmlOf(output)).toContain('<a:prstGeom prst="roundRect">')
+    expect((await importedText(output)).preset).toBe('roundRect')
+  })
+})
+
 const scriptBody = '<a:bodyPr/><a:p><a:r><a:rPr sz="2400">'
   + '<a:latin typeface="Calibri"/><a:ea typeface="宋体"/><a:cs typeface="Arial"/>'
   + '</a:rPr><a:t>Hello 你好</a:t></a:r></a:p>'
