@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleLine, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -260,6 +260,21 @@ function shapeStrokeColor(element: { stroke?: Fill; styleRef?: ShapeStyleReferen
   return resolvedFillColor(element.stroke, context) ?? resolveStyleLine(element.styleRef?.line, context.theme, context.colorMap)
 }
 
+/**
+ * `spPr/a:ln` and `p:style/a:lnRef` merge per property in OOXML: a direct line overrides only what
+ * it declares, so a shape that recoloured its outline without restating the width still gets the
+ * theme's. Falling back whole would knock every such outline back to a hairline.
+ */
+function shapeStroke(
+  element: { strokeWidth?: number; strokeStyle?: StrokeStyle; styleRef?: ShapeStyleReference },
+  context: SceneThemeContext,
+): { width?: number; style?: StrokeStyle } {
+  const themeLine = resolveStyleLineStroke(element.styleRef?.line, context.theme)
+  const width = element.strokeWidth ?? themeLine?.width
+  const style = element.strokeStyle ?? themeLine?.style
+  return { ...(width === undefined ? {} : { width }), ...(style === undefined ? {} : { style }) }
+}
+
 function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: SceneThemeContext): SceneShapeNode {
   const node: SceneShapeNode = {
     id: element.id,
@@ -274,8 +289,9 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   const strokeColor = shapeStrokeColor(element, context)
   if (fillColor) node.resolvedFillColor = fillColor
   if (strokeColor) node.resolvedStrokeColor = strokeColor
-  if (element.strokeWidth !== undefined) node.strokeWidth = element.strokeWidth
-  if (element.strokeStyle !== undefined) node.strokeStyle = element.strokeStyle
+  const stroke = shapeStroke(element, context)
+  if (stroke.width !== undefined) node.strokeWidth = stroke.width
+  if (stroke.style !== undefined) node.strokeStyle = stroke.style
   const transform = elementTransform(element)
   if (transform) node.transform = transform
   return node
@@ -306,8 +322,9 @@ function createTextNode(
   if (fillColor || strokeColor) node.path = createPresetPath(element.preset ?? 'rect', element.bounds)
   if (fillColor) node.resolvedFillColor = fillColor
   if (strokeColor) node.resolvedStrokeColor = strokeColor
-  if (element.strokeWidth !== undefined) node.strokeWidth = element.strokeWidth
-  if (element.strokeStyle !== undefined) node.strokeStyle = element.strokeStyle
+  const stroke = shapeStroke(element, context)
+  if (stroke.width !== undefined) node.strokeWidth = stroke.width
+  if (stroke.style !== undefined) node.strokeStyle = stroke.style
   const transform = elementTransform(element)
   if (transform) node.transform = transform
   return node

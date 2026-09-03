@@ -138,3 +138,43 @@ describe('rewriteThemeXml font scheme', () => {
     })).toThrow('PPTX export theme font unsupported: theme_1.minor.latin')
   })
 })
+
+const matrixTheme = '<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Custom"><a:accent1><a:srgbClr val="336699"/></a:accent1></a:clrScheme>'
+  + '<a:fontScheme name="Custom"/>'
+  + '<a:fmtScheme name="Custom"><a:lnStyleLst>'
+  + '<a:ln w="6350" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln>'
+  + '<a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="lgDashDot"/></a:ln>'
+  + '</a:lnStyleLst></a:fmtScheme></a:themeElements></a:theme>'
+
+/**
+ * The width and dash are read into the model but never written back, which only holds because
+ * writeback never touches `fmtScheme`. The second entry's `lgDashDot` collapsed to `dash` on
+ * import, so emitting the model value here would lose the source's own token.
+ */
+describe('rewriteThemeXml format scheme', () => {
+  it('leaves the line style list untouched when a colour changes', () => {
+    const rewritten = rewriteThemeXml(matrixTheme, {
+      id: 'theme_1',
+      colors: { accent1: { type: 'srgb', v: 'FF0000' } },
+      formatScheme: {
+        lineStyles: [
+          { color: { type: 'scheme', v: 'phClr' }, width: 6350 },
+          { color: { type: 'scheme', v: 'phClr' }, width: 12700, style: 'dash' },
+        ],
+      },
+    })
+
+    expect(rewritten).toContain('<a:accent1><a:srgbClr val="FF0000"/></a:accent1>')
+    expect(rewritten).toContain('<a:ln w="6350" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln>')
+    expect(rewritten).toContain('<a:prstDash val="lgDashDot"/>')
+    expect(rewritten).not.toContain('val="dash"')
+  })
+
+  it('returns the exact source when only the format scheme is modeled', () => {
+    expect(rewriteThemeXml(matrixTheme, {
+      id: 'theme_1',
+      colors: { accent1: { type: 'srgb', v: '336699' } },
+      formatScheme: { lineStyles: [{ color: { type: 'scheme', v: 'phClr' }, width: 6350 }] },
+    })).toBe(matrixTheme)
+  })
+})

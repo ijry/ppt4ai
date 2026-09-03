@@ -62,15 +62,31 @@ export interface ThemeSource {
 }
 
 /**
- * One entry of `a:fillStyleLst` or `a:lnStyleLst`. `null` marks an entry we cannot express — a
+ * One entry of `a:fillStyleLst` or `a:bgFillStyleLst`. `null` marks an entry we cannot express — a
  * gradient, pattern or picture fill — so a shape pointing at it stays unfilled rather than being
  * painted an invented approximation.
  */
 export type ThemeStyleEntry = Fill | null
 
+/**
+ * One `a:ln` of `a:lnStyleLst`: the fill plus the width and dash the entry declares. A structural
+ * superset of `Fill`, so every consumer that only reads `color` treats it as one unchanged.
+ *
+ * Field names follow `TableBorder`'s `{ color, width?, style? }` rather than the element-level
+ * `strokeWidth`/`strokeStyle`, so the two line-shaped records read alike.
+ */
+export interface ThemeLineStyle extends Fill {
+  /** `a:ln/@w` in EMU. */
+  width?: number
+  /** `a:ln/a:prstDash`, narrowed the same way element strokes are. */
+  style?: StrokeStyle
+}
+
+export type ThemeLineStyleEntry = ThemeLineStyle | null
+
 export interface ThemeFormatScheme {
   fillStyles?: ThemeStyleEntry[]
-  lineStyles?: ThemeStyleEntry[]
+  lineStyles?: ThemeLineStyleEntry[]
   backgroundStyles?: ThemeStyleEntry[]
 }
 
@@ -628,17 +644,21 @@ function substitutePlaceholderColor(entry: Color, placeholder: Color | undefined
   return { type: placeholder.type, v: placeholder.v, ...(transforms.length > 0 ? { transforms } : {}) }
 }
 
+/** `idx="0"` is OOXML for "none", and the list is 1-based. Shared so both resolvers count alike. */
+function styleEntryAt<T>(reference: StyleReference | undefined, entries: T[] | undefined): T | undefined {
+  if (!reference || reference.idx <= 0) return undefined
+  return entries?.[reference.idx - 1] ?? undefined
+}
+
 function resolveStyleEntry(
   reference: StyleReference | undefined,
   entries: ThemeStyleEntry[] | undefined,
   theme: Theme | undefined,
   colorMap: ColorMap,
 ): ResolvedColor | undefined {
-  // `idx="0"` is OOXML for "none", and the list is 1-based.
-  if (!reference || reference.idx <= 0) return undefined
-  const entry = entries?.[reference.idx - 1]
+  const entry = styleEntryAt(reference, entries)
   if (!entry) return undefined
-  const color = substitutePlaceholderColor(entry.color, reference.color)
+  const color = substitutePlaceholderColor(entry.color, reference?.color)
   return color ? resolveColorSource(color, theme, colorMap, new Set<string>(), 0) : undefined
 }
 
@@ -648,6 +668,24 @@ export function resolveStyleFill(reference: StyleReference | undefined, theme?: 
 
 export function resolveStyleLine(reference: StyleReference | undefined, theme?: Theme, colorMap: ColorMap = DEFAULT_COLOR_MAP): ResolvedColor | undefined {
   return resolveStyleEntry(reference, theme?.formatScheme?.lineStyles, theme, colorMap)
+}
+
+/**
+ * The width and dash of the `a:lnStyleLst` entry a `lnRef` points at. Separate from
+ * `resolveStyleLine` because the colour needs `phClr` substitution and the colour map, while these
+ * two need only the index. A `null` entry yields nothing rather than an invented width.
+ */
+export function resolveStyleLineStroke(
+  reference: StyleReference | undefined,
+  theme?: Theme,
+): { width?: number; style?: StrokeStyle } | undefined {
+  const entry = styleEntryAt(reference, theme?.formatScheme?.lineStyles)
+  if (!entry) return undefined
+  const stroke = {
+    ...(entry.width === undefined ? {} : { width: entry.width }),
+    ...(entry.style === undefined ? {} : { style: entry.style }),
+  }
+  return Object.keys(stroke).length > 0 ? stroke : undefined
 }
 
 /**
@@ -949,6 +987,23 @@ function validateThemeStyleEntries(value: unknown, path: string, errors: string[
   }
   value.forEach((entry, index) => {
     if (entry !== null) validateFill(entry, `${path}[${index}]`, errors)
+  })
+}
+
+/** A line entry is a `Fill` plus the two optional siblings, so the fill rules apply first. */
+function validateThemeLineStyleEntries(value: unknown, path: string, errors: string[]): void {
+  validateThemeStyleEntries(value, path, errors)
+  if (!Array.isArray(value)) return
+  value.forEach((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return
+    const line = entry as Record<string, unknown>
+    const entryPath = `${path}[${index}]`
+    if (line.width !== undefined) {
+      validateFiniteNumber(line.width, `${entryPath}.width`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')
+    }
+    if (line.style !== undefined && !strokeStyles.has(line.style as StrokeStyle)) {
+      errors.push(`${entryPath}.style must be solid, dash, or dot`)
+    }
   })
 }
 
@@ -1418,7 +1473,9 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
         if (!scheme || typeof scheme !== 'object' || Array.isArray(scheme)) errors.push(`${themePath}.formatScheme must be an object`)
         else for (const key of ['fillStyles', 'lineStyles', 'backgroundStyles'] as const) {
           const entries = (scheme as Record<string, unknown>)[key]
-          if (entries !== undefined) validateThemeStyleEntries(entries, `${themePath}.formatScheme.${key}`, errors)
+          if (entries === undefined) continue
+          if (key === 'lineStyles') validateThemeLineStyleEntries(entries, `${themePath}.formatScheme.${key}`, errors)
+          else validateThemeStyleEntries(entries, `${themePath}.formatScheme.${key}`, errors)
         }
       }
     }

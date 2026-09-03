@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -177,17 +177,28 @@ function parseThemeFonts(root: XmlNode): ThemeFonts | undefined {
 }
 
 /**
- * `a:fillStyleLst` / `a:lnStyleLst` in document order. Only solid entries can be modelled, so a
+ * `a:fillStyleLst` / `a:bgFillStyleLst` in document order. Only solid entries can be modelled, so a
  * gradient, pattern or picture entry becomes `null` — a shape pointing at it stays unfilled rather
  * than getting an invented approximation.
  */
-function parseThemeStyleEntries(list: XmlNode | undefined, solidOwner?: (node: XmlNode) => XmlNode | undefined): ThemeStyleEntry[] | undefined {
+function parseThemeStyleEntries(list: XmlNode | undefined): ThemeStyleEntry[] | undefined {
   if (!list) return undefined
   const entries: ThemeStyleEntry[] = list.children.map((node) => {
-    const owner = solidOwner ? solidOwner(node) : node
-    const solid = owner && localName(owner.name) === 'solidFill' ? owner : owner && child(owner, 'solidFill')
-    const color = solid ? parseColor(solid) : undefined
+    const color = parseColor(localName(node.name) === 'solidFill' ? node : child(node, 'solidFill'))
     return color ? { color } : null
+  })
+  return entries.length > 0 ? entries : undefined
+}
+
+/** `a:lnStyleLst` entries wrap their fill in `a:ln`, which also carries the width and the dash. */
+function parseThemeLineStyleEntries(list: XmlNode | undefined): ThemeLineStyleEntry[] | undefined {
+  if (!list) return undefined
+  const entries: ThemeLineStyleEntry[] = list.children.map((node) => {
+    const color = parseColor(child(node, 'solidFill'))
+    if (!color) return null
+    const width = parseLineWidth(node)
+    const style = parseDashStyle(node)
+    return { color, ...(width === undefined ? {} : { width }), ...(style === 'solid' ? {} : { style }) }
   })
   return entries.length > 0 ? entries : undefined
 }
@@ -207,8 +218,7 @@ function parseFormatScheme(root: XmlNode): ThemeFormatScheme | undefined {
   const scheme = findDescendants(root, 'fmtScheme')[0]
   if (!scheme) return undefined
   const fillStyles = parseThemeStyleEntries(child(scheme, 'fillStyleLst'))
-  // A line entry wraps its fill in `a:ln`, which also carries the width we do not model.
-  const lineStyles = parseThemeStyleEntries(child(scheme, 'lnStyleLst'), (node) => node)
+  const lineStyles = parseThemeLineStyleEntries(child(scheme, 'lnStyleLst'))
   const backgroundStyles = parseThemeStyleEntries(child(scheme, 'bgFillStyleLst'))
   if (!fillStyles && !lineStyles && !backgroundStyles) return undefined
   return { ...(fillStyles ? { fillStyles } : {}), ...(lineStyles ? { lineStyles } : {}), ...(backgroundStyles ? { backgroundStyles } : {}) }
@@ -375,10 +385,13 @@ function parseStroke(shape: XmlNode): Fill | undefined {
 }
 
 /** `a:ln/@w` in EMU. An unusable value is ignored rather than stored, the rule other measurements follow. */
-function parseStrokeWidth(shape: XmlNode): number | undefined {
-  const line = child(shapeProperties(shape) ?? shape, 'ln')
+function parseLineWidth(line: XmlNode | undefined): number | undefined {
   const width = line ? parseIntegerAttribute(attribute(line, 'w')) : undefined
   return width !== undefined && width >= 0 ? width : undefined
+}
+
+function parseStrokeWidth(shape: XmlNode): number | undefined {
+  return parseLineWidth(child(shapeProperties(shape) ?? shape, 'ln'))
 }
 
 function parseStyleBorder(line: XmlNode | undefined): TableBorder | undefined {

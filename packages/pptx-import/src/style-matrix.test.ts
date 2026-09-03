@@ -62,9 +62,10 @@ describe('shape style matrix on import', () => {
     const formatScheme = Object.values((await importStyled()).themes ?? {})[0]?.formatScheme
 
     expect(formatScheme?.fillStyles).toEqual([{ color: { type: 'scheme', v: 'phClr' } }, null])
+    // Line entries also carry the `a:ln` width; the fixture's two entries are 0.5pt and 1pt.
     expect(formatScheme?.lineStyles).toEqual([
-      { color: { type: 'scheme', v: 'phClr' } },
-      { color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'tint', value: 60000 }] } },
+      { color: { type: 'scheme', v: 'phClr' }, width: 6350 },
+      { color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'tint', value: 60000 }] }, width: 12700 },
     ])
   })
 
