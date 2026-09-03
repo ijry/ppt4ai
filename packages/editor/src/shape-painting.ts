@@ -1,5 +1,6 @@
 import type { PathCommand } from '@ppt4ai/geometry'
-import type { Rect, ResolvedColor, StrokeStyle } from '@ppt4ai/model'
+import { gradientAxis } from '@ppt4ai/geometry'
+import type { Rect, ResolvedColor, ResolvedGradient, StrokeStyle } from '@ppt4ai/model'
 import type { SceneShapeNode } from '@ppt4ai/render'
 import { withFlipAndRotation } from './rotation-transform'
 
@@ -50,6 +51,31 @@ function mapRect(bounds: Rect, mapping: ShapePageMapping): Rect {
   }
 }
 
+/**
+ * A canvas gradient along the axis `gradientAxis` computes for the mapped box. Stop positions are
+ * thousandths of a percent in the model and a 0..1 offset on the canvas, and they are clamped
+ * because `addColorStop` throws outside that range while the model only bounds each stop on its own.
+ *
+ * Alpha rides on the stop colour rather than `globalAlpha`, since stops can differ in transparency.
+ */
+function fillGradient(context: ShapeContext, gradient: ResolvedGradient, bounds: Rect): CanvasGradient {
+  const axis = gradientAxis(bounds, gradient.angle ?? 0, gradient.scaled ?? false)
+  const canvasGradient = context.createLinearGradient(axis.from.x, axis.from.y, axis.to.x, axis.to.y)
+  for (const stop of gradient.stops) {
+    const { style, alpha } = colorStyle(stop.color)
+    const offset = Math.min(1, Math.max(0, stop.pos / 100000))
+    canvasGradient.addColorStop(offset, alpha >= 1 ? style : rgbaStyle(style, alpha))
+  }
+  return canvasGradient
+}
+
+function rgbaStyle(hex: string, alpha: number): string {
+  const red = Number.parseInt(hex.slice(1, 3), 16)
+  const green = Number.parseInt(hex.slice(3, 5), 16)
+  const blue = Number.parseInt(hex.slice(5, 7), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
 /** Shared with text painting: a shape that carries text paints the same geometry behind its runs. */
 export function tracePath(context: ShapeContext, path: readonly PathCommand[], mapping: ShapePageMapping): void {
   const mapX = (value: number): number => mapping.offsetX + finite(value, 'shape x') * mapping.scale
@@ -85,14 +111,25 @@ export function paintPathFills(
   context: ShapeContext,
   path: readonly PathCommand[],
   mapping: ShapePageMapping,
-  colors: { fill?: ResolvedColor; stroke?: ResolvedColor; strokeWidth?: number; strokeStyle?: StrokeStyle },
+  colors: {
+    fill?: ResolvedColor
+    fillGradient?: ResolvedGradient
+    /** Needed only for a gradient: the axis is computed across the mapped box, not the path. */
+    fillBounds?: Rect
+    stroke?: ResolvedColor
+    strokeWidth?: number
+    strokeStyle?: StrokeStyle
+  },
 ): void {
   const fill = colors.fill ? colorStyle(colors.fill) : undefined
   const stroke = colors.stroke ? colorStyle(colors.stroke) : undefined
+  const gradient = colors.fillGradient && colors.fillBounds
+    ? fillGradient(context, colors.fillGradient, mapRect(colors.fillBounds, mapping))
+    : undefined
   if (fill) {
     tracePath(context, path, mapping)
-    context.fillStyle = fill.style
-    context.globalAlpha = fill.alpha
+    context.fillStyle = gradient ?? fill.style
+    context.globalAlpha = gradient ? 1 : fill.alpha
     context.fill()
   }
   if (stroke) {
@@ -117,13 +154,17 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
     validateMapping(mapping)
     const fill = node.resolvedFillColor ? colorStyle(node.resolvedFillColor) : undefined
     const stroke = node.resolvedStrokeColor ? colorStyle(node.resolvedStrokeColor) : undefined
+    const bounds = mapRect(node.bounds, mapping)
 
-    withFlipAndRotation(context, mapRect(node.bounds, mapping), node.transform, () => {
+    withFlipAndRotation(context, bounds, node.transform, () => {
       createPath(context, node, mapping)
       if (fill) {
         createPath(context, node, mapping)
-        context.fillStyle = fill.style
-        context.globalAlpha = fill.alpha
+        // The gradient already carries per-stop alpha, so globalAlpha stays open for it.
+        context.fillStyle = node.resolvedFillGradient
+          ? fillGradient(context, node.resolvedFillGradient, bounds)
+          : fill.style
+        context.globalAlpha = node.resolvedFillGradient ? 1 : fill.alpha
         context.fill()
       }
       if (stroke) {

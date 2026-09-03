@@ -1,4 +1,4 @@
-import type { Color, ColorTransformType } from '@ppt4ai/model'
+import type { Color, ColorTransformType, Fill } from '@ppt4ai/model'
 import type { XmlElement } from './xml-range.js'
 
 const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
@@ -33,4 +33,43 @@ export function sourceColor(element: XmlElement | undefined): Color | undefined 
     return transforms.length > 0 ? { ...color, transforms } : color
   }
   return undefined
+}
+
+/**
+ * The source fill as the model would have imported it, so the writeback comparison can tell an
+ * untouched gradient from an edited one. Mirrors the importer's `parseDirectFill`: `solidFill` is a
+ * plain colour, a linear `gradFill` carries its stops, and anything else stays unexpressed.
+ *
+ * Without this a `gradFill` source compared as "no fill", so the moment the importer started reading
+ * gradients every edited deck had them overwritten with a flat first stop.
+ */
+export function sourceFill(fillNode: XmlElement | undefined): Fill | undefined {
+  if (!fillNode) return undefined
+  if (fillNode.localName === 'solidFill') {
+    const color = sourceColor(fillNode)
+    return color ? { color } : undefined
+  }
+  if (fillNode.localName !== 'gradFill') return undefined
+  const linear = fillNode.children.find((child) => child.localName === 'lin')
+  if (!linear) return undefined
+  const list = fillNode.children.find((child) => child.localName === 'gsLst')
+  const stops = (list?.children ?? []).flatMap((node) => {
+    if (node.localName !== 'gs') return []
+    const pos = Number(node.attributes.pos)
+    const color = sourceColor(node)
+    return Number.isInteger(pos) && pos >= 0 && pos <= 100000 && color ? [{ pos, color }] : []
+  })
+  const first = stops[0]
+  if (!first) return undefined
+  if (stops.length < 2) return { color: first.color }
+  const angle = Number(linear.attributes.ang)
+  const scaled = linear.attributes.scaled
+  return {
+    color: first.color,
+    gradient: {
+      stops,
+      ...(Number.isInteger(angle) ? { angle } : {}),
+      ...(scaled === undefined ? {} : { scaled: scaled === '1' || scaled === 'true' }),
+    },
+  }
 }

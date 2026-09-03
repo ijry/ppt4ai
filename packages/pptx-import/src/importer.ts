@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -313,11 +313,51 @@ const tableStyleRegionNames: Record<string, TableStyleRegionName> = {
   lastCol: 'lastCol',
 }
 
+/**
+ * `a:gsLst` stops in document order. An unusable `pos` or colour drops that stop rather than being
+ * guessed at, and the order is left alone so a malformed file is not quietly repaired.
+ */
+function parseGradientStops(gradient: XmlNode): GradientStop[] {
+  const list = child(gradient, 'gsLst')
+  if (!list) return []
+  return children(list, 'gs').flatMap((node) => {
+    const pos = parseIntegerAttribute(attribute(node, 'pos'))
+    const color = parseColor(node)
+    return pos !== undefined && pos >= 0 && pos <= 100000 && color ? [{ pos, color }] : []
+  })
+}
+
+/**
+ * A linear `a:gradFill`. `a:path` gradients stay unmodeled, so this returns `undefined` for them
+ * exactly as the solid-only parser did. Two usable stops are the minimum for a gradient; one stop is
+ * the flat colour PowerPoint also paints, and none is no fill at all.
+ */
+function parseGradientFill(node: XmlNode | undefined): Fill | undefined {
+  const gradient = node && child(node, 'gradFill')
+  if (!gradient) return undefined
+  const linear = child(gradient, 'lin')
+  if (!linear) return undefined
+  const stops = parseGradientStops(gradient)
+  const first = stops[0]
+  if (!first) return undefined
+  if (stops.length < 2) return { color: first.color }
+  const angle = parseIntegerAttribute(attribute(linear, 'ang'))
+  const scaled = attribute(linear, 'scaled')
+  return {
+    color: first.color,
+    gradient: {
+      stops,
+      ...(angle === undefined ? {} : { angle }),
+      ...(scaled === undefined ? {} : { scaled: scaled === '1' || scaled === 'true' }),
+    },
+  }
+}
+
 function parseDirectFill(node: XmlNode | undefined): Fill | undefined {
   if (!node) return undefined
   const fill = child(node, 'solidFill')
   const color = parseColor(fill)
-  return color ? { color } : undefined
+  return color ? { color } : parseGradientFill(node)
 }
 
 function shapeProperties(shape: XmlNode): XmlNode | undefined {

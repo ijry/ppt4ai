@@ -64,8 +64,20 @@ export function serializeColorXml(color: Color, prefix = 'a:'): string {
     : `<${prefix}${element}${colorAttributes}/>`
 }
 
+/**
+ * A gradient fill writes `a:gradFill`, not the flat `a:solidFill` its `color` would produce. Both
+ * export paths and the writeback replacement go through here, so the gradient reaches all of them.
+ * Stops keep model order, which is the source's own order.
+ */
 export function serializeFillXml(fill: Fill | undefined): string {
-  return fill ? `<a:solidFill>${serializeColorXml(fill.color)}</a:solidFill>` : ''
+  if (!fill) return ''
+  const gradient = fill.gradient
+  if (!gradient) return `<a:solidFill>${serializeColorXml(fill.color)}</a:solidFill>`
+  const stops = gradient.stops
+    .map((stop) => `<a:gs${attrs([['pos', stop.pos]])}>${serializeColorXml(stop.color)}</a:gs>`)
+    .join('')
+  const linear = `<a:lin${attrs([['ang', gradient.angle], ['scaled', booleanAttribute(gradient.scaled)]])}/>`
+  return `<a:gradFill><a:gsLst>${stops}</a:gsLst>${linear}</a:gradFill>`
 }
 
 /**

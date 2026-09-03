@@ -193,6 +193,7 @@ export function paintTextNode(context: TextContext, node: SceneTextNode, mapping
     if (node.path) {
       paintPathFills(context, node.path, mapping, {
         ...(node.resolvedFillColor ? { fill: node.resolvedFillColor } : {}),
+        ...(node.resolvedFillGradient ? { fillGradient: node.resolvedFillGradient, fillBounds: node.bounds } : {}),
         ...(node.resolvedStrokeColor ? { stroke: node.resolvedStrokeColor } : {}),
         ...(node.strokeWidth === undefined ? {} : { strokeWidth: node.strokeWidth }),
         ...(node.strokeStyle === undefined ? {} : { strokeStyle: node.strokeStyle }),

@@ -15,7 +15,7 @@ import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } 
 import { decodeXml, descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 import { rewriteThemeXml } from './theme-writeback.js'
 import { rewriteLayoutXml, rewriteMasterXml, rewriteSlideColorMapXml } from './master-layout-writeback.js'
-import { sourceColor } from './color-source.js'
+import { sourceColor, sourceFill } from './color-source.js'
 import { sourceTextBody } from './text-source.js'
 
 interface SlideRelationship {
@@ -277,8 +277,19 @@ function colorsEqual(left: Color | undefined, right: Color | undefined): boolean
     })
 }
 
+function gradientsEqual(left: Fill['gradient'], right: Fill['gradient']): boolean {
+  if (!left || !right) return left === right
+  if (left.stops.length !== right.stops.length) return false
+  if ((left.angle ?? 0) !== (right.angle ?? 0)) return false
+  if ((left.scaled ?? false) !== (right.scaled ?? false)) return false
+  return left.stops.every((stop, index) => {
+    const other = right.stops[index]
+    return other?.pos === stop.pos && colorsEqual(stop.color, other.color)
+  })
+}
+
 function fillsEqual(left: Fill | undefined, right: Fill | undefined): boolean {
-  return colorsEqual(left?.color, right?.color)
+  return colorsEqual(left?.color, right?.color) && gradientsEqual(left?.gradient, right?.gradient)
 }
 
 function sourceShapeProperties(element: XmlElement): XmlElement | undefined {
@@ -289,8 +300,8 @@ function fillReplacements(xml: string, sourceElement: XmlElement, fill: Fill | u
   const properties = sourceShapeProperties(sourceElement)
   if (!properties) return []
   const fillNode = properties.children.find((child) => fillNodeNames.has(child.localName))
-  const sourceFill = fillNode?.localName === 'solidFill' ? sourceColor(fillNode) : undefined
-  if (fillsEqual(sourceFill ? { color: sourceFill } : undefined, fill)) return []
+  const existing = sourceFill(fillNode)
+  if (fillsEqual(existing, fill)) return []
   if (fill) {
     const value = serializeFillXml(fill)
     if (fillNode) return [{ start: fillNode.start, end: fillNode.end, value }]
@@ -299,7 +310,7 @@ function fillReplacements(xml: string, sourceElement: XmlElement, fill: Fill | u
     if (insertion < properties.start) throw new Error('PPTX export source shape properties malformed')
     return [{ start: insertion, end: insertion, value }]
   }
-  if (fillNode?.localName === 'solidFill' && sourceFill) {
+  if (fillNode && existing) {
     return [{ start: fillNode.start, end: fillNode.end, value: '' }]
   }
   return []
@@ -356,8 +367,8 @@ function strokeReplacements(xml: string, sourceElement: XmlElement, stroke: Fill
   if (!properties) return []
   const line = properties.children.find((child) => child.localName === 'ln')
   const fillNode = line?.children.find((child) => fillNodeNames.has(child.localName))
-  const sourceStroke = fillNode?.localName === 'solidFill' ? sourceColor(fillNode) : undefined
-  if (fillsEqual(sourceStroke ? { color: sourceStroke } : undefined, stroke)) return []
+  const existing = sourceFill(fillNode)
+  if (fillsEqual(existing, stroke)) return []
 
   if (stroke) {
     if (!line) {
@@ -369,7 +380,7 @@ function strokeReplacements(xml: string, sourceElement: XmlElement, stroke: Fill
     return lineReplacements(xml, line, value)
   }
 
-  if (line && fillNode?.localName === 'solidFill' && sourceStroke) {
+  if (line && fillNode && existing) {
     return [{ start: fillNode.start, end: fillNode.end, value: serializeNoFill(line.name) }]
   }
   return []

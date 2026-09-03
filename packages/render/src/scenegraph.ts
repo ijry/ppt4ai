@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -34,6 +34,8 @@ export interface SceneShapeNode {
   fill?: Fill
   stroke?: Fill
   resolvedFillColor?: ResolvedColor
+  /** Present only for a linear gradient fill; `resolvedFillColor` stays set as the flat fallback. */
+  resolvedFillGradient?: ResolvedGradient
   resolvedStrokeColor?: ResolvedColor
   /** `a:ln/@w` in EMU, carried through so paint can set a real line width. */
   strokeWidth?: number
@@ -71,6 +73,7 @@ export interface SceneTextNode {
   fill?: Fill
   stroke?: Fill
   resolvedFillColor?: ResolvedColor
+  resolvedFillGradient?: ResolvedGradient
   resolvedStrokeColor?: ResolvedColor
   strokeWidth?: number
   strokeStyle?: StrokeStyle
@@ -124,6 +127,26 @@ interface SceneThemeContext {
 
 function resolvedFillColor(fill: Fill | undefined, context: SceneThemeContext): ResolvedColor | undefined {
   return fill ? resolveColor(fill.color, context.theme, context.colorMap) : undefined
+}
+
+/**
+ * Every stop resolved through the theme. A stop whose colour will not resolve drops out, and fewer
+ * than two survivors mean there is no gradient left to paint — the node keeps its resolved fill
+ * colour, which is the first stop, so it paints flat rather than not at all.
+ */
+function resolvedFillGradient(fill: Fill | undefined, context: SceneThemeContext): ResolvedGradient | undefined {
+  const gradient = fill?.gradient
+  if (!gradient) return undefined
+  const stops = gradient.stops.flatMap((stop) => {
+    const color = resolveColor(stop.color, context.theme, context.colorMap)
+    return color ? [{ pos: stop.pos, color }] : []
+  })
+  if (stops.length < 2) return undefined
+  return {
+    stops,
+    ...(gradient.angle === undefined ? {} : { angle: gradient.angle }),
+    ...(gradient.scaled === undefined ? {} : { scaled: gradient.scaled }),
+  }
 }
 
 /**
@@ -288,6 +311,8 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   const fillColor = shapeFillColor(element, context)
   const strokeColor = shapeStrokeColor(element, context)
   if (fillColor) node.resolvedFillColor = fillColor
+  const fillGradient = resolvedFillGradient(element.fill, context)
+  if (fillGradient) node.resolvedFillGradient = fillGradient
   if (strokeColor) node.resolvedStrokeColor = strokeColor
   const stroke = shapeStroke(element, context)
   if (stroke.width !== undefined) node.strokeWidth = stroke.width
@@ -321,6 +346,8 @@ function createTextNode(
   // covers a filled text box whose source declared no geometry.
   if (fillColor || strokeColor) node.path = createPresetPath(element.preset ?? 'rect', element.bounds)
   if (fillColor) node.resolvedFillColor = fillColor
+  const fillGradient = resolvedFillGradient(element.fill, context)
+  if (fillGradient) node.resolvedFillGradient = fillGradient
   if (strokeColor) node.resolvedStrokeColor = strokeColor
   const stroke = shapeStroke(element, context)
   if (stroke.width !== undefined) node.strokeWidth = stroke.width

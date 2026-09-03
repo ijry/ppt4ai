@@ -147,10 +147,44 @@ export interface ResolvedColor {
   alpha: number
 }
 
+/** A gradient with every stop colour already resolved through the theme and colour map. */
+export interface ResolvedGradient {
+  stops: { pos: number; color: ResolvedColor }[]
+  angle?: number
+  scaled?: boolean
+}
+
 export type StrokeStyle = 'solid' | 'dash' | 'dot'
 
+/** One `a:gs` of `a:gsLst`: a colour at a position in thousandths of a percent. */
+export interface GradientStop {
+  /** `a:gs/@pos`, 0..100000. */
+  pos: number
+  color: Color
+}
+
+/**
+ * A linear `a:gradFill`. Only `a:lin` is modeled — `a:path` gradients stay unexpressible, the same
+ * as before this existed. Stops keep document order rather than being sorted by `pos`, because
+ * reordering would quietly repair a malformed file instead of surfacing it.
+ */
+export interface Gradient {
+  /** At least two, or the fill is a plain colour instead. */
+  stops: GradientStop[]
+  /** `a:lin/@ang` in 60000ths of a degree, clockwise from the positive x axis in screen space. */
+  angle?: number
+  /** `a:lin/@scaled`: the angle is measured in the shape's unit square and stretched to its box. */
+  scaled?: boolean
+}
+
+/**
+ * `color` stays required and carries the gradient's first stop, so every consumer that reads only
+ * `color` keeps working and degrades to a flat approximation rather than painting nothing. That is a
+ * real colour from the file, not an invented one.
+ */
 export interface Fill {
   color: Color
+  gradient?: Gradient
 }
 
 export interface TextMarks {
@@ -1216,6 +1250,35 @@ function validateTableBorder(value: unknown, path: string, errors: string[]): vo
   if ('style' in border && (typeof border.style !== 'string' || !tableBorderStyles.has(border.style))) errors.push(`${path}.style must be solid, dash, dot, or none`)
 }
 
+function validateGradient(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const gradient = value as Record<string, unknown>
+  if (!Array.isArray(gradient.stops)) {
+    errors.push(`${path}.stops must be an array`)
+    return
+  }
+  // Fewer than two stops is a plain colour, so the gradient form is not the way to express it.
+  if (gradient.stops.length < 2) errors.push(`${path}.stops must have at least two entries`)
+  gradient.stops.forEach((stop, index) => {
+    const stopPath = `${path}.stops[${index}]`
+    if (!stop || typeof stop !== 'object' || Array.isArray(stop)) {
+      errors.push(`${stopPath} must be an object`)
+      return
+    }
+    const entry = stop as Record<string, unknown>
+    validateFiniteNumber(entry.pos, `${stopPath}.pos`, errors, (number) => Number.isInteger(number) && number >= 0 && number <= 100000, 'must be an integer between 0 and 100000')
+    if (!entry.color || typeof entry.color !== 'object' || Array.isArray(entry.color)) errors.push(`${stopPath}.color must be an object`)
+    else validateColor(entry.color as Record<string, unknown>, `${stopPath}.color`, errors)
+  })
+  if (gradient.angle !== undefined) {
+    validateFiniteNumber(gradient.angle, `${path}.angle`, errors, (number) => Number.isInteger(number), 'must be an integer')
+  }
+  if (gradient.scaled !== undefined && typeof gradient.scaled !== 'boolean') errors.push(`${path}.scaled must be a boolean`)
+}
+
 function validateFill(value: unknown, path: string, errors: string[]): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     errors.push(`${path} must be an object`)
@@ -1228,6 +1291,8 @@ function validateFill(value: unknown, path: string, errors: string[]): void {
   }
   const colorValue = color as Record<string, unknown>
   validateColor(colorValue, `${path}.color`, errors)
+  const gradient = (value as Record<string, unknown>).gradient
+  if (gradient !== undefined) validateGradient(gradient, `${path}.gradient`, errors)
 }
 
 function validateTableCellBorders(value: unknown, path: string, errors: string[]): void {
