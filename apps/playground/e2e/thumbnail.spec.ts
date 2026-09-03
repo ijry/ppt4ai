@@ -1,22 +1,38 @@
 import { expect, test, type Locator } from '@playwright/test'
 
-test('renders an image thumbnail and keeps the latest scene', async ({ page }) => {
+/**
+ * The per-slide thumbnail list, which is what the playground actually renders. The original spec
+ * targeted a single `thumbnail-canvas` plus a "next" button; `3b7a2e0` replaced that UI with this
+ * list and updated the unit test but not this one, so the only browser-side guardrail went dead.
+ */
+test('renders a thumbnail per slide in chromium and switches the active slide', async ({ page }) => {
   await page.goto('http://127.0.0.1:4174')
-  const canvas = page.locator('[data-testid="thumbnail-canvas"]')
-  await expect(canvas).toHaveJSProperty('width', 320)
-  await expect(canvas).toHaveJSProperty('height', 180)
-  await expect.poll(() => page.getByTestId('thumbnail-result').textContent()).toContain('image-red')
-  expect(await nonEmptyPixels(canvas)).toBeGreaterThan(0)
 
-  await page.getByTestId('thumbnail-next').click()
-  await expect.poll(() => page.getByTestId('thumbnail-result').textContent()).toContain('image-blue')
-  await expect.poll(() => page.getByTestId('thumbnail-result').textContent()).not.toContain('image-red')
-  expect(await nonEmptyPixels(canvas)).toBeGreaterThan(0)
+  const thumbnails = page.locator('[data-testid="slide-thumbnail-list"] > button')
+  // `createPageEntries` seeds exactly two pages.
+  await expect(thumbnails).toHaveCount(2)
+
+  const first = thumbnails.first().locator('canvas[data-thumbnail-canvas]')
+  await expect(first).toHaveJSProperty('width', 240)
+  await expect(first).toHaveJSProperty('height', 135)
+
+  // The one assertion that proves the worker painted something in a real browser rather than just
+  // sizing a canvas. Everything above it is already covered by App.test.ts.
+  await expect.poll(() => nonEmptyPixels(first), { timeout: 15_000 }).toBeGreaterThan(0)
+
+  await expect(thumbnails.first()).toHaveAttribute('aria-current', 'page')
+  await thumbnails.nth(1).click()
+  await expect(thumbnails.nth(1)).toHaveAttribute('aria-current', 'page')
+  await expect(thumbnails.first()).not.toHaveAttribute('aria-current', 'page')
+
+  const second = thumbnails.nth(1).locator('canvas[data-thumbnail-canvas]')
+  await expect.poll(() => nonEmptyPixels(second), { timeout: 15_000 }).toBeGreaterThan(0)
 })
 
 async function nonEmptyPixels(canvas: Locator): Promise<number> {
   return canvas.evaluate((element) => {
     const source = element as HTMLCanvasElement
+    if (!source.width || !source.height) return 0
     const sample = document.createElement('canvas')
     sample.width = source.width
     sample.height = source.height

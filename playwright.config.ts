@@ -2,6 +2,10 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './apps',
+  // Playwright's default testMatch also picks up the vitest `*.test.ts` files that live beside the
+  // app sources, which then crash on `describe`. Each app keeps its own `e2e/`, so match on that
+  // rather than narrowing testDir to one of them.
+  testMatch: '**/e2e/**/*.spec.ts',
   fullyParallel: true,
   reporter: 'list',
   use: {
