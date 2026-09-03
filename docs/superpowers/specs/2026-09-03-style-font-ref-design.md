@@ -1,6 +1,6 @@
 # 样式矩阵字体引用设计
 
-> 状态：待实现（2026-09-03）
+> 状态：已实现（2026-09-03，`468c0cc`）
 > 日期：2026-09-03
 
 ## 1. 目标
@@ -75,3 +75,4 @@ run 的 `marks.fontFamily`（含 `+mj-lt` 这类引用）胜过 `fontRef/@idx`�
 - `effectRef` 仍只存不用（效果整体不渲染，是独立缺口）
 - `fontRef` 没有编辑入口，只读
 - 表格单元格的文字不走 `styleRef`（表格有自己的 `TableStyleText`），本刀不涉及
+- **实现期修正的一处测试断言**：`resolvedFontFamily` 只在「与 `marks.fontFamily` 不同」时才写入场景（既有设计，见 `resolvedFontFamily` 注释）。所以「run 自己写了 `Georgia`」这一条，正确的契约是**场景不写 `resolvedFontFamily`、绘制端退回 `marks.fontFamily`**，而不是场景写入 `'Georgia'`。第一版测试按后者断言、红了；改成断言前者。实现本身没有改动。
