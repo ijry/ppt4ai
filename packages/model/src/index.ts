@@ -126,6 +126,8 @@ export interface TextParagraphAttrs {
   spaceBefore?: number
   spaceAfter?: number
   bullet?: TextBullet
+  /** `a:pPr/a:defRPr`: the run defaults for this paragraph, below its runs but above any list style. */
+  defaultMarks?: TextMarks
 }
 
 export interface TextParagraph {
@@ -328,6 +330,21 @@ export interface ElementDefaults {
   stroke?: Fill
   text?: string
   body?: TextBody
+  listStyle?: LevelDefaults[]
+}
+
+/** One entry of an `a:lstStyle` or `p:txStyles` style: the level's own paragraph properties and its `a:defRPr`. */
+export interface LevelDefaults {
+  level: number
+  attrs?: TextParagraphAttrs
+  marks?: TextMarks
+}
+
+/** The master's `p:txStyles`, dispatched by placeholder type. */
+export interface TextStyles {
+  title?: LevelDefaults[]
+  body?: LevelDefaults[]
+  other?: LevelDefaults[]
 }
 
 export interface SlideLayoutSource {
@@ -351,6 +368,7 @@ export interface SlideMaster {
   defaults?: Record<string, ElementDefaults>
   themeId?: string
   colorMap?: Partial<ColorMap>
+  textStyles?: TextStyles
   source?: SlideMasterSource
 }
 
@@ -586,6 +604,67 @@ export function resolveInheritedElement(element: Element, layout?: SlideLayout, 
   } as Element
 }
 
+/** `title`/`ctrTitle` take `p:titleStyle`, body-like placeholders take `p:bodyStyle`, everything else `p:otherStyle`. */
+function textStyleFor(styles: TextStyles | undefined, placeholder: string | undefined): LevelDefaults[] | undefined {
+  if (!styles) return undefined
+  const type = placeholder?.split(':')[0]
+  if (type === 'title' || type === 'ctrTitle') return styles.title
+  if (type === 'body' || type === 'subTitle' || type === 'obj') return styles.body
+  return styles.other
+}
+
+function levelEntry(levels: LevelDefaults[] | undefined, level: number): LevelDefaults | undefined {
+  return levels?.find((entry) => entry.level === level)
+}
+
+function mergeLevelChain(chain: ReadonlyArray<LevelDefaults[] | undefined>, level: number): LevelDefaults {
+  const merged: LevelDefaults = { level }
+  for (const levels of chain) {
+    const entry = levelEntry(levels, level)
+    if (!entry) continue
+    if (entry.attrs) merged.attrs = { ...merged.attrs, ...structuredClone(entry.attrs) }
+    if (entry.marks) merged.marks = { ...merged.marks, ...structuredClone(entry.marks) }
+  }
+  return merged
+}
+
+/**
+ * Fills in what the three default layers say, lowest first: the master's `p:txStyles` for this
+ * placeholder type, then the master and layout placeholders' `a:lstStyle`, then the paragraph's own
+ * `a:pPr`/`a:defRPr`, and finally each run's own marks. Unlike `resolveInheritedElement`, which
+ * overrides whole fields, this merges property by property — that is what makes a run inherit a
+ * size from the master while keeping its own colour.
+ *
+ * Takes the element as it comes out of `resolveInheritedElement`; returns undefined for elements
+ * that carry no text body.
+ */
+export function resolveTextBodyDefaults(element: Element, layout?: SlideLayout, master?: SlideMaster): TextBody | undefined {
+  const body = element.kind === 'text' ? element.body : undefined
+  if (!body) return undefined
+  const placeholder = element.kind === 'group' ? undefined : element.placeholder
+  const chain: Array<LevelDefaults[] | undefined> = [
+    textStyleFor(master?.textStyles, placeholder),
+    ...findDefaults(element, layout, master).map((defaults) => defaults.listStyle),
+  ]
+
+  return {
+    ...body,
+    paragraphs: body.paragraphs.map((paragraph) => {
+      const defaults = mergeLevelChain(chain, paragraph.attrs?.level ?? 0)
+      const attrs = { ...defaults.attrs, ...paragraph.attrs }
+      const runDefaults = { ...defaults.marks, ...paragraph.attrs?.defaultMarks }
+      return {
+        ...paragraph,
+        ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
+        runs: paragraph.runs.map((run) => {
+          const marks = { ...runDefaults, ...run.marks }
+          return Object.keys(marks).length > 0 ? { ...run, marks } : { ...run }
+        }),
+      }
+    }),
+  }
+}
+
 function mergeTableStyleRegion(target: ResolvedTableCellStyle, region: TableStyleRegion | undefined): ResolvedTableCellStyle {
   if (!region) return target
   const text = region.text
@@ -662,9 +741,42 @@ function validateDefaultRotations(value: unknown, path: string, errors: string[]
   if (!value || typeof value !== 'object' || Array.isArray(value)) return
   for (const [key, defaultValue] of Object.entries(value as Record<string, unknown>)) {
     if (!defaultValue || typeof defaultValue !== 'object' || Array.isArray(defaultValue)) continue
-    const rotation = (defaultValue as Record<string, unknown>).rotation
+    const def = defaultValue as Record<string, unknown>
+    const rotation = def.rotation
     if (rotation !== undefined) validateFiniteNumber(rotation, `${path}.${key}.rotation`, errors, Number.isInteger, 'must be an integer')
+    if ('listStyle' in def && def.listStyle !== undefined) validateLevelDefaults(def.listStyle, `${path}.${key}.listStyle`, errors)
   }
+}
+
+function validateLevelDefaults(value: unknown, path: string, errors: string[]): void {
+  if (!Array.isArray(value)) {
+    errors.push(`${path} must be an array`)
+    return
+  }
+  value.forEach((entry, index) => {
+    const entryPath = `${path}[${index}]`
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      errors.push(`${entryPath} must be an object`)
+      return
+    }
+    const level = (entry as Record<string, unknown>).level
+    validateFiniteNumber(level, `${entryPath}.level`, errors, (n) => Number.isInteger(n) && n >= 0 && n <= 8, 'must be 0-8')
+    const attrs = (entry as Record<string, unknown>).attrs
+    if (attrs !== undefined) validateTextParagraphAttrs(attrs, `${entryPath}.attrs`, errors)
+    const marks = (entry as Record<string, unknown>).marks
+    if (marks !== undefined) validateTextMarks(marks, `${entryPath}.marks`, errors)
+  })
+}
+
+function validateTextStyles(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const styles = value as Record<string, unknown>
+  if ('title' in styles && styles.title !== undefined) validateLevelDefaults(styles.title, `${path}.title`, errors)
+  if ('body' in styles && styles.body !== undefined) validateLevelDefaults(styles.body, `${path}.body`, errors)
+  if ('other' in styles && styles.other !== undefined) validateLevelDefaults(styles.other, `${path}.other`, errors)
 }
 
 function validateColor(value: unknown, path: string, errors: string[]): void {
@@ -808,23 +920,28 @@ function validateTextParagraph(value: unknown, path: string, errors: string[]): 
     })
   }
   if (!('attrs' in paragraph) || paragraph.attrs === undefined) return
-  if (!paragraph.attrs || typeof paragraph.attrs !== 'object' || Array.isArray(paragraph.attrs)) {
-    errors.push(`${path}.attrs must be an object`)
+  validateTextParagraphAttrs(paragraph.attrs, `${path}.attrs`, errors)
+}
+
+function validateTextParagraphAttrs(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
     return
   }
-  const attrs = paragraph.attrs as Record<string, unknown>
-  if ('align' in attrs && (typeof attrs.align !== 'string' || !textAlignments.has(attrs.align))) errors.push(`${path}.attrs.align must be left, center, or right`)
+  const attrs = value as Record<string, unknown>
+  if ('align' in attrs && (typeof attrs.align !== 'string' || !textAlignments.has(attrs.align))) errors.push(`${path}.align must be left, center, or right`)
   if ('level' in attrs) {
-    validateFiniteNumber(attrs.level, `${path}.attrs.level`, errors, (number) => number >= 0 && Number.isInteger(number), 'must be non-negative integer')
+    validateFiniteNumber(attrs.level, `${path}.level`, errors, (number) => number >= 0 && Number.isInteger(number), 'must be non-negative integer')
   }
   // OOXML writes a hanging indent as a negative value against a positive marL, so `indent` is
   // signed while the other three measurements are not.
-  if ('indent' in attrs) validateFiniteNumber(attrs.indent, `${path}.attrs.indent`, errors, () => true, 'must be finite')
+  if ('indent' in attrs) validateFiniteNumber(attrs.indent, `${path}.indent`, errors, () => true, 'must be finite')
   for (const key of ['marginLeft', 'spaceBefore', 'spaceAfter']) {
-    if (key in attrs) validateFiniteNumber(attrs[key], `${path}.attrs.${key}`, errors, (number) => number >= 0, 'must be non-negative')
+    if (key in attrs) validateFiniteNumber(attrs[key], `${path}.${key}`, errors, (number) => number >= 0, 'must be non-negative')
   }
-  if ('lineSpacing' in attrs) validateFiniteNumber(attrs.lineSpacing, `${path}.attrs.lineSpacing`, errors, (number) => number > 0, 'must be positive')
-  if ('bullet' in attrs && attrs.bullet !== undefined) validateTextBullet(attrs.bullet, `${path}.attrs.bullet`, errors)
+  if ('lineSpacing' in attrs) validateFiniteNumber(attrs.lineSpacing, `${path}.lineSpacing`, errors, (number) => number > 0, 'must be positive')
+  if ('bullet' in attrs && attrs.bullet !== undefined) validateTextBullet(attrs.bullet, `${path}.bullet`, errors)
+  if ('defaultMarks' in attrs && attrs.defaultMarks !== undefined) validateTextMarks(attrs.defaultMarks, `${path}.defaultMarks`, errors)
 }
 
 function validateTextBullet(value: unknown, path: string, errors: string[]): void {
@@ -1149,6 +1266,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       if ('themeId' in master && master.themeId !== undefined && (typeof master.themeId !== 'string' || master.themeId.length === 0)) errors.push(`${masterPath}.themeId must be a non-empty string`)
       if ('colorMap' in master && master.colorMap !== undefined) validateColorMap(master.colorMap, `${masterPath}.colorMap`, errors)
       if ('defaults' in master && master.defaults !== undefined) validateDefaultRotations(master.defaults, `${masterPath}.defaults`, errors)
+      if ('textStyles' in master && master.textStyles !== undefined) validateTextStyles(master.textStyles, `${masterPath}.textStyles`, errors)
     }
   }
 

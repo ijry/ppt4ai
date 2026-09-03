@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedTableCellStyle, type SlideLayout, type SlideMaster, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -164,6 +164,48 @@ function mergeTableTextDefaults(body: TextBody, text: TableStyleText | undefined
   }
 }
 
+function mergeLevelDefaults(
+  body: TextBody,
+  element: Extract<Element, { kind: 'text' }>,
+  layout: SlideLayout | undefined,
+  master: SlideMaster | undefined,
+): TextBody {
+  const clonedBody = structuredClone(body)
+  const placeholderType = element.placeholder
+  const textStyleKey: 'title' | 'body' | 'other' = placeholderType === 'title' || placeholderType === 'subTitle' || placeholderType === 'ctrTitle'
+    ? 'title'
+    : placeholderType === 'body'
+      ? 'body'
+      : 'other'
+
+  return {
+    ...clonedBody,
+    paragraphs: clonedBody.paragraphs.map((paragraph) => {
+      const level = paragraph.attrs?.level ?? 0
+      const defaults = paragraph.attrs?.defaultMarks
+      const listStyle = layout?.defaults?.[placeholderType ?? 'body']?.listStyle
+      const textStyles = master?.textStyles?.[textStyleKey]
+
+      const levelListStyle = listStyle?.find((item: LevelDefaults) => item.level === level)
+      const levelTextStyle = textStyles?.find((item: LevelDefaults) => item.level === level)
+
+      const merged: TextMarks = {
+        ...levelTextStyle?.marks,
+        ...levelListStyle?.marks,
+        ...defaults,
+      }
+
+      return {
+        ...paragraph,
+        runs: paragraph.runs.map((run) => ({
+          ...run,
+          marks: { ...merged, ...run.marks },
+        })),
+      }
+    }),
+  }
+}
+
 function resolveBorderColors(borders: TableCellBorders, context: SceneThemeContext): Partial<Record<keyof TableCellBorders, ResolvedColor>> | undefined {
   const colors: Partial<Record<keyof TableCellBorders, ResolvedColor>> = {}
   for (const side of ['left', 'right', 'top', 'bottom'] as const) {
@@ -213,8 +255,14 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   return node
 }
 
-function createTextNode(element: Extract<Element, { kind: 'text' }>, context: SceneThemeContext): SceneTextNode {
-  const body = normalizeTextElement(element)
+function createTextNode(
+  element: Extract<Element, { kind: 'text' }>,
+  context: SceneThemeContext,
+  layout: SlideLayout | undefined,
+  master: SlideMaster | undefined,
+): SceneTextNode {
+  const normalized = normalizeTextElement(element)
+  const body = mergeLevelDefaults(normalized, element, layout, master)
   const node: SceneTextNode = {
     id: element.id,
     kind: 'text',
@@ -336,6 +384,8 @@ function cascadeElement(element: Element, ancestors: readonly GroupTransform[], 
 function createNode(
   element: Element,
   context: SceneThemeContext,
+  layout: SlideLayout | undefined,
+  master: SlideMaster | undefined,
   tableStyles?: Ppt4aiDocument['tableStyles'],
   assets?: Ppt4aiDocument['assets'],
 ): SceneNode | undefined {
@@ -343,7 +393,7 @@ function createNode(
     case 'shape':
       return createShapeNode(element, context)
     case 'text':
-      return createTextNode(element, context)
+      return createTextNode(element, context, layout, master)
     case 'table':
       return createTableNode(element, context, tableStyles)
     case 'image':
@@ -418,7 +468,7 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
     const cascaded = ancestors.length > 0 || spaces.length > 0
       ? cascadeElement(inherited, ancestors, spaces)
       : inherited
-    const node = createNode(cascaded, context, value.tableStyles, value.assets)
+    const node = createNode(cascaded, context, layout, master, value.tableStyles, value.assets)
     if (node) nodes.push(node)
   }
   for (const elementId of slide.elementIds) appendElement(elementId)

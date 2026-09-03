@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type Theme, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideLayout, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -843,7 +843,45 @@ function parseParagraphAttrs(paragraphProperties: XmlNode | undefined): TextPara
   if (spaceAfter !== undefined) attrs.spaceAfter = spaceAfter
   const bullet = parseBullet(paragraphProperties)
   if (bullet) attrs.bullet = bullet
+  const defaultMarks = parseRunMarks(child(paragraphProperties, 'defRPr'))
+  if (defaultMarks) attrs.defaultMarks = defaultMarks
   return Object.keys(attrs).length > 0 ? attrs : undefined
+}
+
+/**
+ * `a:lvl1pPr`…`a:lvl9pPr` of an `a:lstStyle` or a `p:txStyles` child, as zero-based levels. The
+ * level's `a:defRPr` is the same node `parseParagraphAttrs` reads as `defaultMarks`, so it is lifted
+ * to the level's own `marks` rather than parsed twice.
+ */
+function parseLevelDefaults(parent: XmlNode | undefined): LevelDefaults[] | undefined {
+  if (!parent) return undefined
+  const levels: LevelDefaults[] = []
+  for (let index = 1; index <= 9; index += 1) {
+    const parsed = parseParagraphAttrs(child(parent, `lvl${index}pPr`))
+    if (!parsed) continue
+    const { defaultMarks, ...attrs } = parsed
+    levels.push({
+      level: index - 1,
+      ...(Object.keys(attrs).length > 0 ? { attrs } : {}),
+      ...(defaultMarks ? { marks: defaultMarks } : {}),
+    })
+  }
+  return levels.length > 0 ? levels : undefined
+}
+
+function parseListStyle(shape: XmlNode): LevelDefaults[] | undefined {
+  const body = findDescendants(shape, 'txBody')[0]
+  return body ? parseLevelDefaults(child(body, 'lstStyle')) : undefined
+}
+
+function parseTextStyles(root: XmlNode): TextStyles | undefined {
+  const styles = findDescendants(root, 'txStyles')[0]
+  if (!styles) return undefined
+  const title = parseLevelDefaults(child(styles, 'titleStyle'))
+  const body = parseLevelDefaults(child(styles, 'bodyStyle'))
+  const other = parseLevelDefaults(child(styles, 'otherStyle'))
+  if (!title && !body && !other) return undefined
+  return { ...(title ? { title } : {}), ...(body ? { body } : {}), ...(other ? { other } : {}) }
 }
 
 /** `lnSpcReduction` is deliberately not read: see the note in the design doc about the exporter. */
@@ -945,6 +983,8 @@ function parseDefaults(shape: XmlNode): [string, ElementDefaults] | undefined {
   const body = parseTextBody(shape)
   // `text` stays alongside `body`: master/layout writeback compares against it in its no-body path.
   if (body) defaults.body = body
+  const listStyle = parseListStyle(shape)
+  if (listStyle) defaults.listStyle = listStyle
   const text = parseText(shape)
   if (text.present && text.value) defaults.text = text.value
   return [placeholder, defaults]
@@ -958,7 +998,8 @@ function parseMaster(xml: string, id: string, themeId: string | undefined, partP
     if (parsed) defaults[parsed[0]] = parsed[1]
   }
   const colorMap = parseColorMap(findDescendants(root, 'clrMap')[0])
-  return { id, defaults, ...(themeId ? { themeId } : {}), ...(colorMap ? { colorMap } : {}), source: { partPath } }
+  const textStyles = parseTextStyles(root)
+  return { id, defaults, ...(themeId ? { themeId } : {}), ...(colorMap ? { colorMap } : {}), ...(textStyles ? { textStyles } : {}), source: { partPath } }
 }
 
 function parseLayout(xml: string, id: string, masterId: string, partPath: string): SlideLayout {
