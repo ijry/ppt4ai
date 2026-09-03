@@ -1051,6 +1051,11 @@ function validateColor(value: unknown, path: string, errors: string[]): void {
   const color = value as Record<string, unknown>
   if (typeof color.type !== 'string' || !colorTypes.has(color.type)) errors.push(`${path}.type must be a supported color type`)
   if (typeof color.v !== 'string' || color.v.length === 0) errors.push(`${path}.v must be a non-empty string`)
+  // `srgb` and `system` carry a literal hex triplet, and painting throws on anything else. Commands
+  // can now set an element's paint directly, so a loose value here would reach the canvas.
+  else if ((color.type === 'srgb' || color.type === 'system') && !/^[0-9A-Fa-f]{6}$/u.test(color.v)) {
+    errors.push(`${path}.v must be six hexadecimal digits`)
+  }
   if ('transforms' in color && color.transforms !== undefined) {
     if (!Array.isArray(color.transforms)) errors.push(`${path}.transforms must be an array`)
     else color.transforms.forEach((transform, index) => {
@@ -1717,6 +1722,12 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.strokeWidth !== undefined) {
       validateFiniteNumber(element.strokeWidth, `elements.${elementId}.strokeWidth`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')
+    }
+    // An element's own paint went unvalidated until commands could set it; the background, table cell
+    // and theme entry paths already ran the same rules through `validateFill`.
+    if (element.kind === 'shape' || element.kind === 'text') {
+      if (element.fill !== undefined) validateFill(element.fill, `elements.${elementId}.fill`, errors)
+      if (element.stroke !== undefined) validateFill(element.stroke, `elements.${elementId}.stroke`, errors)
     }
   }
 

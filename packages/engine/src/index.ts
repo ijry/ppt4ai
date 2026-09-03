@@ -68,6 +68,8 @@ export type EngineCommand =
   | { type: 'setElementRotation'; elementId: string; rotation: number }
   | { type: 'setElementStrokeWidth'; elementId: string; width: number | null }
   | { type: 'setElementStrokeStyle'; elementId: string; style: StrokeStyle | null }
+  | { type: 'setElementFill'; elementId: string; fill: Fill | null }
+  | { type: 'setElementStroke'; elementId: string; stroke: Fill | null }
   | { type: 'rotateSelection'; rotation: number }
   | { type: 'toggleImageFlip'; elementId: string; axis: ImageFlipAxis }
   | { type: 'toggleElementFlip'; elementId: string; axis: ImageFlipAxis }
@@ -680,6 +682,14 @@ export class EditorEngine {
       }
       case 'setElementStrokeStyle': {
         this.setElementStrokeStyle(command.elementId, command.style)
+        break
+      }
+      case 'setElementFill': {
+        this.setElementPaint(command.elementId, 'fill', command.fill)
+        break
+      }
+      case 'setElementStroke': {
+        this.setElementPaint(command.elementId, 'stroke', command.stroke)
         break
       }
       case 'rotateSelection': {
@@ -1366,6 +1376,31 @@ export class EditorEngine {
     if (!validation.valid) throw new Error(`stroke style is invalid: ${elementId}: ${validation.errors.join('; ')}`)
 
     this.commit([{ path: ['elements', elementId, 'strokeStyle'], value: style === null ? undefined : style }])
+  }
+
+  /**
+   * `fill` and `stroke` are both `Fill`, so one implementation serves both — the caller names the
+   * field. A `Fill` carries an optional gradient, which is why this command only became safe once
+   * gradient outlines actually paint: before that a caller could set a value the canvas ignored.
+   *
+   * Setting a flat colour on a gradient replaces the whole `Fill`, dropping the ramp, which is what
+   * picking a solid colour means. `null` deletes the field: the exporter then writes `a:noFill` over
+   * a source that had paint, and the scene falls back to the theme style reference.
+   */
+  private setElementPaint(elementId: string, field: 'fill' | 'stroke', paint: Fill | null): void {
+    const element = this.outlineTarget(elementId)
+    const current = element[field]
+    if (JSON.stringify(current ?? null) === JSON.stringify(paint)) return
+
+    const nextDocument = clone(this.document)
+    const next = nextDocument.elements[elementId]!
+    if (next.kind !== 'shape' && next.kind !== 'text') throw new Error(`element cannot carry an outline: ${elementId}`)
+    if (paint === null) delete next[field]
+    else next[field] = clone(paint)
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`element ${field} is invalid: ${elementId}: ${validation.errors.join('; ')}`)
+
+    this.commit([{ path: ['elements', elementId, field], value: paint === null ? undefined : paint }])
   }
 
   private setElementRotation(elementId: string, rotation: number): void {
