@@ -1,4 +1,4 @@
-import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -935,6 +935,24 @@ function parseOuterShadow(shape: XmlNode): OuterShadow | undefined {
  * `p:pic` already does with its own blip; `a:tile` now carries its own placement instead of being
  * refused, so the only thing left unread here is `a:stretch`'s `a:fillRect` insets.
  */
+/** `a:stretch/a:fillRect`. Signed, and only read for the stretched form — a tile has its own placement. */
+function parsePictureStretch(fill: XmlNode): PictureStretch | undefined {
+  const stretch = child(fill, 'stretch')
+  const rect = stretch && child(stretch, 'fillRect')
+  if (!rect) return undefined
+  const left = parseIntegerAttribute(attribute(rect, 'l'))
+  const top = parseIntegerAttribute(attribute(rect, 't'))
+  const right = parseIntegerAttribute(attribute(rect, 'r'))
+  const bottom = parseIntegerAttribute(attribute(rect, 'b'))
+  const values = {
+    ...(left === undefined ? {} : { left }),
+    ...(top === undefined ? {} : { top }),
+    ...(right === undefined ? {} : { right }),
+    ...(bottom === undefined ? {} : { bottom }),
+  }
+  return Object.keys(values).length > 0 ? values : undefined
+}
+
 /** `a:tile`'s six attributes. Absent values stay absent so the model does not claim defaults it read. */
 function parsePictureTile(fill: XmlNode): PictureTile | undefined {
   const tile = child(fill, 'tile')
@@ -978,12 +996,14 @@ function parseShapePictureFill(
   }
   const sourceCrop = parseImageCrop(fill)
   const tile = parsePictureTile(fill)
+  const stretch = tile ? undefined : parsePictureStretch(fill)
   const effects = parseImageEffects(fill)
   return {
     pictureFill: {
       assetId,
       ...(sourceCrop ? { sourceCrop } : {}),
       ...(tile ? { tile } : {}),
+      ...(stretch ? { stretch } : {}),
       ...(effects ? { effects } : {}),
     },
     metadata,
@@ -1083,12 +1103,14 @@ function parseBackgroundPictureFill(
   }
   const sourceCrop = parseImageCrop(fill)
   const tile = parsePictureTile(fill)
+  const stretch = tile ? undefined : parsePictureStretch(fill)
   const effects = parseImageEffects(fill)
   return {
     pictureFill: {
       assetId,
       ...(sourceCrop ? { sourceCrop } : {}),
       ...(tile ? { tile } : {}),
+      ...(stretch ? { stretch } : {}),
       ...(effects ? { effects } : {}),
     },
     metadata,

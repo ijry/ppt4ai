@@ -299,6 +299,22 @@ function tileMatrix(tile: NonNullable<ScenePictureFill['tile']>, bounds: Rect, i
   }
 }
 
+/**
+ * `a:fillRect`'s target box: each side inset by its percentage of the shape box, negatives pushing the
+ * picture outside the frame. A box with no width or height left describes nothing paintable, so the
+ * caller skips the draw rather than filling a reversed rectangle.
+ */
+function stretchedBounds(bounds: Rect, stretch: NonNullable<ScenePictureFill['stretch']>): Rect | undefined {
+  const left = (stretch.left ?? 0) / 100000
+  const top = (stretch.top ?? 0) / 100000
+  const right = (stretch.right ?? 0) / 100000
+  const bottom = (stretch.bottom ?? 0) / 100000
+  const w = bounds.w * (1 - left - right)
+  const h = bounds.h * (1 - top - bottom)
+  if (w <= 0 || h <= 0) return undefined
+  return { x: bounds.x + bounds.w * left, y: bounds.y + bounds.h * top, w, h }
+}
+
 export function paintPictureFill(
   context: ShapeContext,
   path: readonly PathCommand[],
@@ -320,11 +336,13 @@ export function paintPictureFill(
       context.fill()
       return
     }
+    const target = fill.stretch ? stretchedBounds(bounds, fill.stretch) : bounds
+    if (!target) return
     tracePath(context, path, mapping)
     context.clip()
     const source = cropSource(image, fill.sourceCrop)
-    if (source) context.drawImage(image.source, ...source, bounds.x, bounds.y, bounds.w, bounds.h)
-    else context.drawImage(image.source, bounds.x, bounds.y, bounds.w, bounds.h)
+    if (source) context.drawImage(image.source, ...source, target.x, target.y, target.w, target.h)
+    else context.drawImage(image.source, target.x, target.y, target.w, target.h)
   } finally {
     context.restore()
   }

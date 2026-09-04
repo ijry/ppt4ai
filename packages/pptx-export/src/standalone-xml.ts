@@ -321,7 +321,13 @@ function serializeBlipEffectsXml(effects: PictureFill['effects']): string {
 /** `a:tile` and `a:stretch` are a choice in `CT_BlipFillProperties`, so exactly one of them is written. */
 function serializeFillModeXml(fill: PictureFill): string {
   const tile = fill.tile
-  if (!tile) return '<a:stretch><a:fillRect/></a:stretch>'
+  if (!tile) {
+    const stretch = fill.stretch
+    const rect = stretch
+      ? `<a:fillRect${attrs([['l', stretch.left], ['t', stretch.top], ['r', stretch.right], ['b', stretch.bottom]])}/>`
+      : '<a:fillRect/>'
+    return `<a:stretch>${rect}</a:stretch>`
+  }
   const attributes = attrs([
     ['tx', tile.offsetX],
     ['ty', tile.offsetY],

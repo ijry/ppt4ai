@@ -325,8 +325,23 @@ export interface PictureFill {
   sourceCrop?: ImageCrop
   /** `a:tile`. Present means the fill repeats; absent means the `a:stretch` form. */
   tile?: PictureTile
+  /** `a:stretch/a:fillRect`, which only the stretched form has. */
+  stretch?: PictureStretch
   /** `a:blip`'s own effects, the same two `p:pic` models and paints. */
   effects?: ImageEffect[]
+}
+
+/**
+ * `a:stretch/a:fillRect`: the target box, as thousandths of a percent inset from each side of the shape.
+ * The values are **signed** — negative insets push the picture outside the frame, which is how
+ * PowerPoint's "fill" crop works — so this is not `ImageCrop`, whose sides are non-negative and describe
+ * a trim of the *source* rather than a target box.
+ */
+export interface PictureStretch {
+  left?: number
+  top?: number
+  right?: number
+  bottom?: number
 }
 
 /**
@@ -1505,6 +1520,15 @@ function validatePictureFill(
   else if (!assets?.[assetId]) errors.push(`${path} references missing asset: ${assetId}`)
   if (value.sourceCrop !== undefined) validateImageCrop(value.sourceCrop, `${path}.sourceCrop`, errors)
   if (value.tile !== undefined) validatePictureTile(value.tile, `${path}.tile`, errors)
+  if (value.stretch !== undefined) {
+    const stretch = value.stretch as unknown as Record<string, unknown>
+    if (!value.stretch || typeof value.stretch !== 'object' || Array.isArray(value.stretch)) {
+      errors.push(`${path}.stretch must be an object`)
+    } else for (const side of ['left', 'top', 'right', 'bottom']) {
+      // Signed: `a:fillRect` uses negatives to outset, unlike `a:srcRect`.
+      if (stretch[side] !== undefined) validateFiniteNumber(stretch[side], `${path}.stretch.${side}`, errors, Number.isInteger, 'must be an integer')
+    }
+  }
   if (value.effects !== undefined) validateImageEffects(value.effects, `${path}.effects`, errors)
 }
 

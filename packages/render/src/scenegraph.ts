@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createCustomPath, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureStretch, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -116,6 +116,7 @@ export interface ScenePictureFill {
   metadata?: AssetMetadata
   sourceCrop?: ImageCrop
   tile?: PictureTile
+  stretch?: PictureStretch
   effects?: ImageEffect[]
 }
 
@@ -372,6 +373,7 @@ function scenePictureFill(element: { pictureFill?: PictureFill }, assets?: Ppt4a
     ...(metadata ? { metadata: structuredClone(metadata) } : {}),
     ...(fill.sourceCrop ? { sourceCrop: structuredClone(fill.sourceCrop) } : {}),
     ...(fill.tile ? { tile: structuredClone(fill.tile) } : {}),
+    ...(fill.stretch ? { stretch: structuredClone(fill.stretch) } : {}),
     ...(fill.effects ? { effects: structuredClone(fill.effects) } : {}),
   }
 }
