@@ -210,6 +210,29 @@ export interface Fill {
 }
 
 /**
+ * `a:effectLst/a:outerShdw`, narrowed to what a canvas shadow can honour. `@sx`/`@sy` (scale),
+ * `@kx`/`@ky` (skew), `@algn` and `@rotWithShape` need the shape drawn again under a matrix, so they
+ * stay unexpressed rather than being silently ignored on a shadow we claim to paint.
+ */
+export interface OuterShadow {
+  color: Color
+  /** `@blurRad` in EMU. */
+  blurRadius?: number
+  /** `@dist` in EMU. */
+  distance?: number
+  /** `@dir` in 60000ths of a degree, clockwise from the positive x axis — `a:lin/@ang`'s unit. */
+  direction?: number
+}
+
+/** An `OuterShadow` with its colour already resolved through the theme, the way fills are. */
+export interface ResolvedShadow {
+  color: ResolvedColor
+  blurRadius?: number
+  distance?: number
+  direction?: number
+}
+
+/**
  * `a:blipFill` on a shape. It stays outside `Fill` because a blip fill has no colour to put in the
  * required `color` — a gradient could donate its first stop, a picture has nothing — and because
  * `Fill` also types run colours, table cells, backgrounds and theme entries, none of which support a
@@ -300,6 +323,8 @@ export interface ShapeElement {
   stroke?: Fill
   /** An `a:blipFill`, which replaces `fill` rather than layering with it — see `PictureFill`. */
   pictureFill?: PictureFill
+  /** `a:effectLst/a:outerShdw`; the only effect modeled so far. */
+  shadow?: OuterShadow
   /** `a:ln/@w` in EMU. Absent means the source said nothing, so painting keeps its hairline default. */
   strokeWidth?: number
   /** `a:ln/a:prstDash`, narrowed to what painting can express. */
@@ -341,6 +366,7 @@ export interface TextElement {
   fill?: Fill
   stroke?: Fill
   pictureFill?: PictureFill
+  shadow?: OuterShadow
   strokeWidth?: number
   strokeStyle?: StrokeStyle
   strokeCap?: StrokeCap
@@ -1220,6 +1246,26 @@ function validateColorMap(value: unknown, path: string, errors: string[]): void 
   }
 }
 
+/**
+ * A shadow with no colour is not paintable, and the three measurements follow the same integer rules
+ * their OOXML attributes do: EMU lengths are non-negative, the direction is a signed 1/60000 degree.
+ */
+function validateOuterShadow(value: OuterShadow, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  validateColor((value as unknown as Record<string, unknown>).color, `${path}.color`, errors)
+  for (const field of ['blurRadius', 'distance'] as const) {
+    if (value[field] !== undefined) {
+      validateFiniteNumber(value[field], `${path}.${field}`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')
+    }
+  }
+  if (value.direction !== undefined) {
+    validateFiniteNumber(value.direction, `${path}.direction`, errors, Number.isInteger, 'must be an integer')
+  }
+}
+
 /** `a:srcRect` sides, shared by `ImageElement.sourceCrop` and `PictureFill.sourceCrop`. */
 function validateImageCrop(value: ImageCrop, path: string, errors: string[]): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -1787,6 +1833,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     if (element.kind === 'shape' || element.kind === 'text') {
       if (element.fill !== undefined) validateFill(element.fill, `elements.${elementId}.fill`, errors)
       if (element.stroke !== undefined) validateFill(element.stroke, `elements.${elementId}.stroke`, errors)
+      if (element.shadow !== undefined) validateOuterShadow(element.shadow, `elements.${elementId}.shadow`, errors)
       // Same rule an image's `assetId` gets: a reference the asset map cannot answer paints nothing,
       // and finding that out at paint time would only surface as a silently empty shape.
       if (element.pictureFill !== undefined) {

@@ -1,6 +1,6 @@
 import type { PathCommand } from '@ppt4ai/geometry'
-import { gradientAxis } from '@ppt4ai/geometry'
-import type { Rect, ResolvedColor, ResolvedGradient, StrokeCap, StrokeJoin, StrokeStyle } from '@ppt4ai/model'
+import { gradientAxis, rotationRadians } from '@ppt4ai/geometry'
+import type { Rect, ResolvedColor, ResolvedGradient, ResolvedShadow, StrokeCap, StrokeJoin, StrokeStyle } from '@ppt4ai/model'
 import type { SceneShapeNode, ScenePictureFill } from '@ppt4ai/render'
 import type { DecodedImage } from './image-canvas-renderer'
 import { cropSource } from './image-painting'
@@ -75,6 +75,50 @@ export function dashPattern(style: StrokeStyle, width: number): number[] {
       return [...dash, ...dot, ...dot]
     default:
       return []
+  }
+}
+
+/**
+ * `dist` and `dir` become canvas offsets exactly — `dir` carries `a:lin/@ang`'s unit, which the
+ * geometry package already converts. `blurRad` is handed to `shadowBlur` unchanged: canvas defines
+ * that as a Gaussian with σ = half the value, and its relation to OOXML's radius is not verifiable
+ * here, so this is a documented approximation rather than a conversion.
+ */
+function applyShadow(context: ShapeContext, shadow: ResolvedShadow, scale: number): void {
+  const { style, alpha } = colorStyle(shadow.color)
+  const red = Number.parseInt(style.slice(1, 3), 16)
+  const green = Number.parseInt(style.slice(3, 5), 16)
+  const blue = Number.parseInt(style.slice(5, 7), 16)
+  const angle = rotationRadians(shadow.direction ?? 0)
+  const distance = (shadow.distance ?? 0) * scale
+  context.shadowColor = `rgba(${red}, ${green}, ${blue}, ${alpha})`
+  context.shadowBlur = (shadow.blurRadius ?? 0) * scale
+  context.shadowOffsetX = Math.cos(angle) * distance
+  context.shadowOffsetY = Math.sin(angle) * distance
+}
+
+/** Set unconditionally for the same reason `lineCap` is: an unset shadow keeps the previous one. */
+export function clearShadow(context: ShapeContext): void {
+  context.shadowColor = 'rgba(0, 0, 0, 0)'
+  context.shadowBlur = 0
+  context.shadowOffsetX = 0
+  context.shadowOffsetY = 0
+}
+
+/**
+ * A shape casts one shadow, not one per paint operation: filling and stroking would each cast their
+ * own, and the stroke's would show through a translucent fill. The first operation that paints gets
+ * the shadow and every later one gets it cleared.
+ */
+function shadowCaster(context: ShapeContext, shadow: ResolvedShadow | undefined, scale: number): () => void {
+  let pending = shadow !== undefined
+  return () => {
+    if (shadow && pending) {
+      applyShadow(context, shadow, scale)
+      pending = false
+      return
+    }
+    clearShadow(context)
   }
 }
 
@@ -162,6 +206,7 @@ export function paintPathFills(
     pictureFill?: ScenePictureFill
     /** The decoded media for `pictureFill`; absent means it could not be loaded, so no fill paints. */
     picture?: DecodedImage
+    shadow?: ResolvedShadow
     stroke?: ResolvedColor
     strokeGradient?: ResolvedGradient
     strokeBounds?: Rect
@@ -180,16 +225,20 @@ export function paintPathFills(
   const strokeRamp = colors.strokeGradient && colors.strokeBounds
     ? fillGradient(context, colors.strokeGradient, mapRect(colors.strokeBounds, mapping))
     : undefined
+  const castShadow = shadowCaster(context, colors.shadow, mapping.scale)
   if (fill) {
     tracePath(context, path, mapping)
     context.fillStyle = gradient ?? fill.style
     context.globalAlpha = gradient ? 1 : fill.alpha
+    castShadow()
     context.fill()
   }
   if (colors.pictureFill && colors.picture && colors.fillBounds) {
+    castShadow()
     paintPictureFill(context, path, mapping, mapRect(colors.fillBounds, mapping), colors.pictureFill, colors.picture)
   }
   if (stroke) {
+    castShadow()
     tracePath(context, path, mapping)
     context.strokeStyle = strokeRamp ?? stroke.style
     context.globalAlpha = strokeRamp ? 1 : stroke.alpha
@@ -202,6 +251,9 @@ export function paintPathFills(
     context.setLineDash(dashPattern(colors.strokeStyle ?? 'solid', width))
     context.stroke()
   }
+  // This function has no save/restore of its own, and text is drawn right after it: leaving the
+  // shadow set would put one behind every glyph.
+  clearShadow(context)
 }
 
 /**
@@ -250,6 +302,7 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
     const bounds = mapRect(node.bounds, mapping)
 
     withFlipAndRotation(context, bounds, node.transform, () => {
+      const castShadow = shadowCaster(context, node.shadow, mapping.scale)
       createPath(context, node, mapping)
       if (fill) {
         createPath(context, node, mapping)
@@ -258,13 +311,16 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
           ? fillGradient(context, node.resolvedFillGradient, bounds)
           : fill.style
         context.globalAlpha = node.resolvedFillGradient ? 1 : fill.alpha
+        castShadow()
         context.fill()
       }
       if (node.pictureFill && picture) {
+        castShadow()
         paintPictureFill(context, node.path, mapping, bounds, node.pictureFill, picture)
       }
       if (stroke) {
         createPath(context, node, mapping)
+        castShadow()
         context.strokeStyle = node.resolvedStrokeGradient
           ? fillGradient(context, node.resolvedStrokeGradient, bounds)
           : stroke.style

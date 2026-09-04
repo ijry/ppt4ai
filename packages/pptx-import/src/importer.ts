@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type PictureFill, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -864,6 +864,28 @@ function parsePicture(
 }
 
 /**
+ * `spPr/a:effectLst/a:outerShdw`, the only effect modeled. A shadow with no usable colour is dropped
+ * whole: the three measurements describe where to put a colour we would not have. Attributes the
+ * canvas cannot honour (`sx`/`sy`/`kx`/`ky`/`algn`/`rotWithShape`) are deliberately not read.
+ */
+function parseOuterShadow(shape: XmlNode): OuterShadow | undefined {
+  const effects = shapeProperties(shape) && child(shapeProperties(shape)!, 'effectLst')
+  const outer = effects && child(effects, 'outerShdw')
+  if (!outer) return undefined
+  const color = parseColor(outer)
+  if (!color) return undefined
+  const blurRadius = parseIntegerAttribute(attribute(outer, 'blurRad'))
+  const distance = parseIntegerAttribute(attribute(outer, 'dist'))
+  const direction = parseIntegerAttribute(attribute(outer, 'dir'))
+  return {
+    color,
+    ...(blurRadius !== undefined && blurRadius >= 0 ? { blurRadius } : {}),
+    ...(distance !== undefined && distance >= 0 ? { distance } : {}),
+    ...(direction === undefined ? {} : { direction }),
+  }
+}
+
+/**
  * `a:blipFill` on a shape's `spPr`. `a:tile` is refused rather than painted as one stretched copy:
  * its six placement attributes decide where the repeats land, and guessing them puts the pattern in
  * the wrong place. A blip fill with no fill mode at all reads as stretch, which is what `p:pic`
@@ -1180,6 +1202,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     if (textCap) element.strokeCap = textCap
     const textJoin = parseStrokeJoin(line)
     if (textJoin) element.strokeJoin = textJoin
+    const textShadow = parseOuterShadow(shape)
+    if (textShadow) element.shadow = textShadow
     const styleRef = parseShapeStyleReference(shape)
     if (styleRef) element.styleRef = styleRef
     return element
@@ -1207,6 +1231,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   if (shapeCap) element.strokeCap = shapeCap
   const shapeJoin = parseStrokeJoin(shapeLine)
   if (shapeJoin) element.strokeJoin = shapeJoin
+  const shapeShadow = parseOuterShadow(shape)
+  if (shapeShadow) element.shadow = shapeShadow
   const shapeStyleRef = parseShapeStyleReference(shape)
   if (shapeStyleRef) element.styleRef = shapeStyleRef
   return element

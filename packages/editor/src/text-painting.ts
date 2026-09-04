@@ -203,6 +203,7 @@ export function paintTextNode(context: TextContext, node: SceneTextNode, mapping
         ...(node.strokeStyle === undefined ? {} : { strokeStyle: node.strokeStyle }),
         ...(node.strokeCap === undefined ? {} : { strokeCap: node.strokeCap }),
         ...(node.strokeJoin === undefined ? {} : { strokeJoin: node.strokeJoin }),
+        ...(node.shadow ? { shadow: node.shadow } : {}),
       })
     }
     paintTextLayout(context, node.layout, mapping)

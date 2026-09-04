@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PictureFill, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -37,6 +37,8 @@ export interface SceneShapeNode {
   stroke?: Fill
   /** An `a:blipFill`: painting clips it to `path`, and no resolved colour comes with it. */
   pictureFill?: ScenePictureFill
+  /** `a:outerShdw` with its colour resolved; painting casts it once, under the shape's silhouette. */
+  shadow?: ResolvedShadow
   resolvedFillColor?: ResolvedColor
   /** Present only for a linear gradient fill; `resolvedFillColor` stays set as the flat fallback. */
   resolvedFillGradient?: ResolvedGradient
@@ -81,6 +83,7 @@ export interface SceneTextNode {
   fill?: Fill
   stroke?: Fill
   pictureFill?: ScenePictureFill
+  shadow?: ResolvedShadow
   resolvedFillColor?: ResolvedColor
   resolvedFillGradient?: ResolvedGradient
   resolvedStrokeColor?: ResolvedColor
@@ -357,6 +360,19 @@ function scenePictureFill(element: { pictureFill?: PictureFill }, assets?: Ppt4a
   }
 }
 
+/** The shadow's colour goes through the theme like any other; an unresolvable colour drops it. */
+function resolvedShadow(shadow: OuterShadow | undefined, context: SceneThemeContext): ResolvedShadow | undefined {
+  if (!shadow) return undefined
+  const color = resolveColor(shadow.color, context.theme, context.colorMap)
+  if (!color) return undefined
+  return {
+    color,
+    ...(shadow.blurRadius === undefined ? {} : { blurRadius: shadow.blurRadius }),
+    ...(shadow.distance === undefined ? {} : { distance: shadow.distance }),
+    ...(shadow.direction === undefined ? {} : { direction: shadow.direction }),
+  }
+}
+
 function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: SceneThemeContext, assets?: Ppt4aiDocument['assets']): SceneShapeNode {
   const node: SceneShapeNode = {
     id: element.id,
@@ -382,6 +398,8 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   if (stroke.style !== undefined) node.strokeStyle = stroke.style
   if (element.strokeCap !== undefined) node.strokeCap = element.strokeCap
   if (element.strokeJoin !== undefined) node.strokeJoin = element.strokeJoin
+  const shadow = resolvedShadow(element.shadow, context)
+  if (shadow) node.shadow = shadow
   const transform = elementTransform(element)
   if (transform) node.transform = transform
   return node
@@ -430,6 +448,8 @@ function createTextNode(
   if (stroke.style !== undefined) node.strokeStyle = stroke.style
   if (element.strokeCap !== undefined) node.strokeCap = element.strokeCap
   if (element.strokeJoin !== undefined) node.strokeJoin = element.strokeJoin
+  const shadow = resolvedShadow(element.shadow, context)
+  if (shadow) node.shadow = shadow
   const transform = elementTransform(element)
   if (transform) node.transform = transform
   return node

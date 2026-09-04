@@ -6,6 +6,7 @@ import {
   DEFAULT_THEME_STYLE_FILL,
   type Color,
   type Fill,
+  type OuterShadow,
   type Rect,
   type ShapeElement,
   type ShapeStyleReference,
@@ -257,6 +258,17 @@ function serializeShapeStyleXml(styleRef: ShapeStyleReference | undefined): stri
 }
 
 /**
+ * `a:effectLst/a:outerShdw`, written after `a:ln` — the ECMA-376 sequence in `CT_ShapeProperties`.
+ * Only the four modeled values are emitted; a source file's `sx`/`kx`/`algn` never reach the model, so
+ * this is the whole shadow as far as the model is concerned.
+ */
+function serializeShadowXml(shadow: OuterShadow | undefined): string {
+  if (!shadow) return ''
+  const attributes = attrs([['blurRad', shadow.blurRadius], ['dist', shadow.distance], ['dir', shadow.direction]])
+  return `<a:effectLst><a:outerShdw${attributes}>${serializeColorXml(shadow.color)}</a:outerShdw></a:effectLst>`
+}
+
+/**
  * A shape's `a:blipFill`. `relationshipId` comes from the caller because the media part and its
  * relationship are allocated per slide, exactly as `p:pic` does; the child order is the ECMA one
  * (`a:blip`, then `a:srcRect`, then the fill mode).
@@ -285,7 +297,7 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   // One fill node per shape: the picture replaces the colour, the way the scene and the command do.
   const pictureFill = serializePictureFillXml(element, pictureRelationshipId)
   const fill = pictureFill === '' ? serializeFillXml(element.fill) : pictureFill
-  const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${serializeGeometry(preset)}${fill}${line}</p:spPr>`
+  const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${serializeGeometry(preset)}${fill}${line}${serializeShadowXml(element.shadow)}</p:spPr>`
   const textBody = isText
     ? serializeTextBodyXml(element.body ?? { paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }] })
     : ''
