@@ -156,6 +156,12 @@ export interface ResolvedGradient {
 
 export type StrokeStyle = 'solid' | 'dash' | 'dot'
 
+/** `a:ln/@cap` verbatim, so the exporter writes the model value without a mapping table. */
+export type StrokeCap = 'flat' | 'rnd' | 'sq'
+
+/** The `a:ln` corner child element name: `a:round`, `a:bevel` or `a:miter`. */
+export type StrokeJoin = 'round' | 'bevel' | 'miter'
+
 /** One `a:gs` of `a:gsLst`: a colour at a position in thousandths of a percent. */
 export interface GradientStop {
   /** `a:gs/@pos`, 0..100000. */
@@ -263,6 +269,8 @@ export interface ShapeElement {
   strokeWidth?: number
   /** `a:ln/a:prstDash`, narrowed to what painting can express. */
   strokeStyle?: StrokeStyle
+  strokeCap?: StrokeCap
+  strokeJoin?: StrokeJoin
   styleRef?: ShapeStyleReference
   placeholder?: string
 }
@@ -299,6 +307,8 @@ export interface TextElement {
   stroke?: Fill
   strokeWidth?: number
   strokeStyle?: StrokeStyle
+  strokeCap?: StrokeCap
+  strokeJoin?: StrokeJoin
   styleRef?: ShapeStyleReference
   placeholder?: string
 }
@@ -988,6 +998,8 @@ const tableStyleRegions = new Set<TableStyleRegionName>(['wholeTable', 'band1H',
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
 const presetGeometries = new Set<PresetGeometry>(['rect', 'roundRect', 'ellipse', 'triangle'])
 const strokeStyles = new Set<StrokeStyle>(['solid', 'dash', 'dot'])
+const strokeCaps = new Set<StrokeCap>(['flat', 'rnd', 'sq'])
+const strokeJoins = new Set<StrokeJoin>(['round', 'bevel', 'miter'])
 const fontCollectionIndexes = new Set(['major', 'minor', 'none'])
 const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
@@ -1719,6 +1731,12 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.strokeStyle !== undefined && !strokeStyles.has(element.strokeStyle)) {
       errors.push(`elements.${elementId}.strokeStyle must be solid, dash, or dot`)
+    }
+    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeCap !== undefined && !strokeCaps.has(element.strokeCap)) {
+      errors.push(`elements.${elementId}.strokeCap must be flat, rnd, or sq`)
+    }
+    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeJoin !== undefined && !strokeJoins.has(element.strokeJoin)) {
+      errors.push(`elements.${elementId}.strokeJoin must be round, bevel, or miter`)
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.strokeWidth !== undefined) {
       validateFiniteNumber(element.strokeWidth, `elements.${elementId}.strokeWidth`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')

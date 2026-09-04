@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -44,6 +44,8 @@ export interface SceneShapeNode {
   /** `a:ln/@w` in EMU, carried through so paint can set a real line width. */
   strokeWidth?: number
   strokeStyle?: StrokeStyle
+  strokeCap?: StrokeCap
+  strokeJoin?: StrokeJoin
   transform?: ElementTransform
 }
 
@@ -82,6 +84,8 @@ export interface SceneTextNode {
   resolvedStrokeGradient?: ResolvedGradient
   strokeWidth?: number
   strokeStyle?: StrokeStyle
+  strokeCap?: StrokeCap
+  strokeJoin?: StrokeJoin
   transform?: ElementTransform
 }
 
@@ -345,6 +349,8 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   const stroke = shapeStroke(element, context)
   if (stroke.width !== undefined) node.strokeWidth = stroke.width
   if (stroke.style !== undefined) node.strokeStyle = stroke.style
+  if (element.strokeCap !== undefined) node.strokeCap = element.strokeCap
+  if (element.strokeJoin !== undefined) node.strokeJoin = element.strokeJoin
   const transform = elementTransform(element)
   if (transform) node.transform = transform
   return node
@@ -387,6 +393,8 @@ function createTextNode(
   const stroke = shapeStroke(element, context)
   if (stroke.width !== undefined) node.strokeWidth = stroke.width
   if (stroke.style !== undefined) node.strokeStyle = stroke.style
+  if (element.strokeCap !== undefined) node.strokeCap = element.strokeCap
+  if (element.strokeJoin !== undefined) node.strokeJoin = element.strokeJoin
   const transform = elementTransform(element)
   if (transform) node.transform = transform
   return node

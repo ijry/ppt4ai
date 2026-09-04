@@ -198,6 +198,8 @@ export function paintTextNode(context: TextContext, node: SceneTextNode, mapping
         ...(node.resolvedStrokeGradient ? { strokeGradient: node.resolvedStrokeGradient, strokeBounds: node.bounds } : {}),
         ...(node.strokeWidth === undefined ? {} : { strokeWidth: node.strokeWidth }),
         ...(node.strokeStyle === undefined ? {} : { strokeStyle: node.strokeStyle }),
+        ...(node.strokeCap === undefined ? {} : { strokeCap: node.strokeCap }),
+        ...(node.strokeJoin === undefined ? {} : { strokeJoin: node.strokeJoin }),
       })
     }
     paintTextLayout(context, node.layout, mapping)

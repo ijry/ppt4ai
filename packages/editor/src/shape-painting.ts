@@ -1,6 +1,6 @@
 import type { PathCommand } from '@ppt4ai/geometry'
 import { gradientAxis } from '@ppt4ai/geometry'
-import type { Rect, ResolvedColor, ResolvedGradient, StrokeStyle } from '@ppt4ai/model'
+import type { Rect, ResolvedColor, ResolvedGradient, StrokeCap, StrokeJoin, StrokeStyle } from '@ppt4ai/model'
 import type { SceneShapeNode } from '@ppt4ai/render'
 import { withFlipAndRotation } from './rotation-transform'
 
@@ -29,6 +29,20 @@ function colorStyle(color: ResolvedColor): { style: string; alpha: number } {
  * Canvas dash pattern for a stroke style, in the same units as the line width so a thick dash keeps
  * its proportions. Exported because table borders paint the same three styles and had their own copy.
  */
+/**
+ * OOXML words to canvas words. The model keeps the file's own vocabulary so the exporter can write it
+ * back verbatim; the translation belongs here, in the drawing layer's dialect.
+ */
+export function canvasLineCap(cap: StrokeCap | undefined): CanvasLineCap {
+  if (cap === 'rnd') return 'round'
+  if (cap === 'sq') return 'square'
+  return 'butt'
+}
+
+export function canvasLineJoin(join: StrokeJoin | undefined): CanvasLineJoin {
+  return join === 'round' || join === 'bevel' ? join : 'miter'
+}
+
 export function dashPattern(style: StrokeStyle, width: number): number[] {
   if (style === 'solid') return []
   if (style === 'dash') return [4 * width, 3 * width]
@@ -121,6 +135,8 @@ export function paintPathFills(
     strokeBounds?: Rect
     strokeWidth?: number
     strokeStyle?: StrokeStyle
+    strokeCap?: StrokeCap
+    strokeJoin?: StrokeJoin
   },
 ): void {
   const fill = colors.fill ? colorStyle(colors.fill) : undefined
@@ -145,6 +161,9 @@ export function paintPathFills(
     // Same floor table borders use: at thumbnail scale a real width lands below one pixel.
     const width = colors.strokeWidth !== undefined ? Math.max(1, colors.strokeWidth * mapping.scale) : 1
     context.lineWidth = width
+    // Always set: an unset cap or join keeps whatever the previous element left on the context.
+    context.lineCap = canvasLineCap(colors.strokeCap)
+    context.lineJoin = canvasLineJoin(colors.strokeJoin)
     context.setLineDash(dashPattern(colors.strokeStyle ?? 'solid', width))
     context.stroke()
   }
@@ -181,6 +200,8 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
         context.globalAlpha = node.resolvedStrokeGradient ? 1 : stroke.alpha
         const width = node.strokeWidth !== undefined ? Math.max(1, node.strokeWidth * mapping.scale) : 1
         context.lineWidth = width
+        context.lineCap = canvasLineCap(node.strokeCap)
+        context.lineJoin = canvasLineJoin(node.strokeJoin)
         context.setLineDash(dashPattern(node.strokeStyle ?? 'solid', width))
         context.stroke()
       }

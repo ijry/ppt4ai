@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type StrokeCap, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
@@ -424,12 +424,50 @@ function lineDashReplacements(xml: string, line: XmlElement, style: StrokeStyle 
   return lineReplacements(xml, line, value)
 }
 
+/** `a:ln/@cap`; absent means the OOXML default, so a model without one removes the attribute. */
+function lineCapReplacements(xml: string, line: XmlElement, cap: StrokeCap | undefined): Replacement[] {
+  const source = line.attributes.cap
+  if (cap === source || (cap === undefined && source === undefined)) return []
+  const openingEnd = xml.indexOf('>', line.start)
+  if (openingEnd < 0) throw new Error('PPTX export source line malformed')
+  const existing = /\s+cap\s*=\s*"[^"]*"/u.exec(xml.slice(line.start, openingEnd))
+  if (cap === undefined) {
+    if (!existing) return []
+    const start = line.start + existing.index
+    return [{ start, end: start + existing[0].length, value: '' }]
+  }
+  if (existing) {
+    const start = line.start + existing.index
+    return [{ start, end: start + existing[0].length, value: ` cap="${cap}"` }]
+  }
+  const nameEnd = line.start + 1 + line.name.length
+  return [{ start: nameEnd, end: nameEnd, value: ` cap="${cap}"` }]
+}
+
+const joinNames = new Set(['round', 'bevel', 'miter'])
+
+/** The corner is a child element, so changing it replaces one element with another. */
+function lineJoinReplacements(xml: string, line: XmlElement, join: StrokeJoin | undefined): Replacement[] {
+  const node = line.children.find((child) => joinNames.has(child.localName))
+  if (join === node?.localName) return []
+  if (join === undefined) return node ? [{ start: node.start, end: node.end, value: '' }] : []
+  const value = `<${qualifiedName(line.name, join)}/>`
+  if (node) return [{ start: node.start, end: node.end, value }]
+  const dash = line.children.find((child) => child.localName === 'prstDash')
+  if (dash) return [{ start: dash.end, end: dash.end, value }]
+  const fillNode = line.children.find((child) => fillNodeNames.has(child.localName))
+  if (fillNode) return [{ start: fillNode.end, end: fillNode.end, value }]
+  return lineReplacements(xml, line, value)
+}
+
 function strokeReplacements(
   xml: string,
   sourceElement: XmlElement,
   stroke: Fill | undefined,
   strokeWidth?: number,
   strokeStyle?: StrokeStyle,
+  strokeCap?: StrokeCap,
+  strokeJoin?: StrokeJoin,
 ): Replacement[] {
   const properties = sourceShapeProperties(sourceElement)
   if (!properties) return []
@@ -442,8 +480,10 @@ function strokeReplacements(
     if (stroke) {
       if (!line) {
         const dash = strokeStyle && strokeStyle !== 'solid' ? `<a:prstDash val="${strokeStyle}"/>` : ''
+        const join = strokeJoin ? `<a:${strokeJoin}/>` : ''
         const widthAttribute = strokeWidth === undefined ? '' : ` w="${strokeWidth}"`
-        const value = `<a:ln${widthAttribute}>${serializeFillXml(stroke)}${dash}</a:ln>`
+        const capAttribute = strokeCap === undefined ? '' : ` cap="${strokeCap}"`
+        const value = `<a:ln${widthAttribute}${capAttribute}>${serializeFillXml(stroke)}${dash}${join}</a:ln>`
         return shapePropertyInsertion(xml, properties, value)
       }
       const value = serializeFillForLine(stroke, line.name)
@@ -458,6 +498,8 @@ function strokeReplacements(
   if (line) {
     replacements.push(...lineWidthReplacements(xml, line, strokeWidth))
     replacements.push(...lineDashReplacements(xml, line, strokeStyle))
+    replacements.push(...lineCapReplacements(xml, line, strokeCap))
+    replacements.push(...lineJoinReplacements(xml, line, strokeJoin))
   }
   return replacements
 }
@@ -969,14 +1011,14 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
         replacements.push(...transformReplacements(xml, sourceElement, element))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
-        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle))
+        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin))
       } else if (element.kind === 'text') {
         throw new Error(`PPTX export text source mismatch for element ${element.id}`)
       } else if (element.kind === 'shape') {
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
         replacements.push(...transformReplacements(xml, sourceElement, element))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
-        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle))
+        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin))
         replacements.push(...geometryReplacements(xml, sourceElement, element.preset))
       } else {
         throw new Error(`PPTX export shape source mismatch for element ${element.id}`)

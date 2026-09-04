@@ -265,7 +265,11 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   // `a:prstDash` is a child of `a:ln` and follows the fill in the ECMA-376 sequence, not an attribute.
   // `dash` and `dot` are both valid `val` tokens, so the narrowed model values write out verbatim.
   const prstDash = element.strokeStyle && element.strokeStyle !== 'solid' ? `<a:prstDash val="${element.strokeStyle}"/>` : ''
-  const line = element.stroke ? `<a:ln${attrs([['w', element.strokeWidth]])}>${serializeFillXml(element.stroke)}${prstDash}</a:ln>` : ''
+  // The corner follows `prstDash` in the ECMA-376 sequence, and its element name is the model value.
+  const join = element.strokeJoin ? `<a:${element.strokeJoin}/>` : ''
+  const line = element.stroke
+    ? `<a:ln${attrs([['w', element.strokeWidth], ['cap', element.strokeCap]])}>${serializeFillXml(element.stroke)}${prstDash}${join}</a:ln>`
+    : ''
   const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${serializeGeometry(preset)}${serializeFillXml(element.fill)}${line}</p:spPr>`
   const textBody = isText
     ? serializeTextBodyXml(element.body ?? { paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }] })

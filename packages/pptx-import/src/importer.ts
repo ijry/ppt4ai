@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -445,6 +445,25 @@ function parseLineWidth(line: XmlNode | undefined): number | undefined {
 
 function parseStrokeWidth(shape: XmlNode): number | undefined {
   return parseLineWidth(child(shapeProperties(shape) ?? shape, 'ln'))
+}
+
+const strokeCaps = new Set<StrokeCap>(['flat', 'rnd', 'sq'])
+const strokeJoins = new Set<StrokeJoin>(['round', 'bevel', 'miter'])
+
+/** `a:ln/@cap`; an unrecognised word is ignored rather than stored, as elsewhere. */
+function parseStrokeCap(line: XmlNode | undefined): StrokeCap | undefined {
+  const value = line ? attribute(line, 'cap') : undefined
+  return value !== undefined && strokeCaps.has(value as StrokeCap) ? value as StrokeCap : undefined
+}
+
+/** The corner is a child element rather than an attribute, so its name is the value. */
+function parseStrokeJoin(line: XmlNode | undefined): StrokeJoin | undefined {
+  if (!line) return undefined
+  for (const node of line.children) {
+    const name = localName(node.name) as StrokeJoin
+    if (strokeJoins.has(name)) return name
+  }
+  return undefined
 }
 
 function parseStyleBorder(line: XmlNode | undefined): TableBorder | undefined {
@@ -1122,6 +1141,10 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     const line = child(shapeProperties(shape) ?? shape, 'ln')
     const textStrokeStyle = stroke ? parseDashStyle(line) : undefined
     if (textStrokeStyle && textStrokeStyle !== 'solid') element.strokeStyle = textStrokeStyle
+    const textCap = parseStrokeCap(line)
+    if (textCap) element.strokeCap = textCap
+    const textJoin = parseStrokeJoin(line)
+    if (textJoin) element.strokeJoin = textJoin
     const styleRef = parseShapeStyleReference(shape)
     if (styleRef) element.styleRef = styleRef
     return element
@@ -1145,6 +1168,10 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   const shapeLine = child(shapeProperties(shape) ?? shape, 'ln')
   const shapeStrokeStyle = stroke ? parseDashStyle(shapeLine) : undefined
   if (shapeStrokeStyle && shapeStrokeStyle !== 'solid') element.strokeStyle = shapeStrokeStyle
+  const shapeCap = parseStrokeCap(shapeLine)
+  if (shapeCap) element.strokeCap = shapeCap
+  const shapeJoin = parseStrokeJoin(shapeLine)
+  if (shapeJoin) element.strokeJoin = shapeJoin
   const shapeStyleRef = parseShapeStyleReference(shape)
   if (shapeStyleRef) element.styleRef = shapeStyleRef
   return element
