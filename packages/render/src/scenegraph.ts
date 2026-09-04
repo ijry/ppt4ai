@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PictureFill, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -35,6 +35,8 @@ export interface SceneShapeNode {
   path: PathCommand[]
   fill?: Fill
   stroke?: Fill
+  /** An `a:blipFill`: painting clips it to `path`, and no resolved colour comes with it. */
+  pictureFill?: ScenePictureFill
   resolvedFillColor?: ResolvedColor
   /** Present only for a linear gradient fill; `resolvedFillColor` stays set as the flat fallback. */
   resolvedFillGradient?: ResolvedGradient
@@ -78,6 +80,7 @@ export interface SceneTextNode {
   path?: PathCommand[]
   fill?: Fill
   stroke?: Fill
+  pictureFill?: ScenePictureFill
   resolvedFillColor?: ResolvedColor
   resolvedFillGradient?: ResolvedGradient
   resolvedStrokeColor?: ResolvedColor
@@ -97,6 +100,16 @@ export interface SceneTableNode {
   fill?: Fill
   stroke?: Fill
   transform?: ElementTransform
+}
+
+/**
+ * A shape's picture fill with its asset metadata inlined, the way `SceneImageNode` carries its own,
+ * so painting can decode the media without reaching back into the document.
+ */
+export interface ScenePictureFill {
+  assetId: string
+  metadata?: AssetMetadata
+  sourceCrop?: ImageCrop
 }
 
 export interface SceneImageNode {
@@ -328,7 +341,23 @@ function shapeStroke(
   return { ...(width === undefined ? {} : { width }), ...(style === undefined ? {} : { style }) }
 }
 
-function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: SceneThemeContext): SceneShapeNode {
+/**
+ * A picture fill is the whole fill: neither the element's own colour nor the style matrix entry paints
+ * under it. Compositing a transparent PNG over a fallback colour would show a colour the file never
+ * asked for, and the file said the fill is this picture.
+ */
+function scenePictureFill(element: { pictureFill?: PictureFill }, assets?: Ppt4aiDocument['assets']): ScenePictureFill | undefined {
+  const fill = element.pictureFill
+  if (!fill) return undefined
+  const metadata = assets?.[fill.assetId]
+  return {
+    assetId: fill.assetId,
+    ...(metadata ? { metadata: structuredClone(metadata) } : {}),
+    ...(fill.sourceCrop ? { sourceCrop: structuredClone(fill.sourceCrop) } : {}),
+  }
+}
+
+function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: SceneThemeContext, assets?: Ppt4aiDocument['assets']): SceneShapeNode {
   const node: SceneShapeNode = {
     id: element.id,
     kind: 'shape',
@@ -338,10 +367,12 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
 
   if (element.fill) node.fill = element.fill
   if (element.stroke) node.stroke = element.stroke
-  const fillColor = shapeFillColor(element, context)
+  const pictureFill = scenePictureFill(element, assets)
+  if (pictureFill) node.pictureFill = pictureFill
+  const fillColor = pictureFill ? undefined : shapeFillColor(element, context)
   const strokeColor = shapeStrokeColor(element, context)
   if (fillColor) node.resolvedFillColor = fillColor
-  const fillGradient = shapeFillGradient(element, context)
+  const fillGradient = pictureFill ? undefined : shapeFillGradient(element, context)
   if (fillGradient) node.resolvedFillGradient = fillGradient
   if (strokeColor) node.resolvedStrokeColor = strokeColor
   const strokeGradient = shapeStrokeGradient(element, context)
@@ -361,6 +392,7 @@ function createTextNode(
   context: SceneThemeContext,
   layout: SlideLayout | undefined,
   master: SlideMaster | undefined,
+  assets?: Ppt4aiDocument['assets'],
 ): SceneTextNode {
   const normalized = normalizeTextElement(element)
   const body = mergeLevelDefaults(normalized, element, layout, master)
@@ -378,14 +410,17 @@ function createTextNode(
   }
   if (element.fill) node.fill = element.fill
   if (element.stroke) node.stroke = element.stroke
-  const fillColor = shapeFillColor(element, context)
+  const pictureFill = scenePictureFill(element, assets)
+  if (pictureFill) node.pictureFill = pictureFill
+  const fillColor = pictureFill ? undefined : shapeFillColor(element, context)
   const strokeColor = shapeStrokeColor(element, context)
   // A shape that carries text still paints its own geometry, whether the colour came from the shape
   // or from the theme style matrix. Plain text keeps the scene shape it had before, and `rect`
-  // covers a filled text box whose source declared no geometry.
-  if (fillColor || strokeColor) node.path = createPresetPath(element.preset ?? 'rect', element.bounds)
+  // covers a filled text box whose source declared no geometry. A picture fill needs the path too —
+  // it is what the picture gets clipped to.
+  if (fillColor || strokeColor || pictureFill) node.path = createPresetPath(element.preset ?? 'rect', element.bounds)
   if (fillColor) node.resolvedFillColor = fillColor
-  const fillGradient = shapeFillGradient(element, context)
+  const fillGradient = pictureFill ? undefined : shapeFillGradient(element, context)
   if (fillGradient) node.resolvedFillGradient = fillGradient
   if (strokeColor) node.resolvedStrokeColor = strokeColor
   const strokeGradient = shapeStrokeGradient(element, context)
@@ -510,9 +545,9 @@ function createNode(
 ): SceneNode | undefined {
   switch (element.kind) {
     case 'shape':
-      return createShapeNode(element, context)
+      return createShapeNode(element, context, assets)
     case 'text':
-      return createTextNode(element, context, layout, master)
+      return createTextNode(element, context, layout, master, assets)
     case 'table':
       return createTableNode(element, context, tableStyles)
     case 'image':

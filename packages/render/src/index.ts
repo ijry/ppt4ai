@@ -3,6 +3,7 @@ export {
   type SceneGraph,
   type SceneImageNode,
   type SceneNode,
+  type ScenePictureFill,
   type SceneShapeNode,
   type SceneResolvedTableTextStyle,
   type SceneTableLayout,
