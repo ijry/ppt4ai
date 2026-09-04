@@ -84,10 +84,18 @@ export interface ThemeLineStyle extends Fill {
 
 export type ThemeLineStyleEntry = ThemeLineStyle | null
 
+/**
+ * One `a:effectStyle` of `a:effectStyleLst`, reduced to the one effect that paints. `null` covers both
+ * an empty `a:effectLst` — Office's first entry is empty — and effects we cannot express (`a:glow`,
+ * `a:reflection`, `a:effectDag`); both resolve to "no shadow", so one value serves for both.
+ */
+export type ThemeEffectStyleEntry = OuterShadow | null
+
 export interface ThemeFormatScheme {
   fillStyles?: ThemeStyleEntry[]
   lineStyles?: ThemeLineStyleEntry[]
   backgroundStyles?: ThemeStyleEntry[]
+  effectStyles?: ThemeEffectStyleEntry[]
 }
 
 /**
@@ -822,6 +830,29 @@ export function resolveStyleFillGradient(
 }
 
 /**
+ * The shadow of the `a:effectStyleLst` entry an `effectRef` points at, with `phClr` substituted the
+ * same way the gradient entries do it — Office's third entry is `phClr` with an alpha, so skipping the
+ * substitution would resolve to no colour and drop the shadow entirely.
+ */
+export function resolveStyleEffect(
+  reference: StyleReference | undefined,
+  theme?: Theme,
+  colorMap: ColorMap = DEFAULT_COLOR_MAP,
+): ResolvedShadow | undefined {
+  const entry = styleEntryAt(reference, theme?.formatScheme?.effectStyles)
+  if (!entry) return undefined
+  const substituted = substitutePlaceholderColor(entry.color, reference?.color)
+  const color = substituted ? resolveColorSource(substituted, theme, colorMap, new Set<string>(), 0) : undefined
+  if (!color) return undefined
+  return {
+    color,
+    ...(entry.blurRadius === undefined ? {} : { blurRadius: entry.blurRadius }),
+    ...(entry.distance === undefined ? {} : { distance: entry.distance }),
+    ...(entry.direction === undefined ? {} : { direction: entry.direction }),
+  }
+}
+
+/**
  * The width and dash of the `a:lnStyleLst` entry a `lnRef` points at. Separate from
  * `resolveStyleLine` because the colour needs `phClr` substitution and the colour map, while these
  * two need only the index. A `null` entry yields nothing rather than an invented width.
@@ -1176,6 +1207,17 @@ function validateThemeStyleEntries(value: unknown, path: string, errors: string[
   }
   value.forEach((entry, index) => {
     if (entry !== null) validateFill(entry, `${path}[${index}]`, errors)
+  })
+}
+
+/** `null` is the modeled "nothing paintable here", so only real entries go through the shadow rules. */
+function validateThemeEffectStyleEntries(value: unknown, path: string, errors: string[]): void {
+  if (!Array.isArray(value)) {
+    errors.push(`${path} must be an array`)
+    return
+  }
+  value.forEach((entry, index) => {
+    if (entry !== null) validateOuterShadow(entry as OuterShadow, `${path}[${index}]`, errors)
   })
 }
 
@@ -1714,10 +1756,11 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       if ('formatScheme' in theme && theme.formatScheme !== undefined) {
         const scheme = theme.formatScheme
         if (!scheme || typeof scheme !== 'object' || Array.isArray(scheme)) errors.push(`${themePath}.formatScheme must be an object`)
-        else for (const key of ['fillStyles', 'lineStyles', 'backgroundStyles'] as const) {
+        else for (const key of ['fillStyles', 'lineStyles', 'backgroundStyles', 'effectStyles'] as const) {
           const entries = (scheme as Record<string, unknown>)[key]
           if (entries === undefined) continue
           if (key === 'lineStyles') validateThemeLineStyleEntries(entries, `${themePath}.formatScheme.${key}`, errors)
+          else if (key === 'effectStyles') validateThemeEffectStyleEntries(entries, `${themePath}.formatScheme.${key}`, errors)
           else validateThemeStyleEntries(entries, `${themePath}.formatScheme.${key}`, errors)
         }
       }

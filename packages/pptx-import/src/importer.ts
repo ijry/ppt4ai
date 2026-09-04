@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -187,6 +187,32 @@ function parseThemeStyleEntries(list: XmlNode | undefined): ThemeStyleEntry[] | 
   return entries.length > 0 ? entries : undefined
 }
 
+/**
+ * `a:effectStyleLst` entries. Each `a:effectStyle` keeps only its `a:outerShdw`; an empty effect list
+ * and one holding effects we cannot express both become `null`, which is what the model means by
+ * "this entry paints nothing" — the same convention the fill entries use for gradients and pictures.
+ */
+function parseThemeEffectStyleEntries(list: XmlNode | undefined): ThemeEffectStyleEntry[] | undefined {
+  if (!list) return undefined
+  const entries: ThemeEffectStyleEntry[] = list.children.map((node) => {
+    const effects = child(node, 'effectLst')
+    const outer = effects && child(effects, 'outerShdw')
+    if (!outer) return null
+    const color = parseColor(outer)
+    if (!color) return null
+    const blurRadius = parseIntegerAttribute(attribute(outer, 'blurRad'))
+    const distance = parseIntegerAttribute(attribute(outer, 'dist'))
+    const direction = parseIntegerAttribute(attribute(outer, 'dir'))
+    return {
+      color,
+      ...(blurRadius !== undefined && blurRadius >= 0 ? { blurRadius } : {}),
+      ...(distance !== undefined && distance >= 0 ? { distance } : {}),
+      ...(direction === undefined ? {} : { direction }),
+    }
+  })
+  return entries.length > 0 ? entries : undefined
+}
+
 /** `a:lnStyleLst` entries wrap their fill in `a:ln`, which also carries the width and the dash. */
 function parseThemeLineStyleEntries(list: XmlNode | undefined): ThemeLineStyleEntry[] | undefined {
   if (!list) return undefined
@@ -217,8 +243,14 @@ function parseFormatScheme(root: XmlNode): ThemeFormatScheme | undefined {
   const fillStyles = parseThemeStyleEntries(child(scheme, 'fillStyleLst'))
   const lineStyles = parseThemeLineStyleEntries(child(scheme, 'lnStyleLst'))
   const backgroundStyles = parseThemeStyleEntries(child(scheme, 'bgFillStyleLst'))
-  if (!fillStyles && !lineStyles && !backgroundStyles) return undefined
-  return { ...(fillStyles ? { fillStyles } : {}), ...(lineStyles ? { lineStyles } : {}), ...(backgroundStyles ? { backgroundStyles } : {}) }
+  const effectStyles = parseThemeEffectStyleEntries(child(scheme, 'effectStyleLst'))
+  if (!fillStyles && !lineStyles && !backgroundStyles && !effectStyles) return undefined
+  return {
+    ...(fillStyles ? { fillStyles } : {}),
+    ...(lineStyles ? { lineStyles } : {}),
+    ...(backgroundStyles ? { backgroundStyles } : {}),
+    ...(effectStyles ? { effectStyles } : {}),
+  }
 }
 
 function parseTheme(xml: string, id: string, partPath: string): Theme | undefined {

@@ -8,6 +8,7 @@ import {
   type Fill,
   type OuterShadow,
   type Rect,
+  type ThemeEffectStyleEntry,
   type ShapeElement,
   type ShapeStyleReference,
   type SlideBackground,
@@ -141,6 +142,10 @@ function paddedEntries<T>(entries: readonly T[] | undefined, fallback: (index: n
   return padded
 }
 
+function themeEffectStyleXml(entry: ThemeEffectStyleEntry): string {
+  return `<a:effectStyle>${entry === null ? '<a:effectLst/>' : serializeShadowXml(entry)}</a:effectStyle>`
+}
+
 /**
  * A `null` entry is one the model cannot express — a gradient, pattern or picture. It still has to
  * occupy its slot, because references are positional and skipping it would shift every later index.
@@ -176,7 +181,11 @@ function serializeFormatSchemeXml(theme: Theme | undefined): string {
     (index) => ({ ...DEFAULT_THEME_STYLE_FILL, width: DEFAULT_THEME_LINE_WIDTHS[index] ?? DEFAULT_THEME_LINE_WIDTHS[0] }),
   ).map(themeLineStyleXml).join('')
   const backgrounds = paddedEntries(scheme?.backgroundStyles, () => DEFAULT_THEME_STYLE_FILL).map(themeStyleFillXml).join('')
-  const effects = Array.from({ length: DEFAULT_THEME_STYLE_COUNT }, () => '<a:effectStyle><a:effectLst/></a:effectStyle>').join('')
+  // A `null` entry writes an empty `a:effectLst`, which is exactly what Office's first entry is, and
+  // padding uses the same value — until this wrote real entries, an `effectRef idx="2"` in a generated
+  // package pointed at an empty slot, the last corner of the dangling-reference bug the other three
+  // lists already fixed.
+  const effects = paddedEntries<ThemeEffectStyleEntry>(scheme?.effectStyles, () => null).map(themeEffectStyleXml).join('')
   return `<a:fmtScheme name="Office"><a:fillStyleLst>${fills}</a:fillStyleLst><a:lnStyleLst>${lines}</a:lnStyleLst>`
     + `<a:effectStyleLst>${effects}</a:effectStyleLst><a:bgFillStyleLst>${backgrounds}</a:bgFillStyleLst></a:fmtScheme>`
 }

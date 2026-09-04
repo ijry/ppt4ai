@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -360,6 +360,19 @@ function scenePictureFill(element: { pictureFill?: PictureFill }, assets?: Ppt4a
   }
 }
 
+/**
+ * Direct formatting wins whole, which is deliberately unlike the outline: `a:ln`'s properties merge per
+ * attribute, but an `a:effectLst` is one unit — a source that wrote its own list means "use this list,
+ * not the gallery's", and mixing the two would invent an effect the file never described.
+ */
+function shapeShadow(
+  element: { shadow?: OuterShadow; styleRef?: ShapeStyleReference },
+  context: SceneThemeContext,
+): ResolvedShadow | undefined {
+  return resolvedShadow(element.shadow, context)
+    ?? resolveStyleEffect(element.styleRef?.effect, context.theme, context.colorMap)
+}
+
 /** The shadow's colour goes through the theme like any other; an unresolvable colour drops it. */
 function resolvedShadow(shadow: OuterShadow | undefined, context: SceneThemeContext): ResolvedShadow | undefined {
   if (!shadow) return undefined
@@ -398,7 +411,7 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   if (stroke.style !== undefined) node.strokeStyle = stroke.style
   if (element.strokeCap !== undefined) node.strokeCap = element.strokeCap
   if (element.strokeJoin !== undefined) node.strokeJoin = element.strokeJoin
-  const shadow = resolvedShadow(element.shadow, context)
+  const shadow = shapeShadow(element, context)
   if (shadow) node.shadow = shadow
   const transform = elementTransform(element)
   if (transform) node.transform = transform
@@ -448,7 +461,7 @@ function createTextNode(
   if (stroke.style !== undefined) node.strokeStyle = stroke.style
   if (element.strokeCap !== undefined) node.strokeCap = element.strokeCap
   if (element.strokeJoin !== undefined) node.strokeJoin = element.strokeJoin
-  const shadow = resolvedShadow(element.shadow, context)
+  const shadow = shapeShadow(element, context)
   if (shadow) node.shadow = shadow
   const transform = elementTransform(element)
   if (transform) node.transform = transform
