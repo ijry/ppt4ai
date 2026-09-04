@@ -211,9 +211,11 @@ function serializeParagraph(paragraph: TextParagraph): string {
 
 /**
  * `prefix` applies to the outer `txBody` tag only: a shape needs `p:txBody` while a table cell
- * needs `a:txBody`, but everything inside is `a:` in both contexts.
+ * needs `a:txBody`, but everything inside is `a:` in both contexts. `listStyle` fills the `a:lstStyle`
+ * this always emitted empty — a master or layout placeholder carries its level defaults there.
  */
-export function serializeTextBodyXml(body: TextBody, prefix = 'p:'): string {
+export function serializeTextBodyXml(body: TextBody, prefix = 'p:', listStyle?: readonly LevelDefaults[]): string {
   const paragraphs = body.paragraphs.length > 0 ? body.paragraphs : [{ runs: [] }]
-  return `<${prefix}txBody>${serializeBodyProperties(body)}<a:lstStyle/>${paragraphs.map(serializeParagraph).join('')}</${prefix}txBody>`
+  const levels = listStyle && listStyle.length > 0 ? `<a:lstStyle>${serializeLevelDefaultsXml(listStyle)}</a:lstStyle>` : '<a:lstStyle/>'
+  return `<${prefix}txBody>${serializeBodyProperties(body)}${levels}${paragraphs.map(serializeParagraph).join('')}</${prefix}txBody>`
 }

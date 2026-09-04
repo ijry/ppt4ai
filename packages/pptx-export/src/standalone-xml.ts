@@ -7,6 +7,7 @@ import {
   DEFAULT_THEME_STYLE_FILL,
   type Color,
   type ColorMap,
+  type ElementDefaults,
   type Fill,
   type GroupElement,
   type LevelDefaults,
@@ -295,13 +296,46 @@ function serializeTextStylesXml(styles: TextStyles | undefined): string {
 }
 
 /**
+ * One `defaults` entry as a `p:sp` carrying its `p:ph`. Neither `serializeShapeXml` branch fits — a text
+ * element writes `txBox="1"`, which a placeholder is not, and a shape writes no `p:txBody`, which is
+ * where `a:lstStyle` has to live — so the pieces are composed here from the same helpers.
+ */
+function serializePlaceholderShapeXml(placeholder: string, defaults: ElementDefaults, shapeId: number): string {
+  const nonVisualProperties = `<p:nvSpPr><p:cNvPr id="${shapeId}" name="${escapeXml(placeholder)}"/><p:cNvSpPr/>`
+    + `<p:nvPr>${serializePlaceholder(placeholder)}</p:nvPr></p:nvSpPr>`
+  const transform = defaults.bounds
+    ? `<a:xfrm${attrs([['rot', defaults.rotation]])}>${serializeTransformContents(defaults.bounds)}</a:xfrm>`
+    : ''
+  const geometry = defaults.preset ? serializeGeometry(defaults.preset) : ''
+  const line = defaults.stroke ? `<a:ln>${serializeFillXml(defaults.stroke)}</a:ln>` : ''
+  const shapeProperties = `<p:spPr>${transform}${geometry}${serializeFillXml(defaults.fill)}${line}</p:spPr>`
+  // `body` wins over the legacy flat `text`, the rule elements already follow; the importer derives
+  // `text` back from whichever was written.
+  const body = defaults.body ?? { paragraphs: [{ runs: defaults.text ? [{ text: defaults.text }] : [] }] }
+  return `<p:sp>${nonVisualProperties}${shapeProperties}${serializeTextBodyXml(body, 'p:', defaults.listStyle)}</p:sp>`
+}
+
+/**
+ * The `p:spTree` of a master or layout. Keys are walked in sorted order, not insertion order: two
+ * structurally equal documents have to produce the same bytes, which the determinism test pins.
+ */
+function serializeSpTreeXml(defaults: Record<string, ElementDefaults> | undefined): string {
+  const placeholders = Object.keys(defaults ?? {}).sort()
+    .map((placeholder, index) => {
+      const entry = defaults?.[placeholder]
+      return entry ? serializePlaceholderShapeXml(placeholder, entry, index + 2) : ''
+    })
+    .join('')
+  return `<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${placeholders}</p:spTree>`
+}
+
+/**
  * The one `slideMaster1.xml`, now filled from the model. `p:txStyles` closes `CT_SlideMaster`, after
  * `p:sldLayoutIdLst`; a master with no modeled background writes none rather than inventing white.
  */
 export function serializeMasterXml(master?: SlideMaster, colorMap: ColorMap = DEFAULT_COLOR_MAP): string {
-  const spTree = '<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree>'
   return `${xmlHeader}<p:sldMaster xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}">`
-    + `<p:cSld>${serializeBackgroundXml(master?.background)}${spTree}</p:cSld>`
+    + `<p:cSld>${serializeBackgroundXml(master?.background)}${serializeSpTreeXml(master?.defaults)}</p:cSld>`
     + `${serializeColorMappingXml('p:clrMap', colorMap)}`
     + '<p:sldLayoutIdLst><p:sldLayoutId id="1" r:id="rId1"/></p:sldLayoutIdLst>'
     + `${serializeTextStylesXml(master?.textStyles)}</p:sldMaster>`
@@ -316,13 +350,14 @@ export function serializeMasterRelationshipsXml(): string {
 }
 
 /**
- * The one `slideLayout1.xml`. `type="blank"` is still honest: placeholder shapes are not written yet,
- * so the layout has no placeholders to describe, whatever `defaults` the model carries.
+ * The one `slideLayout1.xml`. A layout carrying placeholders is not `blank`, and the model has no
+ * `ST_SlideLayoutType` to name instead, so it says `cust`; one with no placeholders keeps writing
+ * `blank`, which is what a document with no masters at all produced before any of this was written.
  */
 export function serializeLayoutXml(layout?: SlideLayout, colorMapOverride?: ColorMap): string {
-  const spTree = '<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree>'
-  return `${xmlHeader}<p:sldLayout xmlns:a="${drawingNamespace}" xmlns:p="${presentationNamespace}" type="blank" preserve="1">`
-    + `<p:cSld name="">${serializeBackgroundXml(layout?.background)}${spTree}</p:cSld>`
+  const type = layout?.defaults && Object.keys(layout.defaults).length > 0 ? 'cust' : 'blank'
+  return `${xmlHeader}<p:sldLayout xmlns:a="${drawingNamespace}" xmlns:p="${presentationNamespace}" type="${type}" preserve="1">`
+    + `<p:cSld name="">${serializeBackgroundXml(layout?.background)}${serializeSpTreeXml(layout?.defaults)}</p:cSld>`
     + `${serializeColorMapOverrideXml(colorMapOverride)}</p:sldLayout>`
 }
 
