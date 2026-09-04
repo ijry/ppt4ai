@@ -1,12 +1,15 @@
 import {
+  DEFAULT_COLOR_MAP,
   DEFAULT_THEME_COLORS,
   DEFAULT_THEME_FONTS,
   DEFAULT_THEME_LINE_WIDTHS,
   DEFAULT_THEME_STYLE_COUNT,
   DEFAULT_THEME_STYLE_FILL,
   type Color,
+  type ColorMap,
   type Fill,
   type GroupElement,
+  type LevelDefaults,
   type OuterShadow,
   type PictureFill,
   type Rect,
@@ -14,6 +17,8 @@ import {
   type ShapeElement,
   type ShapeStyleReference,
   type SlideBackground,
+  type SlideLayout,
+  type SlideMaster,
   type TableElement,
   type TableStyle,
   type TableStyleRegionName,
@@ -24,10 +29,12 @@ import {
   type ThemeFontSlot,
   type ThemeLineStyleEntry,
   type ThemeStyleEntry,
+  type TextStyles,
 } from '@ppt4ai/model'
 import { serializeCrop } from './image-writeback.js'
+import { colorMapKeys } from './master-layout-writeback.js'
 import { serializeTableXml, serializeThemeableBorderXml } from './table.js'
-import { attrs, escapeXml, serializeColorXml, serializeFillXml, serializeTextBodyXml, type XmlAttribute } from './text-xml.js'
+import { attrs, escapeXml, serializeColorXml, serializeFillXml, serializeLevelDefaultsXml, serializeTextBodyXml, type XmlAttribute } from './text-xml.js'
 
 export { serializeColorXml, serializeFillXml, serializeTextBodyXml } from './text-xml.js'
 
@@ -260,8 +267,44 @@ export function serializeTableStylesXml(styles: Record<string, TableStyle>): str
   return `${xmlHeader}<a:tblStyleLst xmlns:a="${drawingNamespace}" def="${escapeXml(ids[0] ?? '')}">${serialized}</a:tblStyleLst>`
 }
 
-export function serializeMasterXml(): string {
-  return `${xmlHeader}<p:sldMaster xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld><p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/><p:sldLayoutIdLst><p:sldLayoutId id="1" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>`
+/**
+ * `p:clrMap` on a master and `a:overrideClrMapping` on a layout or slide: the same twelve required
+ * attributes of `CT_ColorMapping`, which is why an override is written whole. The model's override is
+ * partial ("these slots, inherit the rest"), so the caller merges before writing.
+ */
+function serializeColorMappingXml(tag: string, map: ColorMap): string {
+  return `<${tag}${attrs(colorMapKeys.map((key) => [key, map[key]]))}/>`
+}
+
+/** `p:clrMapOvr`: a stated override replaces the inherited map whole, an absent one inherits. */
+function serializeColorMapOverrideXml(map: ColorMap | undefined): string {
+  return `<p:clrMapOvr>${map ? serializeColorMappingXml('a:overrideClrMapping', map) : '<a:masterClrMapping/>'}</p:clrMapOvr>`
+}
+
+function serializeTextStylesXml(styles: TextStyles | undefined): string {
+  if (!styles) return ''
+  const entries: Array<[string, readonly LevelDefaults[] | undefined]> = [
+    ['titleStyle', styles.title],
+    ['bodyStyle', styles.body],
+    ['otherStyle', styles.other],
+  ]
+  const serialized = entries
+    .map(([element, levels]) => levels && levels.length > 0 ? `<p:${element}>${serializeLevelDefaultsXml(levels)}</p:${element}>` : '')
+    .join('')
+  return serialized ? `<p:txStyles>${serialized}</p:txStyles>` : ''
+}
+
+/**
+ * The one `slideMaster1.xml`, now filled from the model. `p:txStyles` closes `CT_SlideMaster`, after
+ * `p:sldLayoutIdLst`; a master with no modeled background writes none rather than inventing white.
+ */
+export function serializeMasterXml(master?: SlideMaster, colorMap: ColorMap = DEFAULT_COLOR_MAP): string {
+  const spTree = '<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree>'
+  return `${xmlHeader}<p:sldMaster xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}">`
+    + `<p:cSld>${serializeBackgroundXml(master?.background)}${spTree}</p:cSld>`
+    + `${serializeColorMappingXml('p:clrMap', colorMap)}`
+    + '<p:sldLayoutIdLst><p:sldLayoutId id="1" r:id="rId1"/></p:sldLayoutIdLst>'
+    + `${serializeTextStylesXml(master?.textStyles)}</p:sldMaster>`
 }
 
 export function serializeMasterRelationshipsXml(): string {
@@ -272,8 +315,15 @@ export function serializeMasterRelationshipsXml(): string {
   return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationships.join('')}</Relationships>`
 }
 
-export function serializeLayoutXml(): string {
-  return `${xmlHeader}<p:sldLayout xmlns:a="${drawingNamespace}" xmlns:p="${presentationNamespace}" type="blank" preserve="1"><p:cSld name=""><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>`
+/**
+ * The one `slideLayout1.xml`. `type="blank"` is still honest: placeholder shapes are not written yet,
+ * so the layout has no placeholders to describe, whatever `defaults` the model carries.
+ */
+export function serializeLayoutXml(layout?: SlideLayout, colorMapOverride?: ColorMap): string {
+  const spTree = '<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree>'
+  return `${xmlHeader}<p:sldLayout xmlns:a="${drawingNamespace}" xmlns:p="${presentationNamespace}" type="blank" preserve="1">`
+    + `<p:cSld name="">${serializeBackgroundXml(layout?.background)}${spTree}</p:cSld>`
+    + `${serializeColorMapOverrideXml(colorMapOverride)}</p:sldLayout>`
 }
 
 export function serializeLayoutRelationshipsXml(): string {
@@ -477,8 +527,8 @@ function serializeBackgroundXml(background: SlideBackground | undefined, picture
   return ''
 }
 
-export function serializeSlideXml(elements: string[], background?: SlideBackground, backgroundRelationshipId?: string): string {
-  return `${xmlHeader}<p:sld xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}"><p:cSld>${serializeBackgroundXml(background, backgroundRelationshipId)}<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${elements.join('')}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`
+export function serializeSlideXml(elements: string[], background?: SlideBackground, backgroundRelationshipId?: string, colorMapOverride?: ColorMap): string {
+  return `${xmlHeader}<p:sld xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}"><p:cSld>${serializeBackgroundXml(background, backgroundRelationshipId)}<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${elements.join('')}</p:spTree></p:cSld>${serializeColorMapOverrideXml(colorMapOverride)}</p:sld>`
 }
 
 export function serializeEmptySlideXml(): string {

@@ -8,7 +8,8 @@ const fillNodeNames = new Set(['noFill', 'solidFill', 'gradFill', 'blipFill', 'p
 const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
 const themeColorSlots = new Set(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
-const colorMapKeys = ['bg1', 'tx1', 'bg2', 'tx2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'] as const
+/** The twelve `CT_ColorMapping` slots, in the order both the writeback and the standalone path write them. */
+export const colorMapKeys = ['bg1', 'tx1', 'bg2', 'tx2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'] as const
 
 type ColorMapPart = 'master' | 'layout' | 'slide'
 

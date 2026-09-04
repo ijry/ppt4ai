@@ -1,4 +1,4 @@
-import type { Color, Fill, TextAutofit, TextBody, TextBullet, TextMarks, TextParagraph } from '@ppt4ai/model'
+import type { Color, Fill, LevelDefaults, TextAutofit, TextBody, TextBullet, TextMarks, TextParagraph } from '@ppt4ai/model'
 
 export type XmlAttribute = [string, string | number | boolean | undefined]
 
@@ -119,15 +119,16 @@ function serializeTypefaces(marks: TextMarks): string {
     .join('')
 }
 
-function serializeMarks(marks: TextMarks | undefined): string {
+/** `tag` is `a:rPr` on a run and `a:defRPr` in a level default: the same attributes either way. */
+function serializeMarks(marks: TextMarks | undefined, tag = 'a:rPr'): string {
   if (!marks) return ''
-  return `<a:rPr${attrs([
+  return `<${tag}${attrs([
     ['sz', marks.fontSize === undefined ? undefined : Math.round(marks.fontSize * 100)],
     ['b', booleanAttribute(marks.bold)],
     ['i', booleanAttribute(marks.italic)],
     ['u', marks.underline],
     ['baseline', marks.baseline],
-  ])}>${serializeFillXml(marks.color)}${serializeTypefaces(marks)}</a:rPr>`
+  ])}>${serializeFillXml(marks.color)}${serializeTypefaces(marks)}</${tag}>`
 }
 
 function serializeBullet(bullet: TextBullet): string {
@@ -146,7 +147,7 @@ function toPointHundredths(value: number): number {
   return Math.round(value / 127)
 }
 
-function serializeParagraphProperties(paragraph: TextParagraph): string {
+function serializeParagraphProperties(paragraph: TextParagraph, tag = 'a:pPr', defaultMarks?: TextMarks): string {
   const paragraphAttributes = attrs([
     ['algn', paragraph.attrs?.align === 'center' ? 'ctr' : paragraph.attrs?.align === 'left' ? 'l' : paragraph.attrs?.align === 'right' ? 'r' : undefined],
     ['lvl', paragraph.attrs?.level],
@@ -158,10 +159,28 @@ function serializeParagraphProperties(paragraph: TextParagraph): string {
   if (paragraph.attrs?.spaceBefore !== undefined) children.push(`<a:spcBef><a:spcPts${attrs([['val', toPointHundredths(paragraph.attrs.spaceBefore)]])}/></a:spcBef>`)
   if (paragraph.attrs?.spaceAfter !== undefined) children.push(`<a:spcAft><a:spcPts${attrs([['val', toPointHundredths(paragraph.attrs.spaceAfter)]])}/></a:spcAft>`)
   if (paragraph.attrs?.bullet !== undefined) children.push(serializeBullet(paragraph.attrs.bullet))
+  // `a:defRPr` closes the `CT_TextParagraphProperties` sequence, after the bullet elements.
+  if (defaultMarks) children.push(serializeMarks(defaultMarks, 'a:defRPr'))
   if (!paragraphAttributes && children.length === 0) return ''
   return children.length > 0
-    ? `<a:pPr${paragraphAttributes}>${children.join('')}</a:pPr>`
-    : `<a:pPr${paragraphAttributes}/>`
+    ? `<${tag}${paragraphAttributes}>${children.join('')}</${tag}>`
+    : `<${tag}${paragraphAttributes}/>`
+}
+
+/**
+ * An `a:lstStyle` or a `p:txStyles` entry: `a:lvl1pPr`…`a:lvl9pPr` in ascending level order, each the
+ * same paragraph properties a paragraph writes plus the level's own `a:defRPr`. Sharing the paragraph
+ * serializer is the point — a level's `algn` or `marL` cannot drift from a paragraph's.
+ */
+export function serializeLevelDefaultsXml(levels: readonly LevelDefaults[]): string {
+  return [...levels]
+    .sort((first, second) => first.level - second.level)
+    .map((level) => serializeParagraphProperties(
+      { ...(level.attrs ? { attrs: level.attrs } : {}), runs: [] },
+      `a:lvl${level.level + 1}pPr`,
+      level.marks,
+    ))
+    .join('')
 }
 
 function needsPreserveSpace(value: string): boolean {

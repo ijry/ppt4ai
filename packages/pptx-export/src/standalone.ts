@@ -1,4 +1,4 @@
-import { parseBitmapMetadata, validateDocument, type AssetAdapter, type Element, type Ppt4aiDocument, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, parseBitmapMetadata, validateDocument, type AssetAdapter, type ColorMap, type Element, type Ppt4aiDocument, type SlideLayout, type SlideMaster, type Theme } from '@ppt4ai/model'
 import { allocateMediaPath, allocateRelationshipId, imageExtension, serializeImageRelationship, serializePictureXml } from './image-writeback.js'
 import { writeStoredZip, type ZipEntry } from './zip.js'
 import {
@@ -169,7 +169,12 @@ async function materializeAssets(document: Ppt4aiDocument, options: CreatePptxOp
   return { assets, extensions }
 }
 
-function serializeSlideElements(document: Ppt4aiDocument, slideId: string, assets: Map<string, MaterializedAsset>): SlideSerialization {
+function serializeSlideElements(
+  document: Ppt4aiDocument,
+  slideId: string,
+  assets: Map<string, MaterializedAsset>,
+  inheritance: { master?: SlideMaster; layout?: SlideLayout },
+): SlideSerialization {
   const slide = document.slides[slideId]
   if (!slide) throw new Error(`PPTX generation slide missing: ${slideId}`)
   let nextShapeId = 2
@@ -205,11 +210,19 @@ function serializeSlideElements(document: Ppt4aiDocument, slideId: string, asset
   }
   const serializedElements = slideTree(document, slideId).map(serializeNode)
   const backgroundAsset = slide.background?.pictureFill?.assetId
+  // A slide's own master and layout when it names them, else the pair the package writes. Because an
+  // override is written complete, naming the slide's own pair keeps its colours right even in a
+  // document whose several masters still collapse onto one part.
+  const layout = (slide.layoutId ? document.layouts?.[slide.layoutId] : undefined) ?? inheritance.layout
+  const master = (slide.masterId ? document.masters?.[slide.masterId] : undefined)
+    ?? (layout?.masterId ? document.masters?.[layout.masterId] : undefined)
+    ?? inheritance.master
   return {
     xml: serializeSlideXml(
       serializedElements,
       slide.background,
       backgroundAsset ? relationshipFor(backgroundAsset) : undefined,
+      effectiveColorMap([master?.colorMap, layout?.colorMapOverride], slide.colorMapOverride),
     ),
     relationships: serializeSlideRelationshipsXml(imageRelationships),
   }
@@ -227,7 +240,39 @@ function effectiveTheme(document: Ppt4aiDocument): Theme | undefined {
     .find((theme): theme is Theme => theme !== undefined)
 }
 
-function skeletonEntries(document: Ppt4aiDocument, slides: SlideSerialization[], materialized: Map<string, MaterializedAsset>, imageExtensions: Set<string>, theme?: Theme): ZipEntry[] {
+/**
+ * The package has one master part and one layout part, so one pair of the model's is written: the
+ * sorted-first master, and the sorted-first layout belonging to it. That is the rule `effectiveTheme`
+ * already uses for the single `theme1.xml`. A document with several masters still collapses onto one —
+ * unchanged from before this wrote anything at all, and its own slice to fix.
+ */
+function effectiveInheritance(document: Ppt4aiDocument): { master?: SlideMaster; layout?: SlideLayout } {
+  const master = Object.keys(document.masters ?? {}).sort()
+    .map((id) => document.masters?.[id])
+    .find((candidate): candidate is SlideMaster => candidate !== undefined)
+  const layouts = Object.keys(document.layouts ?? {}).sort().map((id) => document.layouts?.[id])
+  const layout = layouts.find((candidate): candidate is SlideLayout => candidate?.masterId === master?.id)
+    ?? layouts.find((candidate): candidate is SlideLayout => candidate !== undefined)
+  return { ...(master ? { master } : {}), ...(layout ? { layout } : {}) }
+}
+
+/**
+ * `CT_ColorMapping` requires all twelve slots, so an override is written whole: the model's partial
+ * override is merged onto what it inherits first. No stated override writes `a:masterClrMapping`, which
+ * is the file's way of saying the same thing the absent field says.
+ */
+function effectiveColorMap(overlays: Array<Partial<ColorMap> | undefined>, stated: Partial<ColorMap> | undefined): ColorMap | undefined {
+  return stated && Object.keys(stated).length > 0 ? mergeColorMaps(...overlays, stated) : undefined
+}
+
+function skeletonEntries(
+  document: Ppt4aiDocument,
+  slides: SlideSerialization[],
+  materialized: Map<string, MaterializedAsset>,
+  imageExtensions: Set<string>,
+  theme: Theme | undefined,
+  inheritance: { master?: SlideMaster; layout?: SlideLayout },
+): ZipEntry[] {
   const slideCount = document.slideOrder.length
   const support = serializePresentationSupportXml()
   const encoder = new TextEncoder()
@@ -246,9 +291,9 @@ function skeletonEntries(document: Ppt4aiDocument, slides: SlideSerialization[],
     { name: 'ppt/viewProps.xml', data: encoder.encode(support.viewProps) },
     { name: 'ppt/theme/theme1.xml', data: encoder.encode(serializeThemeXml(theme)) },
     ...(tableStyles ? [{ name: 'ppt/tableStyles.xml', data: encoder.encode(serializeTableStylesXml(tableStyles)) }] : []),
-    { name: 'ppt/slideMasters/slideMaster1.xml', data: encoder.encode(serializeMasterXml()) },
+    { name: 'ppt/slideMasters/slideMaster1.xml', data: encoder.encode(serializeMasterXml(inheritance.master, mergeColorMaps(inheritance.master?.colorMap))) },
     { name: 'ppt/slideMasters/_rels/slideMaster1.xml.rels', data: encoder.encode(serializeMasterRelationshipsXml()) },
-    { name: 'ppt/slideLayouts/slideLayout1.xml', data: encoder.encode(serializeLayoutXml()) },
+    { name: 'ppt/slideLayouts/slideLayout1.xml', data: encoder.encode(serializeLayoutXml(inheritance.layout, effectiveColorMap([inheritance.master?.colorMap], inheritance.layout?.colorMapOverride))) },
     { name: 'ppt/slideLayouts/_rels/slideLayout1.xml.rels', data: encoder.encode(serializeLayoutRelationshipsXml()) },
   ]
   for (let index = 0; index < slideCount; index += 1) {
@@ -268,6 +313,7 @@ export async function createPptx(document: Ppt4aiDocument, options: CreatePptxOp
   if (error) throw error
   validateElementKinds(document)
   const materialized = await materializeAssets(document, options)
-  const slides = document.slideOrder.map((slideId) => serializeSlideElements(document, slideId, materialized.assets))
-  return writeStoredZip(skeletonEntries(document, slides, materialized.assets, materialized.extensions, effectiveTheme(document)))
+  const inheritance = effectiveInheritance(document)
+  const slides = document.slideOrder.map((slideId) => serializeSlideElements(document, slideId, materialized.assets, inheritance))
+  return writeStoredZip(skeletonEntries(document, slides, materialized.assets, materialized.extensions, effectiveTheme(document), inheritance))
 }
