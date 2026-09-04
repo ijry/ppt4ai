@@ -15,6 +15,8 @@ import {
   type ShapeStyleReference,
   type SlideBackground,
   type TableElement,
+  type TableStyle,
+  type TableStyleRegionName,
   type TextElement,
   type Theme,
   type ThemeColorSlot,
@@ -24,7 +26,7 @@ import {
   type ThemeStyleEntry,
 } from '@ppt4ai/model'
 import { serializeCrop } from './image-writeback.js'
-import { serializeTableXml } from './table.js'
+import { serializeTableXml, serializeThemeableBorderXml } from './table.js'
 import { attrs, escapeXml, serializeColorXml, serializeFillXml, serializeTextBodyXml, type XmlAttribute } from './text-xml.js'
 
 export { serializeColorXml, serializeFillXml, serializeTextBodyXml } from './text-xml.js'
@@ -44,7 +46,7 @@ function contentTypeOverride(partName: string, contentType: string): string {
   return `<Override PartName="${partName}" ContentType="${contentType}"/>`
 }
 
-export function serializeContentTypesXml(slideCount: number, imageExtensions: Set<string>): string {
+export function serializeContentTypesXml(slideCount: number, imageExtensions: Set<string>, hasTableStyles = false): string {
   const defaults = [
     '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
     '<Default Extension="xml" ContentType="application/xml"/>',
@@ -57,6 +59,7 @@ export function serializeContentTypesXml(slideCount: number, imageExtensions: Se
     contentTypeOverride('/ppt/presProps.xml', 'application/vnd.openxmlformats-officedocument.presentationml.presProps+xml'),
     contentTypeOverride('/ppt/viewProps.xml', 'application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml'),
     contentTypeOverride('/ppt/theme/theme1.xml', 'application/vnd.openxmlformats-officedocument.theme+xml'),
+    ...(hasTableStyles ? [contentTypeOverride('/ppt/tableStyles.xml', 'application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml')] : []),
     contentTypeOverride('/ppt/slideMasters/slideMaster1.xml', 'application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml'),
     contentTypeOverride('/ppt/slideLayouts/slideLayout1.xml', 'application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml'),
     ...Array.from({ length: slideCount }, (_, index) => contentTypeOverride(
@@ -76,7 +79,11 @@ export function serializePresentationXml(page: Pick<Rect, 'w' | 'h'>, slideCount
   return `${xmlHeader}<p:presentation xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}"><p:sldMasterIdLst><p:sldMasterId id="1" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${slides}</p:sldIdLst><p:sldSz cx="${page.w}" cy="${page.h}"/><p:notesSz cx="6858000" cy="9144000"/><p:defaultTextStyle><a:defPPr/><a:lvl1pPr><a:defRPr/></a:lvl1pPr></p:defaultTextStyle></p:presentation>`
 }
 
-export function serializePresentationRelationshipsXml(slideCount: number): string {
+/**
+ * The table styles relationship comes after the slides, so adding one never renumbers the `r:id`s
+ * `p:sldIdLst` already points at.
+ */
+export function serializePresentationRelationshipsXml(slideCount: number, hasTableStyles = false): string {
   const relationships = [
     relationship(`${officeRelationshipNamespace}/slideMaster`, 'rId1', 'slideMasters/slideMaster1.xml'),
     relationship(`${officeRelationshipNamespace}/theme`, 'rId2', 'theme/theme1.xml'),
@@ -85,6 +92,7 @@ export function serializePresentationRelationshipsXml(slideCount: number): strin
       `rId${3 + index}`,
       `slides/slide${index + 1}.xml`,
     )),
+    ...(hasTableStyles ? [relationship(`${officeRelationshipNamespace}/tableStyles`, `rId${3 + slideCount}`, 'tableStyles.xml')] : []),
   ]
   return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationships.join('')}</Relationships>`
 }
@@ -105,6 +113,24 @@ export function serializePresentationSupportXml(): { presProps: string; viewProp
 }
 
 const themeColorSlots: readonly ThemeColorSlot[] = ['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink']
+
+/** `CT_TableStyle`'s element sequence, paired with the model's region names. */
+const tableStyleSequence: ReadonlyArray<readonly [string, TableStyleRegionName]> = [
+  ['wholeTbl', 'wholeTable'],
+  ['band1H', 'band1H'],
+  ['band2H', 'band2H'],
+  ['band1V', 'band1V'],
+  ['band2V', 'band2V'],
+  ['lastCol', 'lastCol'],
+  ['firstCol', 'firstCol'],
+  ['lastRow', 'lastRow'],
+  ['firstRow', 'firstRow'],
+]
+
+/** `a:tcTxStyle/@b` and `@i` are `ST_OnOffStyleType`: `on`/`off`/`def`, not the `0`/`1` of `a:rPr`. */
+function styleFlag(value: boolean | undefined): string | undefined {
+  return value === undefined ? undefined : value ? 'on' : 'off'
+}
 
 const defaultThemeColors: Record<ThemeColorSlot, string> = {
   dk1: `<a:sysClr val="windowText" lastClr="${DEFAULT_THEME_COLORS.dk1.v}"/>`,
@@ -201,6 +227,37 @@ export function serializeThemeXml(theme?: Theme): string {
     .join('')
   const fonts = `<a:fontScheme name="Office">${themeFontXml(theme, 'major')}${themeFontXml(theme, 'minor')}</a:fontScheme>`
   return `${xmlHeader}<a:theme xmlns:a="${drawingNamespace}" name="Office"><a:themeElements><a:clrScheme name="Office">${colors}</a:clrScheme>${fonts}${serializeFormatSchemeXml(theme)}</a:themeElements></a:theme>`
+}
+
+/**
+ * `ppt/tableStyles.xml`. Region order is the `CT_TableStyle` sequence, which is not the obvious one —
+ * `lastCol`/`firstCol`/`lastRow` come before `firstRow` — so the model's key order cannot be used.
+ * `styleName` is required by the schema and the model has no name for a style, so the id serves as one.
+ * `def` names the style a reader offers for the next inserted table; the model does not carry the
+ * source's value, so the first id in sorted order is used rather than an invented GUID.
+ */
+export function serializeTableStylesXml(styles: Record<string, TableStyle>): string {
+  const ids = Object.keys(styles).sort()
+  const serialized = ids.map((id) => {
+    const style = styles[id]
+    if (!style) return ''
+    const regions = tableStyleSequence.map(([element, region]) => {
+      const entry = style.regions?.[region]
+      if (!entry) return ''
+      const text = entry.text
+        ? `<a:tcTxStyle${attrs([['b', styleFlag(entry.text.bold)], ['i', styleFlag(entry.text.italic)]])}>${entry.text.color ? serializeColorXml(entry.text.color) : ''}</a:tcTxStyle>`
+        : ''
+      const borders = entry.borders
+        ? `<a:tcBdr>${serializeThemeableBorderXml('left', entry.borders.left)}${serializeThemeableBorderXml('right', entry.borders.right)}`
+          + `${serializeThemeableBorderXml('top', entry.borders.top)}${serializeThemeableBorderXml('bottom', entry.borders.bottom)}</a:tcBdr>`
+        : ''
+      const fill = entry.fill ? `<a:fill>${serializeFillXml(entry.fill)}</a:fill>` : ''
+      const cellStyle = borders || fill ? `<a:tcStyle>${borders}${fill}</a:tcStyle>` : ''
+      return `<a:${element}>${text}${cellStyle}</a:${element}>`
+    }).join('')
+    return `<a:tblStyle styleId="${escapeXml(style.id)}" styleName="${escapeXml(style.id)}">${regions}</a:tblStyle>`
+  }).join('')
+  return `${xmlHeader}<a:tblStyleLst xmlns:a="${drawingNamespace}" def="${escapeXml(ids[0] ?? '')}">${serialized}</a:tblStyleLst>`
 }
 
 export function serializeMasterXml(): string {

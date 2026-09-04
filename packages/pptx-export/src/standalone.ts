@@ -18,6 +18,7 @@ import {
   serializeSlideRelationshipsXml,
   serializeSlideXml,
   serializeTableFrameXml,
+  serializeTableStylesXml,
   serializeThemeXml,
 } from './standalone-xml.js'
 
@@ -230,16 +231,21 @@ function skeletonEntries(document: Ppt4aiDocument, slides: SlideSerialization[],
   const slideCount = document.slideOrder.length
   const support = serializePresentationSupportXml()
   const encoder = new TextEncoder()
+  // No styles means no part: an empty `a:tblStyleLst` carries no information and its required `def`
+  // would have nothing to name. A table's `tableStyleId` is left alone either way — Office resolves its
+  // built-in styles from its own gallery, so a reference this package cannot answer is still valid.
+  const tableStyles = document.tableStyles && Object.keys(document.tableStyles).length > 0 ? document.tableStyles : undefined
   const entries: ZipEntry[] = [
-    { name: '[Content_Types].xml', data: encoder.encode(serializeContentTypesXml(slideCount, imageExtensions)) },
+    { name: '[Content_Types].xml', data: encoder.encode(serializeContentTypesXml(slideCount, imageExtensions, tableStyles !== undefined)) },
     { name: '_rels/.rels', data: encoder.encode(serializeRootRelationshipsXml()) },
     { name: 'docProps/core.xml', data: encoder.encode(serializeCorePropertiesXml()) },
     { name: 'docProps/app.xml', data: encoder.encode(serializeAppPropertiesXml()) },
     { name: 'ppt/presentation.xml', data: encoder.encode(serializePresentationXml(document.page, slideCount)) },
-    { name: 'ppt/_rels/presentation.xml.rels', data: encoder.encode(serializePresentationRelationshipsXml(slideCount)) },
+    { name: 'ppt/_rels/presentation.xml.rels', data: encoder.encode(serializePresentationRelationshipsXml(slideCount, tableStyles !== undefined)) },
     { name: 'ppt/presProps.xml', data: encoder.encode(support.presProps) },
     { name: 'ppt/viewProps.xml', data: encoder.encode(support.viewProps) },
     { name: 'ppt/theme/theme1.xml', data: encoder.encode(serializeThemeXml(theme)) },
+    ...(tableStyles ? [{ name: 'ppt/tableStyles.xml', data: encoder.encode(serializeTableStylesXml(tableStyles)) }] : []),
     { name: 'ppt/slideMasters/slideMaster1.xml', data: encoder.encode(serializeMasterXml()) },
     { name: 'ppt/slideMasters/_rels/slideMaster1.xml.rels', data: encoder.encode(serializeMasterRelationshipsXml()) },
     { name: 'ppt/slideLayouts/slideLayout1.xml', data: encoder.encode(serializeLayoutXml()) },

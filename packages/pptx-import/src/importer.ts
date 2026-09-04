@@ -524,13 +524,22 @@ function parseStyleBorder(line: XmlNode | undefined): TableBorder | undefined {
   return { color, ...(width === undefined ? {} : { width }), style }
 }
 
+/**
+ * `b`/`i` on `a:tcTxStyle` are `ST_OnOffStyleType` — `on`/`off`/`def` — not the `0`/`1` of `a:rPr/@b`.
+ * `def` means "inherit", so it leaves the field out rather than claiming `false`. The numeric pair is
+ * read too: it is what this parser accepted before, and fixtures in this repo carry it.
+ */
+function parseStyleFlag(value: string | undefined): boolean | undefined {
+  if (value === 'on' || value === '1') return true
+  if (value === 'off' || value === '0') return false
+  return undefined
+}
+
 function parseStyleText(node: XmlNode | undefined): TableStyleText | undefined {
   if (!node) return undefined
   const color = parseColor(node)
-  const boldValue = attribute(node, 'b')
-  const italicValue = attribute(node, 'i')
-  const bold = boldValue === '1' ? true : boldValue === '0' ? false : undefined
-  const italic = italicValue === '1' ? true : italicValue === '0' ? false : undefined
+  const bold = parseStyleFlag(attribute(node, 'b'))
+  const italic = parseStyleFlag(attribute(node, 'i'))
   if (!color && bold === undefined && italic === undefined) return undefined
   return {
     ...(color ? { color } : {}),
@@ -539,17 +548,27 @@ function parseStyleText(node: XmlNode | undefined): TableStyleText | undefined {
   }
 }
 
+/**
+ * A table style's `a:tcBdr` names its sides `a:left`/`a:right`/`a:top`/`a:bottom` and wraps each in an
+ * `a:ln` (`CT_ThemeableLineStyle`), while a cell's own `a:tcPr` names them `a:lnL`/`a:lnR`/`a:lnT`/
+ * `a:lnB` with the line properties inline. This parser is the style one, and until now it read only the
+ * cell vocabulary — so a real style's borders never arrived. Both are read: the ECMA shape first, the
+ * flat one as the fallback that keeps older fixtures working.
+ */
 function parseStyleBorders(node: XmlNode | undefined): TableCellBorders | undefined {
   if (!node) return undefined
+  const sides: Array<[keyof TableCellBorders, string, string]> = [
+    ['left', 'left', 'lnL'],
+    ['right', 'right', 'lnR'],
+    ['top', 'top', 'lnT'],
+    ['bottom', 'bottom', 'lnB'],
+  ]
   const borders: TableCellBorders = {}
-  const left = parseStyleBorder(child(node, 'lnL'))
-  const right = parseStyleBorder(child(node, 'lnR'))
-  const top = parseStyleBorder(child(node, 'lnT'))
-  const bottom = parseStyleBorder(child(node, 'lnB'))
-  if (left) borders.left = left
-  if (right) borders.right = right
-  if (top) borders.top = top
-  if (bottom) borders.bottom = bottom
+  for (const [side, themeable, flat] of sides) {
+    const wrapper = child(node, themeable)
+    const border = parseStyleBorder(wrapper ? child(wrapper, 'ln') : child(node, flat))
+    if (border) borders[side] = border
+  }
   return Object.keys(borders).length > 0 ? borders : undefined
 }
 

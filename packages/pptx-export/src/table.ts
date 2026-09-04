@@ -34,6 +34,17 @@ function serializeBorders(borders: TableCellBorders | undefined): string {
     + serializeBorder('lnB', borders.bottom)
 }
 
+/**
+ * The same border body under the other of OOXML's two vocabularies: a table *style* names its sides
+ * `a:left`/`a:right`/`a:top`/`a:bottom` and wraps each in an `a:ln` (`CT_ThemeableLineStyle`), while a
+ * cell's own `a:tcPr` writes `a:lnL` and friends with the line properties inline. One body, two shells,
+ * so a width or dash token cannot be written one way here and another way there.
+ */
+export function serializeThemeableBorderXml(name: string, border: TableBorder | undefined): string {
+  if (!border) return ''
+  return `<a:${name}>${serializeBorder('ln', border)}</a:${name}>`
+}
+
 function serializeCellPictureFill(fill: PictureFill | undefined, relationships: TablePictureRelationships | undefined): string {
   const relationshipId = fill && relationships?.(fill.assetId)
   if (!fill || !relationshipId) return ''
