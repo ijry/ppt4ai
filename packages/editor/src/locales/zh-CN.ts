@@ -68,6 +68,14 @@ const zhCN = {
     unknownDimensions: '尺寸未知',
   },
   panel: {
+    slideBackground: {
+      title: '幻灯片背景',
+      color: '背景颜色',
+      clear: '继承',
+      inherited: '继承自版式或母版',
+      gradient: '渐变背景 —— 选择颜色会替换它',
+      styleRef: '主题背景样式 —— 选择颜色会替换它',
+    },
     theme: {
       title: '主题',
       colors: '颜色',
@@ -163,6 +171,8 @@ const zhCN = {
         'edit-redone': '已重做元素编辑',
         'presentation-undone': '已撤销页面结构操作',
         'presentation-redone': '已重做页面结构操作',
+        'slide-background-updated': '幻灯片背景已更新',
+        'slide-background-failed': '幻灯片背景更新失败',
         'elements-copied': '已复制选中元素',
         'elements-pasted': '已粘贴选中元素',
         'clipboard-empty': '剪贴板为空',

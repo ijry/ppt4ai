@@ -1,6 +1,6 @@
 import type { EngineState, ImageFlipAxis, SnapOptions } from '@ppt4ai/engine'
 import { documentToSceneGraph, type SceneGraph } from '@ppt4ai/render'
-import type { AssetAdapter, AssetMetadata, Color, Element, Fill, Ppt4aiDocument, Rect, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Color, Element, Fill, Ppt4aiDocument, Rect, SlideBackground, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import { createPlaygroundAssetHost, type PlaygroundAssetHost, type PlaygroundAssetHostSnapshot } from './asset-host'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
@@ -63,6 +63,7 @@ export interface PlaygroundPresentationHost {
   setSelectedStroke(stroke: Fill | null): PlaygroundPresentationSnapshot
   setSelectedStrokeWidth(width: number | null): PlaygroundPresentationSnapshot
   setSelectedStrokeStyle(style: StrokeStyle | null): PlaygroundPresentationSnapshot
+  setSlideBackground(background: SlideBackground | null): PlaygroundPresentationSnapshot
   setThemeColor(slot: ThemeColorSlot, color: Color | null): PlaygroundPresentationSnapshot
   setThemeFont(slot: ThemeFontSlot, script: ThemeFontScript, typeface: string | null): PlaygroundPresentationSnapshot
   selectAsset(assetId: string): PlaygroundPresentationSnapshot
@@ -511,6 +512,9 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     },
     setSelectedStrokeStyle(style) {
       return forward((host) => host.setSelectedStrokeStyle(style))
+    },
+    setSlideBackground(background) {
+      return forward((host) => host.setSlideBackground(background))
     },
     setThemeColor(slot, color) {
       return forward((host) => host.setThemeColor(activeThemeId(host) ?? '', slot, color))

@@ -116,4 +116,12 @@ export { createThemeEditorController } from './theme-editor-controller'
 export type { ThemeEditorController, ThemeEditorControllerOptions } from './theme-editor-controller'
 export { default as ShapePaintToolbar } from './ShapePaintToolbar.vue'
 export { emuFromPoints, pointsFromEmu, STROKE_STYLE_OPTIONS, strokeStyleOptions } from './shape-paint-toolbar'
+export { default as SlideBackgroundPanel } from './SlideBackgroundPanel.vue'
+export {
+  backgroundColorFrom,
+  slideBackgroundModel,
+  type SlideBackgroundKind,
+  type SlideBackgroundPanelEmit,
+  type SlideBackgroundPanelModel,
+} from './slide-background-panel'
 export type { ShapePaintToolbarEmit, ShapePaintToolbarProps } from './shape-paint-toolbar'

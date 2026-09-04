@@ -1,5 +1,5 @@
 import { boundsCentre, cascadeTransform, mapChildSpace, rotatePointAround, type GeometryPoint, type GroupTransform } from '@ppt4ai/geometry'
-import { validateDocument, validateTextBody, type AssetMetadata, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type StrokeStyle, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot, type ThemeFonts, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
+import { validateDocument, validateTextBody, type AssetMetadata, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type SlideBackground, type StrokeStyle, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot, type ThemeFonts, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -79,6 +79,7 @@ export type EngineCommand =
   | { type: 'setTextBody'; elementId: string; body: TextBody }
   | { type: 'setTableCellFill'; fill: Fill | null }
   | { type: 'setTableCellBorders'; borders: Partial<Record<TableBorderSide, TableBorder | null>> }
+  | { type: 'setSlideBackground'; slideId: string; background: SlideBackground | null }
   | { type: 'setThemeColor'; themeId: string; slot: ThemeColorSlot; color: Color | null }
   | { type: 'setThemeFont'; themeId: string; slot: ThemeFontSlot; script: ThemeFontScript; typeface: string | null }
   | { type: 'mergeTableCells' }
@@ -728,6 +729,10 @@ export class EditorEngine {
         this.setTableCellBorders(command.borders)
         break
       }
+      case 'setSlideBackground': {
+        this.setSlideBackground(command.slideId, command.background)
+        break
+      }
       case 'setThemeColor': {
         this.setThemeColor(command.themeId, command.slot, command.color)
         break
@@ -867,6 +872,26 @@ export class EditorEngine {
       }
     })
     this.commitValidatedTableStyles(changes)
+  }
+
+  /**
+   * `p:bg` belongs to one slide, so the id is explicit — the engine holds the whole document and has no
+   * notion of a current slide. `null` deletes the slide's own background, which puts resolution back on
+   * the layout and master, the same way clearing an element fill falls back to its style reference.
+   */
+  private setSlideBackground(slideId: string, background: SlideBackground | null): void {
+    const slide = this.document.slides[slideId]
+    if (!slide) throw new Error(`slide does not exist: ${slideId}`)
+    if (JSON.stringify(slide.background ?? null) === JSON.stringify(background)) return
+
+    const nextDocument = clone(this.document)
+    const next = nextDocument.slides[slideId]!
+    if (background === null) delete next.background
+    else next.background = clone(background)
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`slide background is invalid: ${slideId}: ${validation.errors.join('; ')}`)
+
+    this.commit([{ path: ['slides', slideId, 'background'], value: background === null ? undefined : background }])
   }
 
   private setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): void {

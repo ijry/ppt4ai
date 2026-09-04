@@ -1,6 +1,6 @@
 import { EditorEngine, type EngineCommand, type EngineState, type ImageFlipAxis, type SnapOptions } from '@ppt4ai/engine'
 import { createImageAssetController, createTableCellTextEditingController, ImageAssetControllerError } from '@ppt4ai/editor'
-import type { AssetAdapter, AssetMetadata, Color, Element, Fill, ImageElement, Ppt4aiDocument, Rect, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Color, Element, Fill, ImageElement, Ppt4aiDocument, Rect, SlideBackground, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
 export interface PlaygroundAssetHostSnapshot {
@@ -41,6 +41,7 @@ export interface PlaygroundAssetHost {
   setSelectedStroke(stroke: Fill | null): PlaygroundAssetHostSnapshot
   setSelectedStrokeWidth(width: number | null): PlaygroundAssetHostSnapshot
   setSelectedStrokeStyle(style: StrokeStyle | null): PlaygroundAssetHostSnapshot
+  setSlideBackground(background: SlideBackground | null): PlaygroundAssetHostSnapshot
   setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): PlaygroundAssetHostSnapshot
   setThemeFont(themeId: string, slot: ThemeFontSlot, script: ThemeFontScript, typeface: string | null): PlaygroundAssetHostSnapshot
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
@@ -400,6 +401,21 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
     },
     setSelectedStrokeStyle(style) {
       return paintSelection((elementId) => ({ type: 'setElementStrokeStyle', elementId, style }), 'stroke-style')
+    },
+    /**
+     * The command is slide-scoped, so the host supplies the id: this demo keeps one engine per page, and
+     * the page it holds is the document's first slide.
+     */
+    setSlideBackground(background) {
+      const slideId = engine.getState().document.slideOrder[0]
+      if (!slideId) return fail('slide-missing')
+      try {
+        engine.dispatch({ type: 'setSlideBackground', slideId, background })
+        status = { kind: 'success', message: 'slide-background-updated' }
+      } catch {
+        return fail('slide-background-failed')
+      }
+      return snapshot()
     },
     setThemeColor(themeId, slot, color) {
       if (!engine.getState().document.themes?.[themeId]) return fail('theme-missing')

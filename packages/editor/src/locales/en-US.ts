@@ -68,6 +68,14 @@ const enUS = {
     unknownDimensions: 'Unknown dimensions',
   },
   panel: {
+    slideBackground: {
+      title: 'Slide background',
+      color: 'Background color',
+      clear: 'Inherit',
+      inherited: 'Inherited from the layout or master',
+      gradient: 'Gradient background — picking a color replaces it',
+      styleRef: 'Theme background style — picking a color replaces it',
+    },
     theme: {
       title: 'Theme',
       colors: 'Colors',
@@ -163,6 +171,8 @@ const enUS = {
         'edit-redone': 'Element edit redone',
         'presentation-undone': 'Page structure undone',
         'presentation-redone': 'Page structure redone',
+        'slide-background-updated': 'Slide background updated',
+        'slide-background-failed': 'Could not update the slide background',
         'elements-copied': 'Selected elements copied',
         'elements-pasted': 'Selected elements pasted',
         'clipboard-empty': 'Clipboard is empty',

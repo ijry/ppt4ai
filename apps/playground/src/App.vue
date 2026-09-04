@@ -3,7 +3,7 @@ import type { Color, Fill, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, T
 import type { TableCellSelection } from '@ppt4ai/editor'
 import { DEFAULT_THEME_COLORS } from '@ppt4ai/model'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
-import { AssetLibrary, hexFromColor, PptEditor, THEME_SLOT_GROUPS, ThemePanel, themeFontModels, themeSlotGroup, ThumbnailCanvas, type ThemePanelFontModel, type ThemePanelSlotModel } from '@ppt4ai/editor'
+import { AssetLibrary, hexFromColor, PptEditor, SlideBackgroundPanel, slideBackgroundModel, THEME_SLOT_GROUPS, ThemePanel, themeFontModels, themeSlotGroup, ThumbnailCanvas, type ThemePanelFontModel, type ThemePanelSlotModel } from '@ppt4ai/editor'
 import { normalizeTextElement } from '@ppt4ai/text'
 import { useI18n } from 'vue-i18n'
 import { ImageFileReadError, readImageUploadFile, type PlaygroundImageUploadInput } from './image-file-upload'
@@ -72,6 +72,22 @@ const themeSlots = computed<ThemePanelSlotModel[]>(() => {
   })
 })
 
+/**
+ * The panel shows the colour the scene resolved — slide, layout or master, whichever declared one — and
+ * clears only what this slide owns.
+ */
+const slideBackground = computed(() => {
+  const document = activeSlideSnapshot.value.engineState.document
+  const slideId = document.slideOrder[0]
+  const resolvedScene = scene.value
+  return slideBackgroundModel(
+    slideId ? document.slides[slideId]?.background : undefined,
+    resolvedScene?.background,
+    resolvedScene?.backgroundGradient,
+    slideId !== undefined,
+  )
+})
+
 const themeFonts = computed<ThemePanelFontModel[]>(() => {
   const themeId = activeThemeId.value
   const theme = themeId ? activeSlideSnapshot.value.engineState.document.themes?.[themeId] : undefined
@@ -121,6 +137,14 @@ function setShapeStrokeWidth(width: number | null): void {
 
 function setShapeStrokeStyle(style: StrokeStyle | null): void {
   assetSnapshot.value = assetHost.setSelectedStrokeStyle(style)
+}
+
+function setSlideBackground(color: Color): void {
+  assetSnapshot.value = assetHost.setSlideBackground({ fill: { color } })
+}
+
+function clearSlideBackground(): void {
+  assetSnapshot.value = assetHost.setSlideBackground(null)
 }
 
 function setThemeColor(slot: ThemeColorSlot, color: Color): void {
@@ -448,6 +472,11 @@ async function uploadFile(event: Event): Promise<void> {
           @select="selectAsset"
           @insert="insertAsset"
           @replace="replaceAsset"
+        />
+        <SlideBackgroundPanel
+          :model="slideBackground"
+          @set-color="setSlideBackground"
+          @clear="clearSlideBackground"
         />
         <ThemePanel
           :active="activeThemeId !== undefined"
