@@ -1,6 +1,6 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type StrokeCap, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideBackground, type StrokeCap, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
-import { serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
+import { serializeColorXml, serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
 import {
   allocateMediaPath,
@@ -970,13 +970,74 @@ function rewriteContentTypes(
   return `${updated.slice(0, close)}${defaults.join('')}${additions.join('')}${updated.slice(close)}`
 }
 
+/** Mirrors the importer's `parseBackground`, so an untouched background compares equal. */
+function sourceBackground(bg: XmlElement | undefined): SlideBackground | undefined {
+  if (!bg) return undefined
+  const properties = bg.children.find((child) => child.localName === 'bgPr')
+  const fillNode = properties?.children.find((child) => fillNodeNames.has(child.localName))
+  const fill = sourceFill(fillNode)
+  if (fill) return { fill }
+  const reference = bg.children.find((child) => child.localName === 'bgRef')
+  const idx = Number(reference?.attributes.idx)
+  if (!reference || !Number.isInteger(idx)) return undefined
+  const color = sourceColor(reference)
+  return { styleRef: { idx, ...(color ? { color } : {}) } }
+}
+
+function backgroundsEqual(left: SlideBackground | undefined, right: SlideBackground | undefined): boolean {
+  if (!left || !right) return left === right
+  if (!fillsEqual(left.fill, right.fill)) return false
+  const leftRef = left.styleRef
+  const rightRef = right.styleRef
+  if (!leftRef || !rightRef) return leftRef === rightRef
+  return leftRef.idx === rightRef.idx && colorsEqual(leftRef.color, rightRef.color)
+}
+
+/** `p:bgPr` needs an effect list to be valid, which is why the empty one is written along with the fill. */
+function serializeBackgroundNode(prefix: string, background: SlideBackground): string {
+  if (background.fill) return `<${prefix}bg><${prefix}bgPr>${serializeFillXml(background.fill)}<a:effectLst/></${prefix}bgPr></${prefix}bg>`
+  const reference = background.styleRef
+  if (!reference) return ''
+  const color = reference.color ? serializeColorXml(reference.color) : ''
+  return `<${prefix}bg><${prefix}bgRef idx="${reference.idx}">${color}</${prefix}bgRef></${prefix}bg>`
+}
+
+/**
+ * `p:bg`. A colour change replaces only the fill node inside the source's own `p:bgPr`, so its effect
+ * list and any unknown siblings survive; a structural change (a `p:bgRef` becoming a fill, or the other
+ * way round) replaces the whole node, and clearing the background deletes it — which is exactly what
+ * "inherit from the layout" means in OOXML.
+ */
+function backgroundReplacements(xml: string, background: SlideBackground | undefined): Replacement[] {
+  const roots = scanXml(xml)
+  const common = descendants(roots, 'cSld')[0]
+  if (!common) return []
+  const bg = common.children.find((child) => child.localName === 'bg')
+  const existing = sourceBackground(bg)
+  if (backgroundsEqual(existing, background)) return []
+  if (!background) return bg ? [{ start: bg.start, end: bg.end, value: '' }] : []
+  const properties = bg?.children.find((child) => child.localName === 'bgPr')
+  const fillNode = properties?.children.find((child) => fillNodeNames.has(child.localName))
+  if (background.fill && properties && fillNode) {
+    return [{ start: fillNode.start, end: fillNode.end, value: serializeFillForLine(background.fill, fillNode.name) }]
+  }
+  const prefix = namespacePrefix(bg?.name ?? common.name)
+  const value = serializeBackgroundNode(prefix, background)
+  if (!value) return []
+  if (bg) return [{ start: bg.start, end: bg.end, value }]
+  const tree = descendants(roots, 'spTree')[0]
+  if (!tree) return []
+  // `CT_CommonSlideData` puts `p:bg` before `p:spTree`, so the tree's start is the insertion point.
+  return [{ start: tree.start, end: tree.start, value }]
+}
+
 function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: string, scanned: ScannedSlide, imageReplacements: Replacement[], strictIdentity: boolean): string {
   const slide = document.slides[slideId]
   if (!slide) throw new Error(`PPTX export document slide missing: ${slideId}`)
   const sourceElements = scanned.elements
   if (slide.elementIds.length < sourceElements.length) throw new Error(`PPTX export element count mismatch for slide ${slideId}`)
 
-  const replacements: Replacement[] = [...imageReplacements]
+  const replacements: Replacement[] = [...imageReplacements, ...backgroundReplacements(xml, slide.background)]
   for (let index = 0; index < sourceElements.length; index += 1) {
     const source = sourceElements[index]
     const elementId = slide.elementIds[index]
