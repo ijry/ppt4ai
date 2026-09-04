@@ -229,10 +229,48 @@ function markerMarks(paragraph: TextParagraph, bullet: TextBullet): TextMarks | 
   return { ...(marks ?? {}), fontFamily: bullet.fontFamily }
 }
 
+const ROMAN_NUMERALS: readonly [number, string][] = [
+  [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'],
+  [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I'],
+]
+
+function romanNumber(value: number, uppercase: boolean): string {
+  let remaining = Math.max(1, Math.trunc(value))
+  let result = ''
+  for (const [amount, numeral] of ROMAN_NUMERALS) {
+    while (remaining >= amount) {
+      result += numeral
+      remaining -= amount
+    }
+  }
+  return uppercase ? result : result.toLowerCase()
+}
+
+/**
+ * `a:buAutoNum/@type` names its own format, so the word is parsed rather than looked up: a family
+ * (`arabic`, `alphaLc`, `alphaUc`, `romanLc`, `romanUc`) and a suffix (`Period`, `ParenR`, `ParenBoth`,
+ * `Plain`). Anything else — the CJK, Hindi, Hebrew, Thai and circled families — draws as `arabicPeriod`,
+ * which is what all of them drew before the word reached the model and is OOXML's default type. Their
+ * glyphs need per-script tables this project cannot verify, so none are invented.
+ */
+function autoNumberText(scheme: string, value: number): string {
+  const family = /^(arabic|alphaLc|alphaUc|romanLc|romanUc)(Period|ParenR|ParenBoth|Plain)$/u.exec(scheme)
+  const number = family?.[1] === 'alphaLc' ? alphaNumber(value, false)
+    : family?.[1] === 'alphaUc' ? alphaNumber(value, true)
+      : family?.[1] === 'romanLc' ? romanNumber(value, false)
+        : family?.[1] === 'romanUc' ? romanNumber(value, true)
+          : String(value)
+  switch (family?.[2]) {
+    case 'ParenR': return `${number})`
+    case 'ParenBoth': return `(${number})`
+    case 'Plain': return number
+    default: return `${number}.`
+  }
+}
+
 function markerText(bullet: TextBullet, value: number | undefined): string {
   if (bullet.type === 'char') return bullet.char + ' '
-  if (bullet.scheme === 'arabic') return String(value ?? 1) + ' '
-  return alphaNumber(value ?? 1, bullet.scheme === 'alphaUpper') + ' '
+  return autoNumberText(bullet.scheme, value ?? 1) + ' '
 }
 
 function resolveMarker(paragraph: TextParagraph, state: NumberingState, fontScale: number, markerX: number): TextLayoutMarker | undefined {

@@ -588,9 +588,9 @@ describe('ppt4ai file model', () => {
     const body = {
       paragraphs: [
         { attrs: { bullet: { type: 'char' as const, char: '•', fontFamily: 'Arial' }, level: 0 }, runs: [{ text: 'one' }] },
-        { attrs: { bullet: { type: 'autoNum' as const, scheme: 'arabic' as const, startAt: 3 }, level: 0 }, runs: [{ text: 'three' }] },
-        { attrs: { bullet: { type: 'autoNum' as const, scheme: 'alphaLower' as const }, level: 1 }, runs: [{ text: 'a' }] },
-        { attrs: { bullet: { type: 'autoNum' as const, scheme: 'alphaUpper' as const } }, runs: [{ text: 'A' }] },
+        { attrs: { bullet: { type: 'autoNum' as const, scheme: 'arabicPeriod' as const, startAt: 3 }, level: 0 }, runs: [{ text: 'three' }] },
+        { attrs: { bullet: { type: 'autoNum' as const, scheme: 'alphaLcPeriod' as const }, level: 1 }, runs: [{ text: 'a' }] },
+        { attrs: { bullet: { type: 'autoNum' as const, scheme: 'alphaUcPeriod' as const } }, runs: [{ text: 'A' }] },
       ],
     }
 
@@ -607,7 +607,7 @@ describe('ppt4ai file model', () => {
         },
         runs: [{ text: 'invalid' }],
       }, {
-        attrs: { bullet: { type: 'autoNum', scheme: 'roman', startAt: 0 } },
+        attrs: { bullet: { type: 'autoNum', scheme: 'not a token!', startAt: 0 } },
         runs: [{ text: 'invalid' }],
       }],
     })).toEqual({
@@ -616,7 +616,7 @@ describe('ppt4ai file model', () => {
         'paragraphs[0].attrs.level must be non-negative integer',
         'paragraphs[0].attrs.bullet.char must contain exactly one Unicode code point',
         'paragraphs[0].attrs.bullet.fontFamily must be non-empty',
-        'paragraphs[1].attrs.bullet.scheme must be arabic, alphaLower, or alphaUpper',
+        'paragraphs[1].attrs.bullet.scheme must be an auto-number token',
         'paragraphs[1].attrs.bullet.startAt must be a positive integer',
       ],
     })

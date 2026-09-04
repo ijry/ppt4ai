@@ -9,8 +9,12 @@ export type PresetGeometry = string
 /** The four `prst` words `createPresetPath` has a real outline for. */
 export const PAINTED_PRESET_GEOMETRIES: readonly string[] = ['rect', 'roundRect', 'ellipse', 'triangle']
 
-/** `prst` is an enumeration in the schema; the model's job is to preserve the word, not to police it. */
-export function isPresetGeometryToken(value: unknown): value is PresetGeometry {
+/**
+ * The shape of an OOXML enumeration word (`prst`, `buAutoNum/@type`, …). These are enumerations in the
+ * schema, and the model's job is to preserve the word rather than to police the enumeration — the lists
+ * are long, versioned, and not verifiable here, while a rewritten word damages the user's file.
+ */
+export function isOoxmlToken(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z][A-Za-z0-9]*$/u.test(value)
 }
 
@@ -291,7 +295,13 @@ export interface TextRun {
   marks?: TextMarks
 }
 
-export type TextBulletScheme = 'arabic' | 'alphaLower' | 'alphaUpper'
+/**
+ * `a:buAutoNum/@type` verbatim. The word names its own format (`arabicPeriod` is `1.`, `romanUcParenR`
+ * is `I)`), so layout parses it instead of consulting a table; words outside the latin families draw as
+ * `arabicPeriod`, which is also OOXML's default type. Keeping the word is what stops an ordinary text
+ * edit from rewriting a roman-numeral list as `1.`.
+ */
+export type TextBulletScheme = string
 
 export type TextBullet =
   | { type: 'char'; char: string; fontFamily?: string }
@@ -1100,7 +1110,6 @@ const verticalAlignments = new Set(['top', 'middle', 'bottom'])
 const writingModes = new Set(['horizontal', 'vertical'])
 const wraps = new Set(['square', 'none'])
 const underlines = new Set(['none', 'single'])
-const bulletSchemes = new Set(['arabic', 'alphaLower', 'alphaUpper'])
 const tableStyleRegions = new Set<TableStyleRegionName>(['wholeTable', 'band1H', 'band2H', 'band1V', 'band2V', 'firstRow', 'lastRow', 'firstCol', 'lastCol'])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
 const strokeStyles = new Set<StrokeStyle>(['solid', 'dot', 'sysDot', 'dash', 'lgDash', 'sysDash', 'dashDot', 'lgDashDot', 'sysDashDot', 'lgDashDotDot', 'sysDashDotDot'])
@@ -1350,7 +1359,7 @@ function validateImageAppearance(element: ImageElement, path: string, errors: st
 
   if (element.sourceCrop !== undefined) validateImageCrop(element.sourceCrop, `${path}.sourceCrop`, errors)
 
-  if (element.maskPreset !== undefined && !isPresetGeometryToken(element.maskPreset)) {
+  if (element.maskPreset !== undefined && !isOoxmlToken(element.maskPreset)) {
     errors.push(`${path}.maskPreset must be a preset geometry token`)
   }
 
@@ -1448,7 +1457,7 @@ function validateTextBullet(value: unknown, path: string, errors: string[]): voi
     return
   }
   if (bullet.type === 'autoNum') {
-    if (typeof bullet.scheme !== 'string' || !bulletSchemes.has(bullet.scheme)) errors.push(`${path}.scheme must be arabic, alphaLower, or alphaUpper`)
+    if (!isOoxmlToken(bullet.scheme)) errors.push(`${path}.scheme must be an auto-number token`)
     if ('startAt' in bullet && (typeof bullet.startAt !== 'number' || !Number.isFinite(bullet.startAt) || !Number.isInteger(bullet.startAt) || bullet.startAt <= 0)) errors.push(`${path}.startAt must be a positive integer`)
     return
   }
@@ -1866,9 +1875,9 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       if (typeof element.assetId !== 'string' || element.assetId.length === 0) errors.push(`image element ${elementId} assetId must be a non-empty string`)
       else if (!value.assets?.[element.assetId]) errors.push(`image element ${elementId} references missing asset: ${element.assetId}`)
       validateImageAppearance(element, `elements.${elementId}`, errors)
-    } else if (element.kind === 'text' && element.preset !== undefined && !isPresetGeometryToken(element.preset)) {
+    } else if (element.kind === 'text' && element.preset !== undefined && !isOoxmlToken(element.preset)) {
       errors.push(`elements.${elementId}.preset must be a preset geometry token`)
-    } else if (element.kind === 'shape' && !isPresetGeometryToken(element.preset)) {
+    } else if (element.kind === 'shape' && !isOoxmlToken(element.preset)) {
       errors.push(`elements.${elementId}.preset must be a preset geometry token`)
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.styleRef !== undefined) {

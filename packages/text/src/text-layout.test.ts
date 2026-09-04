@@ -110,13 +110,13 @@ describe('deterministic text layout', () => {
       body: {
         bodyPr: { vertical: 'vertical' },
         paragraphs: [
-          { runs: [{ text: 'A' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic', startAt: 3 } } },
-          { runs: [{ text: 'B' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic' } } },
+          { runs: [{ text: 'A' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabicPeriod', startAt: 3 } } },
+          { runs: [{ text: 'B' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabicPeriod' } } },
         ],
       },
     })
 
-    expect(layout.lines.map((line) => line.marker?.text)).toEqual(['3 ', '4 '])
+    expect(layout.lines.map((line) => line.marker?.text)).toEqual(['3. ', '4. '])
     expect(layout.lines.flatMap((line) => line.runs).map((run) => run.text).join('')).toBe('AB')
   })
 
@@ -162,45 +162,46 @@ describe('deterministic text layout', () => {
     expect(layout.contentBounds.w).toBeGreaterThan(layout.lines[0]?.width ?? 0)
   })
 
-  it('continues and resets Arabic and alphabetic numbering deterministically', () => {
+  it('continues and resets numbered lists deterministically', () => {
     const arabic = layoutText({
       bounds,
       body: {
         paragraphs: [
-          { runs: [{ text: 'A' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic', startAt: 3 } } },
-          { runs: [{ text: 'B' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic' } } },
+          { runs: [{ text: 'A' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabicPeriod', startAt: 3 } } },
+          { runs: [{ text: 'B' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabicPeriod' } } },
           { runs: [{ text: 'C' }] },
-          { runs: [{ text: 'D' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic' } } },
+          { runs: [{ text: 'D' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabicPeriod' } } },
         ],
       },
     })
-    expect(arabic.lines.map((line) => line.marker?.text)).toEqual(['3 ', '4 ', undefined, '1 '])
+    // The token says `Period`, so the marker finally carries one — three model families could not.
+    expect(arabic.lines.map((line) => line.marker?.text)).toEqual(['3. ', '4. ', undefined, '1. '])
 
     const lower = layoutText({
       bounds,
       body: {
         paragraphs: Array.from({ length: 27 }, (_, index) => ({
           runs: [{ text: String(index + 1) }],
-          attrs: { bullet: { type: 'autoNum', scheme: 'alphaLower' as const } },
+          attrs: { bullet: { type: 'autoNum', scheme: 'alphaLcPeriod' as const } },
         })),
       },
     })
-    expect(lower.lines[0]?.marker?.text).toBe('a ')
-    expect(lower.lines[25]?.marker?.text).toBe('z ')
-    expect(lower.lines[26]?.marker?.text).toBe('aa ')
+    expect(lower.lines[0]?.marker?.text).toBe('a. ')
+    expect(lower.lines[25]?.marker?.text).toBe('z. ')
+    expect(lower.lines[26]?.marker?.text).toBe('aa. ')
 
     const nested = layoutText({
       bounds,
       body: {
         paragraphs: [
-          { runs: [{ text: 'A' }], attrs: { level: 0, bullet: { type: 'autoNum', scheme: 'arabic' } } },
-          { runs: [{ text: 'B' }], attrs: { level: 1, bullet: { type: 'autoNum', scheme: 'arabic' } } },
-          { runs: [{ text: 'C' }], attrs: { level: 1, bullet: { type: 'autoNum', scheme: 'arabic' } } },
-          { runs: [{ text: 'D' }], attrs: { level: 0, bullet: { type: 'autoNum', scheme: 'arabic' } } },
+          { runs: [{ text: 'A' }], attrs: { level: 0, bullet: { type: 'autoNum', scheme: 'arabicPeriod' } } },
+          { runs: [{ text: 'B' }], attrs: { level: 1, bullet: { type: 'autoNum', scheme: 'arabicPeriod' } } },
+          { runs: [{ text: 'C' }], attrs: { level: 1, bullet: { type: 'autoNum', scheme: 'arabicPeriod' } } },
+          { runs: [{ text: 'D' }], attrs: { level: 0, bullet: { type: 'autoNum', scheme: 'arabicPeriod' } } },
         ],
       },
     })
-    expect(nested.lines.map((line) => line.marker?.text)).toEqual(['1 ', '1 ', '2 ', '2 '])
+    expect(nested.lines.map((line) => line.marker?.text)).toEqual(['1. ', '1. ', '2. ', '2. '])
   })
 
   it('supports marker-only paragraphs, bullet fonts, alignment, and autofit scaling', () => {

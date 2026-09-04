@@ -79,7 +79,7 @@ const text: TextElement = {
         ],
       },
       {
-        attrs: { bullet: { type: 'autoNum', scheme: 'alphaUpper', startAt: 3 } },
+        attrs: { bullet: { type: 'autoNum', scheme: 'alphaUcPeriod', startAt: 3 } },
         runs: [{ text: 'Next' }],
       },
     ],

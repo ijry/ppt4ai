@@ -73,12 +73,8 @@ function sourceBullet(paragraphProperties: XmlElement): TextBullet | undefined {
   }
   const autoNumber = directChildOf(paragraphProperties, 'buAutoNum')
   if (!autoNumber) return undefined
-  const type = autoNumber.attributes.type
-  const scheme = type === 'alphaLcPeriod' || type === 'alphaLcParenRight'
-    ? 'alphaLower'
-    : type === 'alphaUcPeriod' || type === 'alphaUcParenRight'
-      ? 'alphaUpper'
-      : 'arabic'
+  const type = autoNumber.attributes.type?.trim()
+  const scheme = type && /^[A-Za-z][A-Za-z0-9]*$/u.test(type) ? type : 'arabicPeriod'
   const startAt = integerAttribute(autoNumber, 'startAt')
   if (autoNumber.attributes.startAt !== undefined && (startAt === undefined || startAt <= 0)) return undefined
   return startAt === undefined ? { type: 'autoNum', scheme } : { type: 'autoNum', scheme, startAt }

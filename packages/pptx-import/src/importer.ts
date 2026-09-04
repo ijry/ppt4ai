@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, isPresetGeometryToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -839,7 +839,7 @@ function parseImageMaskPreset(picture: XmlNode): PresetGeometry | undefined {
   const preset = geometry && attribute(geometry, 'prst')?.trim()
   // The word is kept even when the mask painter has no outline for it, so exporting a star-cropped
   // picture cannot turn it into a rectangle; painting falls back to the rectangular mask.
-  return preset && isPresetGeometryToken(preset) ? preset : undefined
+  return preset && isOoxmlToken(preset) ? preset : undefined
 }
 
 function parseImageEffects(picture: XmlNode): ImageEffect[] | undefined {
@@ -958,7 +958,7 @@ function parseShapePictureFill(
 function parsePreset(shape: XmlNode): PresetGeometry {
   const geometry = findDescendants(shape, 'prstGeom')[0]
   const preset = geometry && attribute(geometry, 'prst')?.trim()
-  return preset && isPresetGeometryToken(preset) ? preset : 'rect'
+  return preset && isOoxmlToken(preset) ? preset : 'rect'
 }
 
 /** Only set when the source declares geometry, so a plain text box does not gain a preset it never had. */
@@ -1008,12 +1008,10 @@ function parseBullet(paragraphProperties: XmlNode | undefined): TextBullet | und
   }
   const autoNumber = child(paragraphProperties, 'buAutoNum')
   if (!autoNumber) return undefined
-  const type = attribute(autoNumber, 'type')
-  const scheme = type === 'alphaLcPeriod' || type === 'alphaLcParenRight'
-    ? 'alphaLower'
-    : type === 'alphaUcPeriod' || type === 'alphaUcParenRight'
-      ? 'alphaUpper'
-      : 'arabic'
+  // The word itself, not one of three families. The old whitelist also asked for `alphaLcParenRight`,
+  // which is not an OOXML word at all (`alphaLcParenR` is), so lettered lists never matched it.
+  const type = attribute(autoNumber, 'type')?.trim()
+  const scheme = type && isOoxmlToken(type) ? type : 'arabicPeriod'
   const rawStart = attribute(autoNumber, 'startAt')
   const startAt = rawStart === undefined ? undefined : parseNumber(rawStart)
   if (startAt !== undefined && (!Number.isInteger(startAt) || startAt <= 0)) return undefined

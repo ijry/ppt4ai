@@ -473,9 +473,10 @@ describe('importPptx', () => {
     expect(element.body).toEqual({
       paragraphs: [
         { runs: [{ text: 'First' }], attrs: { bullet: { type: 'char', char: '•', fontFamily: 'Wingdings' } } },
-        { runs: [{ text: 'Second' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic', startAt: 3 } } },
-        { runs: [{ text: 'Third' }], attrs: { bullet: { type: 'autoNum', scheme: 'alphaUpper' } } },
-        { runs: [{ text: 'Fourth' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabic' } } },
+        { runs: [{ text: 'Second' }], attrs: { bullet: { type: 'autoNum', scheme: 'arabicPeriod', startAt: 3 } } },
+        { runs: [{ text: 'Third' }], attrs: { bullet: { type: 'autoNum', scheme: 'alphaUcPeriod' } } },
+        // A word the layout has no format for still round-trips; only its marker falls back to `1.`.
+        { runs: [{ text: 'Fourth' }], attrs: { bullet: { type: 'autoNum', scheme: 'unsupportedFormat' } } },
       ],
     })
     expect(element.body?.paragraphs.flatMap((paragraph) => paragraph.runs).map((run) => run.text)).not.toContain('•')

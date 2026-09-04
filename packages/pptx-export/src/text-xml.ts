@@ -137,12 +137,9 @@ function serializeBullet(bullet: TextBullet): string {
       ? `<a:buChar char="${escapeXml(bullet.char)}">${runProperties}</a:buChar>`
       : `<a:buChar char="${escapeXml(bullet.char)}"/>`
   }
-  const type = bullet.scheme === 'alphaLower'
-    ? 'alphaLcPeriod'
-    : bullet.scheme === 'alphaUpper'
-      ? 'alphaUcPeriod'
-      : 'arabicPeriod'
-  return `<a:buAutoNum${attrs([['type', type], ['startAt', bullet.startAt]])}/>`
+  // The model holds the file's own word, so it writes back verbatim — mapping three families onto three
+  // words used to turn every roman-numeral or parenthesised list into `arabicPeriod`.
+  return `<a:buAutoNum${attrs([['type', bullet.scheme], ['startAt', bullet.startAt]])}/>`
 }
 
 function toPointHundredths(value: number): number {
