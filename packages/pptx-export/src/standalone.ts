@@ -5,6 +5,7 @@ import {
   serializeAppPropertiesXml,
   serializeContentTypesXml,
   serializeCorePropertiesXml,
+  serializeGroupXml,
   serializeLayoutRelationshipsXml,
   serializeLayoutXml,
   serializeMasterRelationshipsXml,
@@ -45,17 +46,57 @@ function elementFor(document: Ppt4aiDocument, slideId: string, elementId: string
   return element
 }
 
+interface SlideTreeNode {
+  element: Element
+  children: SlideTreeNode[]
+}
+
+/**
+ * The slide's elements as a tree, in the order `documentToSceneGraph` paints them: `elementIds` order,
+ * groups expanded where they sit, and an element already emitted inside a group not emitted twice.
+ *
+ * The rule is copied from the renderer rather than invented, because the two producers of groups
+ * disagree about the flat list: the importer leaves children in `elementIds` (group first), while the
+ * editor's group command takes them out. The renderer's `visited` set is what tolerates both, so
+ * sharing it keeps the file's draw order identical to the canvas — including the corner where a child
+ * precedes its own group and therefore paints as a top-level element.
+ */
+function slideTree(document: Ppt4aiDocument, slideId: string): SlideTreeNode[] {
+  const slide = document.slides[slideId]
+  if (!slide) throw new Error(`PPTX generation slide missing: ${slideId}`)
+  const visited = new Set<string>()
+  const build = (elementId: string): SlideTreeNode[] => {
+    if (visited.has(elementId)) return []
+    visited.add(elementId)
+    const element = elementFor(document, slideId, elementId)
+    if (element.kind !== 'group') return [{ element, children: [] }]
+    return [{ element, children: element.childIds.flatMap(build) }]
+  }
+  return slide.elementIds.flatMap(build)
+}
+
+/**
+ * The kind of an element the union says cannot exist. A document is JSON, so a fifth kind the model
+ * has no serializer for can still arrive at runtime, and it has to name itself in the error.
+ */
+function unmodeledKind(element: never): string {
+  return String((element as { kind?: unknown }).kind)
+}
+
 function validateElementKinds(document: Ppt4aiDocument): void {
-  for (const slideId of document.slideOrder) {
-    const slide = document.slides[slideId]
-    if (!slide) throw new Error(`PPTX generation slide missing: ${slideId}`)
-    for (const elementId of slide.elementIds) {
-      const element = elementFor(document, slideId, elementId)
+  const validate = (nodes: readonly SlideTreeNode[]): void => {
+    for (const node of nodes) {
+      const element = node.element
+      if (element.kind === 'group') {
+        validate(node.children)
+        continue
+      }
       if (element.kind !== 'shape' && element.kind !== 'text' && element.kind !== 'table' && element.kind !== 'image') {
-        throw new Error(`PPTX generation unsupported element kind: ${element.kind}`)
+        throw new Error(`PPTX generation unsupported element kind: ${unmodeledKind(element)}`)
       }
     }
   }
+  for (const slideId of document.slideOrder) validate(slideTree(document, slideId))
 }
 
 /**
@@ -74,19 +115,20 @@ function tableAssetReferences(element: Element): string[] {
   return element.rows.flatMap((row) => row.cells.flatMap((cell) => cell.pictureFill ? [cell.pictureFill.assetId] : []))
 }
 
-/** A slide's own photo background needs materializing too, and shares media with any element using it. */
+/**
+ * A slide's own photo background needs materializing too, and shares media with any element using it.
+ * The element walk is the same tree serialization writes, so a photo nested in a group cannot be
+ * missed here and then demanded there.
+ */
 function slideAssetReferences(document: Ppt4aiDocument, slideId: string): string[] {
   const slide = document.slides[slideId]
   if (!slide) throw new Error(`PPTX generation slide missing: ${slideId}`)
   const background = slide.background?.pictureFill?.assetId
-  return [
-    ...(background ? [background] : []),
-    ...slide.elementIds.flatMap((elementId) => {
-      const element = elementFor(document, slideId, elementId)
-      const assetId = assetReference(element)
-      return [...(assetId ? [assetId] : []), ...tableAssetReferences(element)]
-    }),
-  ]
+  const walk = (nodes: readonly SlideTreeNode[]): string[] => nodes.flatMap((node) => {
+    const assetId = assetReference(node.element)
+    return [...(assetId ? [assetId] : []), ...tableAssetReferences(node.element), ...walk(node.children)]
+  })
+  return [...(background ? [background] : []), ...walk(slideTree(document, slideId))]
 }
 
 async function materializeAssets(document: Ppt4aiDocument, options: CreatePptxOptions): Promise<{ assets: Map<string, MaterializedAsset>; extensions: Set<string> }> {
@@ -133,7 +175,6 @@ function serializeSlideElements(document: Ppt4aiDocument, slideId: string, asset
   const imageRelationships: string[] = []
   const relationshipIds = new Set<string>(['rId1'])
   const relationshipByMediaPath = new Map<string, string>()
-  const serializedElements: string[] = []
   // One relationship per media part, so a picture and a shape filled with the same photo share it.
   const relationshipFor = (assetId: string): string => {
     const asset = assets.get(assetId)
@@ -146,20 +187,22 @@ function serializeSlideElements(document: Ppt4aiDocument, slideId: string, asset
     imageRelationships.push(serializeImageRelationship(relationshipId, `../media/${asset.path.slice('ppt/media/'.length)}`))
     return relationshipId
   }
-  for (const elementId of slide.elementIds) {
-    const element = elementFor(document, slideId, elementId)
+  // One shape id cursor for the whole tree: `p:cNvPr/@id` is unique per slide, and a group's own id is
+  // allocated before its children so the numbers ascend in document order.
+  const serializeNode = (node: SlideTreeNode): string => {
+    const shapeId = nextShapeId
+    nextShapeId += 1
+    const element = node.element
+    if (element.kind === 'group') return serializeGroupXml(element, shapeId, node.children.map(serializeNode))
     if (element.kind === 'shape' || element.kind === 'text') {
       const pictureRelationshipId = element.pictureFill ? relationshipFor(element.pictureFill.assetId) : undefined
-      serializedElements.push(serializeShapeXml(element, nextShapeId, pictureRelationshipId))
-    } else if (element.kind === 'table') {
-      serializedElements.push(serializeTableFrameXml(element, nextShapeId, relationshipFor))
-    } else if (element.kind === 'image') {
-      serializedElements.push(serializePictureXml(element, relationshipFor(element.assetId), nextShapeId))
-    } else {
-      throw new Error(`PPTX generation unsupported element kind: ${element.kind}`)
+      return serializeShapeXml(element, shapeId, pictureRelationshipId)
     }
-    nextShapeId += 1
+    if (element.kind === 'table') return serializeTableFrameXml(element, shapeId, relationshipFor)
+    if (element.kind === 'image') return serializePictureXml(element, relationshipFor(element.assetId), shapeId)
+    throw new Error(`PPTX generation unsupported element kind: ${unmodeledKind(element)}`)
   }
+  const serializedElements = slideTree(document, slideId).map(serializeNode)
   const backgroundAsset = slide.background?.pictureFill?.assetId
   return {
     xml: serializeSlideXml(

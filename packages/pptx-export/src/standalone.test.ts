@@ -648,13 +648,15 @@ describe('createPptx', () => {
     expect(mismatchDocument).toEqual(mismatchBefore)
   })
 
-  it('rejects unsupported groups and validates slide mappings before asset reads', async () => {
-    const groupDocument: Ppt4aiDocument = {
+  it('rejects unmodeled element kinds and validates slide mappings before asset reads', async () => {
+    // Groups are exported now (`standalone-group.test.ts`); the rejection is for a kind no serializer
+    // knows, which must fail loudly rather than leave an element off the slide.
+    const unmodeledDocument: Ppt4aiDocument = {
       ...emptyDocument,
-      slides: { sld_1: { id: 'sld_1', elementIds: ['group_1'] } },
-      elements: { group_1: { id: 'group_1', kind: 'group', bounds: { x: 0, y: 0, w: 100, h: 100 }, childIds: [] } },
+      slides: { sld_1: { id: 'sld_1', elementIds: ['connector_1'] } },
+      elements: { connector_1: { id: 'connector_1', kind: 'connector', bounds: { x: 0, y: 0, w: 100, h: 100 } } as unknown as ShapeElement },
     }
-    await expect(createPptx(groupDocument)).rejects.toThrow('PPTX generation unsupported element kind: group')
+    await expect(createPptx(unmodeledDocument)).rejects.toThrow('PPTX generation unsupported element kind: connector')
 
     const invalidDocument = structuredClone(imageDocument)
     invalidDocument.slideOrder = ['missing_slide']

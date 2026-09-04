@@ -6,6 +6,7 @@ import {
   DEFAULT_THEME_STYLE_FILL,
   type Color,
   type Fill,
+  type GroupElement,
   type OuterShadow,
   type PictureFill,
   type Rect,
@@ -373,6 +374,24 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
     ? serializeTextBodyXml(element.body ?? { paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }] })
     : ''
   return `<p:sp>${nonVisualProperties}${shapeProperties}${serializeShapeStyleXml(element.styleRef)}${textBody}</p:sp>`
+}
+
+/**
+ * `p:grpSp`, children already serialized by the caller so the shape id cursor stays shared across
+ * the whole tree — `p:cNvPr/@id` is unique per slide, not per nesting level.
+ *
+ * `a:chOff`/`a:chExt` are written even when the model has no `childSpace`: a child's `a:off` inside a
+ * group is in the child coordinate space, and a model without `childSpace` means its children carry
+ * plain slide coordinates — which OOXML states as a child space identical to the group's own box.
+ * Omitting the pair would leave the mapping to whatever a reader decides, and identity is not an
+ * invented number: it is `bounds`.
+ */
+export function serializeGroupXml(group: GroupElement, shapeId: number, children: readonly string[]): string {
+  const nonVisualProperties = `<p:nvGrpSpPr><p:cNvPr id="${shapeId}" name="${escapeXml(group.id)}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`
+  const space = group.childSpace ?? group.bounds
+  const childSpace = `<a:chOff x="${space.x}" y="${space.y}"/><a:chExt cx="${space.w}" cy="${space.h}"/>`
+  const transform = `<a:xfrm${serializeTransformAttributes(group)}>${serializeTransformContents(group.bounds)}${childSpace}</a:xfrm>`
+  return `<p:grpSp>${nonVisualProperties}<p:grpSpPr>${transform}</p:grpSpPr>${children.join('')}</p:grpSp>`
 }
 
 export function serializeTableFrameXml(table: TableElement, shapeId: number, pictureRelationships?: (assetId: string) => string | undefined): string {
