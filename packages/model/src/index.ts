@@ -1,4 +1,18 @@
-export type PresetGeometry = 'rect' | 'roundRect' | 'ellipse' | 'triangle'
+/**
+ * `a:prstGeom/@prst` verbatim. ECMA-376 defines 187 presets whose outlines come from a guide formula
+ * table this project cannot verify, so the model records the word and painting draws the four it knows
+ * — a `chevron` keeps its name in the file instead of being rewritten as a rectangle. Unknown words
+ * paint as a rectangle, which is exactly what they did before the word was preserved.
+ */
+export type PresetGeometry = string
+
+/** The four `prst` words `createPresetPath` has a real outline for. */
+export const PAINTED_PRESET_GEOMETRIES: readonly string[] = ['rect', 'roundRect', 'ellipse', 'triangle']
+
+/** `prst` is an enumeration in the schema; the model's job is to preserve the word, not to police it. */
+export function isPresetGeometryToken(value: unknown): value is PresetGeometry {
+  return typeof value === 'string' && /^[A-Za-z][A-Za-z0-9]*$/u.test(value)
+}
 
 export { parseBitmapMetadata, type BitmapMetadata } from './bitmap-metadata'
 
@@ -1089,7 +1103,6 @@ const underlines = new Set(['none', 'single'])
 const bulletSchemes = new Set(['arabic', 'alphaLower', 'alphaUpper'])
 const tableStyleRegions = new Set<TableStyleRegionName>(['wholeTable', 'band1H', 'band2H', 'band1V', 'band2V', 'firstRow', 'lastRow', 'firstCol', 'lastCol'])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
-const presetGeometries = new Set<PresetGeometry>(['rect', 'roundRect', 'ellipse', 'triangle'])
 const strokeStyles = new Set<StrokeStyle>(['solid', 'dot', 'sysDot', 'dash', 'lgDash', 'sysDash', 'dashDot', 'lgDashDot', 'sysDashDot', 'lgDashDotDot', 'sysDashDotDot'])
 /** A table border adds `none` (an explicit `a:noFill`) to the same vocabulary. */
 const tableBorderStyles = new Set<string>([...strokeStyles, 'none'])
@@ -1337,8 +1350,8 @@ function validateImageAppearance(element: ImageElement, path: string, errors: st
 
   if (element.sourceCrop !== undefined) validateImageCrop(element.sourceCrop, `${path}.sourceCrop`, errors)
 
-  if (element.maskPreset !== undefined && !presetGeometries.has(element.maskPreset)) {
-    errors.push(`${path}.maskPreset must be a supported image mask preset`)
+  if (element.maskPreset !== undefined && !isPresetGeometryToken(element.maskPreset)) {
+    errors.push(`${path}.maskPreset must be a preset geometry token`)
   }
 
   if (element.effects !== undefined) {
@@ -1853,8 +1866,10 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       if (typeof element.assetId !== 'string' || element.assetId.length === 0) errors.push(`image element ${elementId} assetId must be a non-empty string`)
       else if (!value.assets?.[element.assetId]) errors.push(`image element ${elementId} references missing asset: ${element.assetId}`)
       validateImageAppearance(element, `elements.${elementId}`, errors)
-    } else if (element.kind === 'text' && element.preset !== undefined && !presetGeometries.has(element.preset)) {
-      errors.push(`elements.${elementId}.preset must be a supported preset geometry`)
+    } else if (element.kind === 'text' && element.preset !== undefined && !isPresetGeometryToken(element.preset)) {
+      errors.push(`elements.${elementId}.preset must be a preset geometry token`)
+    } else if (element.kind === 'shape' && !isPresetGeometryToken(element.preset)) {
+      errors.push(`elements.${elementId}.preset must be a preset geometry token`)
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.styleRef !== undefined) {
       validateShapeStyleReference(element.styleRef, `elements.${elementId}.styleRef`, errors)

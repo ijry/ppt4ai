@@ -70,8 +70,7 @@ function serializeEffects(element: ImageElement): string {
 }
 
 function serializeGeometry(element: ImageElement): string {
-  const preset = element.maskPreset ?? 'rect'
-  return `<a:prstGeom prst="${preset}"><a:avLst/></a:prstGeom>`
+  return `<a:prstGeom prst="${escapeXml(element.maskPreset ?? 'rect')}"><a:avLst/></a:prstGeom>`
 }
 
 export function serializePictureXml(element: ImageElement, relationshipId: string, shapeId: number): string {

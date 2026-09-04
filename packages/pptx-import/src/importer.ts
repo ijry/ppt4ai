@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, isPresetGeometryToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -836,8 +836,10 @@ function parseImageCrop(picture: XmlNode): ImageCrop | undefined {
 
 function parseImageMaskPreset(picture: XmlNode): PresetGeometry | undefined {
   const geometry = child(child(picture, 'spPr') ?? picture, 'prstGeom')
-  const preset = geometry && attribute(geometry, 'prst')
-  return preset === 'rect' || preset === 'roundRect' || preset === 'ellipse' || preset === 'triangle' ? preset : undefined
+  const preset = geometry && attribute(geometry, 'prst')?.trim()
+  // The word is kept even when the mask painter has no outline for it, so exporting a star-cropped
+  // picture cannot turn it into a rectangle; painting falls back to the rectangular mask.
+  return preset && isPresetGeometryToken(preset) ? preset : undefined
 }
 
 function parseImageEffects(picture: XmlNode): ImageEffect[] | undefined {
@@ -948,11 +950,15 @@ function parseShapePictureFill(
   return { pictureFill: { assetId, ...(sourceCrop ? { sourceCrop } : {}) }, metadata, bytes }
 }
 
+/**
+ * The `prst` word verbatim. Only the four painted ones used to survive, so `chevron` became `rect` and
+ * standalone export wrote that back into the file; `rect` remains the answer for an absent or
+ * malformed word, which is also OOXML's default geometry.
+ */
 function parsePreset(shape: XmlNode): PresetGeometry {
   const geometry = findDescendants(shape, 'prstGeom')[0]
-  const preset = geometry && attribute(geometry, 'prst')
-  if (preset === 'roundRect' || preset === 'ellipse' || preset === 'triangle') return preset
-  return 'rect'
+  const preset = geometry && attribute(geometry, 'prst')?.trim()
+  return preset && isPresetGeometryToken(preset) ? preset : 'rect'
 }
 
 /** Only set when the source declares geometry, so a plain text box does not gain a preset it never had. */

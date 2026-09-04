@@ -823,7 +823,7 @@ describe('ppt4ai file model', () => {
           assetId: 'asset_1',
           transform: { rotation: 1.5, flipH: 'yes', flipV: false },
           sourceCrop: { left: -1, top: 100001, right: 50000.5, bottom: 0 },
-          maskPreset: 'hexagon',
+          maskPreset: 'not a token!',
           effects: [
             { type: 'alphaModFix', amount: 100001 },
             { type: 'unsupported' },
@@ -841,7 +841,7 @@ describe('ppt4ai file model', () => {
         'elements.img_1.sourceCrop.left must be between 0 and 100000',
         'elements.img_1.sourceCrop.top must be between 0 and 100000',
         'elements.img_1.sourceCrop.right must be between 0 and 100000',
-        'elements.img_1.maskPreset must be a supported image mask preset',
+        'elements.img_1.maskPreset must be a preset geometry token',
         'elements.img_1.effects[0].amount must be between 0 and 100000',
         'elements.img_1.effects[1].type must be a supported image effect type',
       ],

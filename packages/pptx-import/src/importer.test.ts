@@ -165,7 +165,9 @@ const malformedImageAppearanceFiles = {
   'ppt/slides/slide1.xml': imageFiles['ppt/slides/slide1.xml']
     .replace('<a:xfrm><a:off x="2000000" y="1500000"/><a:ext cx="5000000" cy="3000000"/></a:xfrm>', '<a:xfrm rot="bad" flipH="maybe" flipV="2"><a:off x="2000000" y="1500000"/><a:ext cx="5000000" cy="3000000"/></a:xfrm>')
     .replace('<a:blip r:embed="rId2"/>', '<a:blip r:embed="rId2"><a:alphaModFix amt="-1"/></a:blip><a:srcRect l="-1" t="100001" r="bad" b="invalid"/>')
-    .replace('</p:spPr></p:pic>', '<a:prstGeom prst="hexagon"><a:avLst/></a:prstGeom></p:spPr></p:pic>'),
+    // `hexagon` used to belong here, back when only four words were modeled; a word that is not a
+    // token at all is what "malformed" means now.
+    .replace('</p:spPr></p:pic>', '<a:prstGeom prst="not a token!"><a:avLst/></a:prstGeom></p:spPr></p:pic>'),
 }
 
 class RecordingAssetAdapter implements AssetAdapter {

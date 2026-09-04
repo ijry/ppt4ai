@@ -496,8 +496,14 @@ function strokeReplacements(
   return replacements
 }
 
+/**
+ * The source's own word. This used to collapse it onto the four painted presets, because that was all
+ * the model could hold — the same patch `collapsedDashStyle` was, and obsolete for the same reason.
+ * An absent or empty word is `rect`, which is what the importer records for it.
+ */
 function importedPreset(value: string | undefined): PresetGeometry {
-  return value === 'roundRect' || value === 'ellipse' || value === 'triangle' ? value : 'rect'
+  const token = value?.trim()
+  return token ? token : 'rect'
 }
 
 function qualifiedName(sourceName: string, localName: string): string {

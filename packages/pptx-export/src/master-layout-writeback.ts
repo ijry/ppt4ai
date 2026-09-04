@@ -247,10 +247,11 @@ function sourceRotation(shape: XmlElement): number | undefined {
   return value !== undefined && Number.isInteger(value) ? value : undefined
 }
 
-function sourcePreset(shape: XmlElement): 'rect' | 'roundRect' | 'ellipse' | 'triangle' {
+/** The placeholder's own `prst` word, compared verbatim now that the model keeps it — see the slide writeback. */
+function sourcePreset(shape: XmlElement): string {
   const geometry = descendants(shape.children, 'prstGeom')[0]
-  const preset = geometry?.attributes.prst
-  return preset === 'roundRect' || preset === 'ellipse' || preset === 'triangle' ? preset : 'rect'
+  const preset = geometry?.attributes.prst?.trim()
+  return preset ? preset : 'rect'
 }
 
 function sourceText(shape: XmlElement): string | undefined {

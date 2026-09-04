@@ -238,8 +238,9 @@ function serializeTransformAttributes(element: { rotation?: number; flipH?: bool
   ])
 }
 
+/** The preset is an arbitrary `prst` word now, so it is escaped like any other model string. */
 function serializeGeometry(preset: ShapeElement['preset']): string {
-  return `<a:prstGeom prst="${preset}"><a:avLst/></a:prstGeom>`
+  return `<a:prstGeom prst="${escapeXml(preset)}"><a:avLst/></a:prstGeom>`
 }
 
 function serializePlaceholder(placeholder: string | undefined): string {

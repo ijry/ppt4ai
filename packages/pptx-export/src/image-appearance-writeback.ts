@@ -1,8 +1,8 @@
 import type { ImageCrop, ImageEffect, ImageElement, Rect } from '@ppt4ai/model'
+import { escapeXml } from './text-xml.js'
 import { replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 
 const cropAttributes = ['l', 't', 'r', 'b'] as const
-const supportedMasks = new Set(['rect', 'roundRect', 'ellipse', 'triangle'])
 
 function failure(element: ImageElement, detail: string): Error {
   return new Error(`PPTX export image appearance ${detail}: ${element.id}`)
@@ -301,13 +301,14 @@ function effectReplacements(source: string, blip: XmlElement, image: ImageElemen
   return replacements
 }
 
+/** The source's own `prst` word, verbatim: the model keeps whichever one the file used. */
 function sourceMask(geometry: XmlElement | undefined): ImageElement['maskPreset'] {
-  const preset = geometry?.localName === 'prstGeom' ? geometry.attributes.prst : undefined
-  return preset && supportedMasks.has(preset) ? preset as ImageElement['maskPreset'] : undefined
+  const preset = geometry?.localName === 'prstGeom' ? geometry.attributes.prst?.trim() : undefined
+  return preset ? preset : undefined
 }
 
 function serializeGeometry(mask: NonNullable<ImageElement['maskPreset']>, prefix: string): string {
-  return `<${prefix}prstGeom prst="${mask}"><${prefix}avLst/></${prefix}prstGeom>`
+  return `<${prefix}prstGeom prst="${escapeXml(mask)}"><${prefix}avLst/></${prefix}prstGeom>`
 }
 
 function geometryReplacements(source: string, properties: XmlElement, transform: XmlElement, image: ImageElement): Replacement[] {

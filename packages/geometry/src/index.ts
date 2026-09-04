@@ -1,4 +1,5 @@
-export type PresetGeometry = 'rect' | 'roundRect' | 'ellipse' | 'triangle'
+/** Mirrors `@ppt4ai/model`'s type: the `prst` word verbatim, of which four have a real outline. */
+export type PresetGeometry = string
 
 export interface GeometryBounds {
   x: number
@@ -226,9 +227,11 @@ function trianglePath({ x, y, w, h }: GeometryBounds): PathCommand[] {
 
 export function createPresetPath(preset: PresetGeometry, bounds: GeometryBounds): PathCommand[] {
   switch (preset) {
-    case 'rect': return rectanglePath(bounds)
     case 'roundRect': return roundRectanglePath(bounds)
     case 'ellipse': return ellipsePath(bounds)
     case 'triangle': return trianglePath(bounds)
+    // Every other `prst` word — 183 of them — has an outline this project cannot verify, so it paints
+    // as its bounding rectangle. That is what they painted before the word reached the model too.
+    default: return rectanglePath(bounds)
   }
 }

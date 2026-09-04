@@ -48,8 +48,12 @@ describe('geometry on shapes that carry text', () => {
     expect(element).not.toHaveProperty('preset')
   })
 
-  it('falls back to rect for an unsupported preset, as shapes already did', async () => {
-    expect(await firstElement(shapeWith('<a:prstGeom prst="hexagon"/>', labelTextBody))).toMatchObject({ preset: 'rect' })
+  /**
+   * This used to assert `rect`: the model could only hold four words, so standalone export rewrote the
+   * file's own `hexagon`. The word is kept now — painting still draws its bounding rectangle.
+   */
+  it('keeps an unpainted preset word verbatim', async () => {
+    expect(await firstElement(shapeWith('<a:prstGeom prst="hexagon"/>', labelTextBody))).toMatchObject({ preset: 'hexagon' })
   })
 
   it('still imports a shape without a text body as a shape', async () => {
