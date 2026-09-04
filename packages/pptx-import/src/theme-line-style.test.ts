@@ -38,7 +38,7 @@ describe('theme line styles on import', () => {
     expect(entries).toEqual([
       { color: { type: 'scheme', v: 'phClr' }, width: 6350 },
       { color: { type: 'scheme', v: 'phClr' }, width: 12700, style: 'dash' },
-      { color: { type: 'scheme', v: 'phClr' }, width: 19050, style: 'dot' },
+      { color: { type: 'scheme', v: 'phClr' }, width: 19050, style: 'sysDot' },
     ])
   })
 

@@ -115,5 +115,5 @@ export type { ThemePanelEmit, ThemePanelFontModel, ThemePanelProps, ThemePanelSl
 export { createThemeEditorController } from './theme-editor-controller'
 export type { ThemeEditorController, ThemeEditorControllerOptions } from './theme-editor-controller'
 export { default as ShapePaintToolbar } from './ShapePaintToolbar.vue'
-export { emuFromPoints, pointsFromEmu, STROKE_STYLE_OPTIONS } from './shape-paint-toolbar'
+export { emuFromPoints, pointsFromEmu, STROKE_STYLE_OPTIONS, strokeStyleOptions } from './shape-paint-toolbar'
 export type { ShapePaintToolbarEmit, ShapePaintToolbarProps } from './shape-paint-toolbar'

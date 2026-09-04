@@ -45,10 +45,37 @@ export function canvasLineJoin(join: StrokeJoin | undefined): CanvasLineJoin {
   return join === 'round' || join === 'bevel' ? join : 'miter'
 }
 
+/**
+ * Canvas dash pattern for a stroke style, in the same units as the line width so a thick dash keeps
+ * its proportions. Exported because table borders paint the same styles and had their own copy.
+ *
+ * The eleven OOXML tokens collapse into four structures here, not in the model: ECMA-376's exact
+ * lengths are not verifiable in this environment, so `lg` (longer dashes) and `sys` (thinner system
+ * variants) paint like their base word rather than inventing magnitudes for them. The dash-dot
+ * families do get their own pattern — appending the existing dot to the existing dash needs no new
+ * number, and before this they painted identically to a plain dash.
+ */
 export function dashPattern(style: StrokeStyle, width: number): number[] {
-  if (style === 'solid') return []
-  if (style === 'dash') return [4 * width, 3 * width]
-  return [width, 2 * width]
+  const dash = [4 * width, 3 * width]
+  const dot = [width, 2 * width]
+  switch (style) {
+    case 'dot':
+    case 'sysDot':
+      return dot
+    case 'dash':
+    case 'lgDash':
+    case 'sysDash':
+      return dash
+    case 'dashDot':
+    case 'lgDashDot':
+    case 'sysDashDot':
+      return [...dash, ...dot]
+    case 'lgDashDotDot':
+    case 'sysDashDotDot':
+      return [...dash, ...dot, ...dot]
+    default:
+      return []
+  }
 }
 
 function validateMapping(mapping: ShapePageMapping): void {

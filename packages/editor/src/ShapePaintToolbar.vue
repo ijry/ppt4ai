@@ -6,6 +6,7 @@ import {
   emuFromPoints,
   pointsFromEmu,
   STROKE_STYLE_OPTIONS,
+  strokeStyleOptions,
   type ShapePaintToolbarEmit,
   type ShapePaintToolbarProps,
 } from './shape-paint-toolbar'
@@ -23,6 +24,14 @@ const widthPoints = ref(pointsFromEmu(props.strokeWidth) ?? '')
 watch(() => props.strokeWidth, (value) => { widthPoints.value = pointsFromEmu(value) ?? '' })
 
 const styleValue = computed(() => props.strokeStyle ?? 'solid')
+/**
+ * Only the three offered styles have a label; one of the other eight `a:prstDash` tokens shows its own
+ * word, because the toolbar cannot describe a style it cannot set and inventing a name would be worse.
+ */
+const styleOptions = computed(() => strokeStyleOptions(props.strokeStyle).map((option) => ({
+  value: option,
+  label: STROKE_STYLE_OPTIONS.includes(option) ? t(`toolbar.shapePaint.styles.${option}`) : option,
+})))
 
 function colorValue(value: string): string {
   const normalized = value.replace(/^#/, '').toUpperCase()
@@ -138,8 +147,8 @@ function setStrokeStyle(event: Event): void {
       :value="styleValue"
       @change="setStrokeStyle"
     >
-      <option v-for="option in STROKE_STYLE_OPTIONS" :key="option" :value="option">
-        {{ t(`toolbar.shapePaint.styles.${option}`) }}
+      <option v-for="option in styleOptions" :key="option.value" :value="option.value">
+        {{ option.label }}
       </option>
     </select>
   </div>

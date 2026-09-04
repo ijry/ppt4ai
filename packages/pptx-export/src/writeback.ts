@@ -391,26 +391,18 @@ function lineWidthReplacements(xml: string, line: XmlElement, width: number | un
 }
 
 /**
- * The same collapse the importer applies to `a:prstDash/@val`: eleven OOXML tokens become three.
- * Mirrored here rather than shared for the reason `color-source.ts` gives.
- */
-function collapsedDashStyle(value: string | undefined): StrokeStyle | undefined {
-  if (!value || value === 'solid') return undefined
-  return value === 'dot' || value === 'sysDot' ? 'dot' : 'dash'
-}
-
-/**
  * `a:ln/a:prstDash`. `solid` never reaches the model, so a model with no style means "back to the
  * default" and the node is removed rather than written as `val="solid"`.
  *
- * The comparison runs the source token through the importer's collapse first, so a source
- * `lgDashDot` — which the model can only hold as `dash` — counts as unchanged and survives verbatim.
- * Comparing against the raw token instead would rewrite it to `dash` on any unrelated edit, which is
- * exactly what the dash slice added an assertion to prevent.
+ * The comparison is verbatim now that the model holds all eleven tokens. It used to run the source
+ * token through the importer's three-way collapse, because a source `lgDashDot` could only be held as
+ * `dash` and comparing raw would have rewritten it on any unrelated edit. With the tokens modeled that
+ * collapse would do the opposite damage: `dash` → `lgDash` would compare equal and never be written.
  */
 function lineDashReplacements(xml: string, line: XmlElement, style: StrokeStyle | undefined): Replacement[] {
   const dashNode = line.children.find((child) => child.localName === 'prstDash')
-  const sourceStyle = collapsedDashStyle(dashNode?.attributes.val)
+  const sourceToken = dashNode?.attributes.val
+  const sourceStyle = !sourceToken || sourceToken === 'solid' ? undefined : sourceToken
   const wanted = style === 'solid' ? undefined : style
   if (wanted === sourceStyle) return []
   if (wanted === undefined) {

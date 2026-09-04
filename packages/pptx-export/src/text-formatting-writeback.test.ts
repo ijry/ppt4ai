@@ -249,16 +249,13 @@ describe('stroke dash survives a writeback edit', () => {
     expect(await exportPptx(await importPptx(source), source)).toEqual(source)
   })
 
-  /**
-   * The model collapsed `lgDashDot` to `dash`, so writing the model back would lose the source's
-   * own token. Writeback never emits `a:prstDash`, which is why the original survives verbatim.
-   */
+  /** The model now carries `lgDashDot` itself, so recolouring an outline cannot downgrade its token. */
   it('keeps the source dash token when the colour changes', async () => {
     const source = dashedPackage()
     const document = await importPptx(source)
     const shape = document.elements.el_1
     if (shape?.kind !== 'shape') throw new Error('fixture did not import as a shape')
-    expect(shape.strokeStyle).toBe('dash')
+    expect(shape.strokeStyle).toBe('lgDashDot')
     shape.stroke = { color: { type: 'srgb', v: 'FF0000' } }
 
     const outputSlide = await slideXmlOf(await exportPptx(document, source))

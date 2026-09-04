@@ -11,7 +11,8 @@ const namespace = 'http://schemas.openxmlformats.org/drawingml/2006/main'
 function serializeBorder(name: string, border: TableBorder | undefined): string {
   if (!border) return ''
   if (border.style === 'none') return `<a:${name}${attrs([['w', border.width]])}><a:noFill/></a:${name}>`
-  const dash = border.style === 'dash' || border.style === 'dot'
+  // Every token except `solid` writes verbatim; `solid` is the default and stays implicit.
+  const dash = border.style !== undefined && border.style !== 'solid'
     ? `<a:prstDash${attrs([['val', border.style]])}/>`
     : ''
   return `<a:${name}${attrs([['w', border.width]])}>${serializeFillXml({ color: border.color })}${dash}</a:${name}>`

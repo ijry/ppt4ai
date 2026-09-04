@@ -481,7 +481,7 @@ describe('ppt4ai file model', () => {
         'elements.tbl_1.rows[0].cells[0] exceeds table columns',
         'elements.tbl_1.rows[1].cells[0].column must be a non-negative integer',
         'elements.tbl_1.rows[1].cells[1].borders.top.width must be non-negative',
-        'elements.tbl_1.rows[1].cells[1].borders.top.style must be solid, dash, dot, or none',
+        'elements.tbl_1.rows[1].cells[1].borders.top.style must be a supported preset dash token or none',
       ],
     })
   })

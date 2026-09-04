@@ -137,15 +137,22 @@ describe('setElementStrokeStyle', () => {
     expect(shapeOf(engine).strokeStyle).toBe('dash')
   })
 
-  it('rejects a style outside the three modeled words', () => {
+  /**
+   * `lgDashDot` used to be refused here — the model could not hold it. Now the eleven `a:prstDash`
+   * tokens are all settable (the toolbar still offers three), and only a word that is not one is refused.
+   */
+  it('accepts every preset dash token and rejects a word that is not one', () => {
     const engine = engineWith(outlinedShape())
+
+    engine.dispatch({ type: 'setElementStrokeStyle', elementId: 'el_shape', style: 'lgDashDot' })
+    expect(shapeOf(engine).strokeStyle).toBe('lgDashDot')
 
     expect(() => engine.dispatch({
       type: 'setElementStrokeStyle',
       elementId: 'el_shape',
-      style: 'lgDashDot' as never,
+      style: 'squiggle' as never,
     })).toThrow('stroke style is invalid')
-    expect(shapeOf(engine).strokeStyle).toBe('dash')
+    expect(shapeOf(engine).strokeStyle).toBe('lgDashDot')
   })
 
   it('does not touch the history when the style is unchanged', () => {

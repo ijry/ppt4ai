@@ -5,6 +5,17 @@ const EMU_PER_POINT = 12700
 
 export const STROKE_STYLE_OPTIONS: readonly StrokeStyle[] = ['solid', 'dash', 'dot']
 
+/**
+ * The three the toolbar offers, plus whatever the element already carries when the source used one of
+ * the other eight `a:prstDash` tokens. Without the extra entry a `<select>` bound to `lgDashDot` falls
+ * back to its first option and reports the outline as Solid — a lie about the file. Picking one of the
+ * three replaces it, and the extra entry disappears with it.
+ */
+export function strokeStyleOptions(current: StrokeStyle | undefined): readonly StrokeStyle[] {
+  if (current === undefined || STROKE_STYLE_OPTIONS.includes(current)) return STROKE_STYLE_OPTIONS
+  return [...STROKE_STYLE_OPTIONS, current]
+}
+
 export interface ShapePaintToolbarProps {
   readonly active: boolean
   /** The resolved fill as a `#RRGGBB` string, absent when the element carries no fill. */

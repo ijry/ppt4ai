@@ -76,9 +76,11 @@ describe('theme line style validation', () => {
       .toContain('themes.theme-1.formatScheme.lineStyles[0].width must be a non-negative integer')
   })
 
-  it('rejects a dash outside the three modeled styles', () => {
-    expect(errorsFor([{ color: { type: 'srgb', v: '4472C4' }, style: 'lgDashDot' }]))
-      .toContain('themes.theme-1.formatScheme.lineStyles[0].style must be solid, dash, or dot')
+  /** `lgDashDot` used to be rejected here; the eleven `a:prstDash` tokens are all modeled now. */
+  it('accepts every preset dash token and rejects a word that is not one', () => {
+    expect(errorsFor([{ color: { type: 'srgb', v: '4472C4' }, style: 'lgDashDot' }])).toEqual([])
+    expect(errorsFor([{ color: { type: 'srgb', v: '4472C4' }, style: 'squiggle' }]))
+      .toContain('themes.theme-1.formatScheme.lineStyles[0].style must be a supported preset dash token')
   })
 
   it('still applies the fill rules to the entry colour', () => {

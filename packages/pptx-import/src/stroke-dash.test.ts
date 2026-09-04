@@ -31,14 +31,19 @@ describe('stroke dash on import', () => {
   })
 
   /** OOXML has eleven tokens and the painter has two patterns, so the rest collapse. */
-  it('collapses the dashed variants onto dash', async () => {
+  /**
+   * These two used to assert the opposite — that the eight other tokens collapsed onto `dash` and
+   * `dot`. That collapse made the round trip lossy: standalone export wrote the collapsed word back
+   * into the file. The model now keeps the file's own word; grouping is the painter's business.
+   */
+  it('keeps every dashed variant verbatim', async () => {
     for (const value of ['lgDash', 'dashDot', 'lgDashDot', 'lgDashDotDot', 'sysDash', 'sysDashDot', 'sysDashDotDot']) {
-      expect(await firstElement(`<a:ln w="38100">${navy}<a:prstDash val="${value}"/></a:ln>`)).toMatchObject({ strokeStyle: 'dash' })
+      expect(await firstElement(`<a:ln w="38100">${navy}<a:prstDash val="${value}"/></a:ln>`)).toMatchObject({ strokeStyle: value })
     }
   })
 
-  it('collapses sysDot onto dot', async () => {
-    expect(await firstElement(`<a:ln w="38100">${navy}<a:prstDash val="sysDot"/></a:ln>`)).toMatchObject({ strokeStyle: 'dot' })
+  it('keeps sysDot verbatim', async () => {
+    expect(await firstElement(`<a:ln w="38100">${navy}<a:prstDash val="sysDot"/></a:ln>`)).toMatchObject({ strokeStyle: 'sysDot' })
   })
 
   /** A dash with no outline colour has nothing to paint, so the style would be dead weight. */

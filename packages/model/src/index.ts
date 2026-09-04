@@ -154,7 +154,23 @@ export interface ResolvedGradient {
   scaled?: boolean
 }
 
-export type StrokeStyle = 'solid' | 'dash' | 'dot'
+/**
+ * `a:prstDash/@val` verbatim: all eleven `ST_PresetLineDashVal` tokens, so the exporter writes back
+ * the word the file used. Painting groups them into four dash structures (see `dashPattern`) because
+ * the spec's exact lengths are not verifiable here, but the model never loses which word it was.
+ */
+export type StrokeStyle =
+  | 'solid'
+  | 'dot'
+  | 'sysDot'
+  | 'dash'
+  | 'lgDash'
+  | 'sysDash'
+  | 'dashDot'
+  | 'lgDashDot'
+  | 'sysDashDot'
+  | 'lgDashDotDot'
+  | 'sysDashDotDot'
 
 /** `a:ln/@cap` verbatim, so the exporter writes the model value without a mapping table. */
 export type StrokeCap = 'flat' | 'rnd' | 'sq'
@@ -336,7 +352,8 @@ export interface TextElement {
 export interface TableBorder {
   color: Color
   width?: number
-  style?: 'solid' | 'dash' | 'dot' | 'none'
+  /** The same `a:prstDash` vocabulary element outlines use, plus `none` for an explicit `a:noFill`. */
+  style?: StrokeStyle | 'none'
 }
 
 export interface TableCellBorders {
@@ -1013,11 +1030,12 @@ const writingModes = new Set(['horizontal', 'vertical'])
 const wraps = new Set(['square', 'none'])
 const underlines = new Set(['none', 'single'])
 const bulletSchemes = new Set(['arabic', 'alphaLower', 'alphaUpper'])
-const tableBorderStyles = new Set(['solid', 'dash', 'dot', 'none'])
 const tableStyleRegions = new Set<TableStyleRegionName>(['wholeTable', 'band1H', 'band2H', 'band1V', 'band2V', 'firstRow', 'lastRow', 'firstCol', 'lastCol'])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
 const presetGeometries = new Set<PresetGeometry>(['rect', 'roundRect', 'ellipse', 'triangle'])
-const strokeStyles = new Set<StrokeStyle>(['solid', 'dash', 'dot'])
+const strokeStyles = new Set<StrokeStyle>(['solid', 'dot', 'sysDot', 'dash', 'lgDash', 'sysDash', 'dashDot', 'lgDashDot', 'sysDashDot', 'lgDashDotDot', 'sysDashDotDot'])
+/** A table border adds `none` (an explicit `a:noFill`) to the same vocabulary. */
+const tableBorderStyles = new Set<string>([...strokeStyles, 'none'])
 const strokeCaps = new Set<StrokeCap>(['flat', 'rnd', 'sq'])
 const strokeJoins = new Set<StrokeJoin>(['round', 'bevel', 'miter'])
 const fontCollectionIndexes = new Set(['major', 'minor', 'none'])
@@ -1147,7 +1165,7 @@ function validateThemeLineStyleEntries(value: unknown, path: string, errors: str
       validateFiniteNumber(line.width, `${entryPath}.width`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')
     }
     if (line.style !== undefined && !strokeStyles.has(line.style as StrokeStyle)) {
-      errors.push(`${entryPath}.style must be solid, dash, or dot`)
+      errors.push(`${entryPath}.style must be a supported preset dash token`)
     }
   })
 }
@@ -1346,7 +1364,7 @@ function validateTableBorder(value: unknown, path: string, errors: string[]): vo
   if (!color || typeof color !== 'object' || Array.isArray(color)) errors.push(`${path}.color must be an object`)
   else validateColor(color, `${path}.color`, errors)
   if ('width' in border) validateFiniteNumber(border.width, `${path}.width`, errors, (number) => number >= 0, 'must be non-negative')
-  if ('style' in border && (typeof border.style !== 'string' || !tableBorderStyles.has(border.style))) errors.push(`${path}.style must be solid, dash, dot, or none`)
+  if ('style' in border && (typeof border.style !== 'string' || !tableBorderStyles.has(border.style))) errors.push(`${path}.style must be a supported preset dash token or none`)
 }
 
 function validateGradient(value: unknown, path: string, errors: string[]): void {
@@ -1753,7 +1771,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       validateShapeStyleReference(element.styleRef, `elements.${elementId}.styleRef`, errors)
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.strokeStyle !== undefined && !strokeStyles.has(element.strokeStyle)) {
-      errors.push(`elements.${elementId}.strokeStyle must be solid, dash, or dot`)
+      errors.push(`elements.${elementId}.strokeStyle must be a supported preset dash token`)
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.strokeCap !== undefined && !strokeCaps.has(element.strokeCap)) {
       errors.push(`elements.${elementId}.strokeCap must be flat, rnd, or sq`)

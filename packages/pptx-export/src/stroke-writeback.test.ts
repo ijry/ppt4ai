@@ -116,13 +116,14 @@ describe('stroke dash writeback', () => {
   })
 
   /**
-   * The model can only hold `dash` for a source `lgDashDot`, so the comparison collapses the source
-   * token before comparing. Otherwise an unrelated edit would quietly downgrade the source's token.
+   * The comparison used to collapse the source token first, because the model could only hold `dash`
+   * for a source `lgDashDot`. The model holds the word itself now, so the same file survives an
+   * unrelated edit for a simpler reason: both sides read `lgDashDot`.
    */
-  it('leaves a collapsed source token alone when the style did not change', async () => {
+  it('leaves an uncommon source token alone when the style did not change', async () => {
     const source = packageWith(`<a:ln w="12700">${navy}<a:prstDash val="lgDashDot"/></a:ln>`)
     const { document, shape } = await shapeOf(source)
-    expect(shape.strokeStyle).toBe('dash')
+    expect(shape.strokeStyle).toBe('lgDashDot')
     shape.strokeWidth = 76200
 
     const line = lineOf(await slideXmlOf(await exportPptx(document, source)))
@@ -131,7 +132,7 @@ describe('stroke dash writeback', () => {
     expect(line).toContain('w="76200"')
   })
 
-  it('still writes a real change away from a collapsed token', async () => {
+  it('still writes a real change away from an uncommon token', async () => {
     const source = packageWith(`<a:ln w="12700">${navy}<a:prstDash val="lgDashDot"/></a:ln>`)
     const { document, shape } = await shapeOf(source)
     shape.strokeStyle = 'dot'

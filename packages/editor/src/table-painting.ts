@@ -65,11 +65,14 @@ function paintCellFill(context: TableContext, cell: SceneTableLayoutCell, mappin
   context.fill()
 }
 
+const borderStyles = new Set<string>([
+  'solid', 'dot', 'sysDot', 'dash', 'lgDash', 'sysDash',
+  'dashDot', 'lgDashDot', 'sysDashDot', 'lgDashDotDot', 'sysDashDotDot', 'none',
+])
+
 function borderStyle(border: TableBorder): NonNullable<TableBorder['style']> {
   const style = border.style ?? 'solid'
-  if (style !== 'solid' && style !== 'dash' && style !== 'dot' && style !== 'none') {
-    throw new Error(`unsupported table border style: ${String(style)}`)
-  }
+  if (!borderStyles.has(style)) throw new Error(`unsupported table border style: ${String(style)}`)
   return style
 }
 

@@ -264,15 +264,19 @@ function parseFill(shape: XmlNode): Fill | undefined {
 }
 
 /**
- * `a:prstDash/@val` narrowed to the three styles painting can express. OOXML has eleven tokens;
- * every dashed variant (`lgDash`, `dashDot`, `sysDash`, …) collapses to `dash` because the painter
- * has one dashed pattern, and only `dot`-family tokens keep their own pattern. Absent means solid.
+ * `a:prstDash/@val` verbatim. All eleven `ST_PresetLineDashVal` tokens reach the model, so the word
+ * the file used survives a round trip; grouping them into dash patterns is the painter's business.
+ * An unknown token is solid, which is also what an absent `a:prstDash` means.
  */
+const presetDashTokens = new Set<StrokeStyle>([
+  'solid', 'dot', 'sysDot', 'dash', 'lgDash', 'sysDash',
+  'dashDot', 'lgDashDot', 'sysDashDot', 'lgDashDotDot', 'sysDashDotDot',
+])
+
 function parseDashStyle(line: XmlNode | undefined): StrokeStyle {
   const dash = line && child(line, 'prstDash')
   const value = dash && attribute(dash, 'val')
-  if (!value || value === 'solid') return 'solid'
-  return value === 'dot' || value === 'sysDot' ? 'dot' : 'dash'
+  return value && presetDashTokens.has(value as StrokeStyle) ? value as StrokeStyle : 'solid'
 }
 
 function parseTableBorder(line: XmlNode | undefined): TableBorder | undefined {
