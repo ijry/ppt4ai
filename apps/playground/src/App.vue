@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Color, Fill, StrokeStyle, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { TableCellSelection } from '@ppt4ai/editor'
 import { DEFAULT_THEME_COLORS } from '@ppt4ai/model'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { AssetLibrary, hexFromColor, PptEditor, THEME_SLOT_GROUPS, ThemePanel, themeFontModels, themeSlotGroup, ThumbnailCanvas, type ThemePanelFontModel, type ThemePanelSlotModel } from '@ppt4ai/editor'
@@ -76,6 +77,17 @@ const themeFonts = computed<ThemePanelFontModel[]>(() => {
   const theme = themeId ? activeSlideSnapshot.value.engineState.document.themes?.[themeId] : undefined
   return theme ? themeFontModels(theme.fonts) : []
 })
+
+/**
+ * The overlay reports anchor and focus points; the engine command takes the focus cell plus an
+ * `extend` flag. Note the overlay and the engine each export a `TableCellSelection` and they are
+ * different shapes.
+ */
+function selectTableCell(payload: { elementId: string; selection: TableCellSelection }): void {
+  const { elementId, selection } = payload
+  const extend = selection.anchor.row !== selection.focus.row || selection.anchor.column !== selection.focus.column
+  assetSnapshot.value = assetHost.selectTableCell(elementId, selection.focus.row, selection.focus.column, extend)
+}
 
 function setShapeFill(fill: Fill | null): void {
   assetSnapshot.value = assetHost.setSelectedFill(fill)
@@ -324,6 +336,7 @@ async function uploadFile(event: Event): Promise<void> {
           @set-stroke="setShapeStroke"
           @set-stroke-width="setShapeStrokeWidth"
           @set-stroke-style="setShapeStrokeStyle"
+          @select-table-cell="selectTableCell"
         />
         <nav data-testid="editing-history-toolbar" class="mt-4 flex flex-wrap items-center gap-2" :aria-label="t('playground.history.title')">
           <button data-testid="history-undo" type="button" :disabled="!canUndo" :aria-label="t('playground.history.undo')" :title="t('playground.history.undo')" class="border border-slate-400 px-3 py-1 text-sm hover:border-slate-700 disabled:cursor-not-allowed disabled:opacity-50" @click="undo">

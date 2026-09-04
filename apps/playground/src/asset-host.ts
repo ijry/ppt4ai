@@ -33,6 +33,7 @@ export interface PlaygroundAssetHost {
   toggleSelectedElementFlip(elementId: string, axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   flipSelection(axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
+  selectTableCell(elementId: string, row: number, column: number, extend?: boolean): PlaygroundAssetHostSnapshot
   setSelectedFill(fill: Fill | null): PlaygroundAssetHostSnapshot
   setSelectedStroke(stroke: Fill | null): PlaygroundAssetHostSnapshot
   setSelectedStrokeWidth(width: number | null): PlaygroundAssetHostSnapshot
@@ -338,6 +339,17 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
         status = { kind: 'success', message: 'text-updated' }
       } catch {
         return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    selectTableCell(elementId, row, column, extend) {
+      const element = engine.getState().document.elements[elementId]
+      if (element?.kind !== 'table') return fail('table-target-required')
+      try {
+        engine.dispatch({ type: 'selectTableCell', elementId, row, column, ...(extend ? { extend } : {}) })
+        status = { kind: 'success', message: 'table-cell-selected' }
+      } catch {
+        return fail('table-cell-select-failed')
       }
       return snapshot()
     },

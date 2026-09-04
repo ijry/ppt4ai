@@ -2,12 +2,14 @@
 import type { SnapGuide, SnapOptions } from '@ppt4ai/engine'
 import { rotatePointAround } from '@ppt4ai/geometry'
 import type { AssetAdapter, Fill, Rect, StrokeStyle, TextBody } from '@ppt4ai/model'
-import type { SceneGraph, SceneImageNode } from '@ppt4ai/render'
+import type { SceneGraph, SceneImageNode, SceneTableNode } from '@ppt4ai/render'
 import type { ShapePaintToolbarProps } from './shape-paint-toolbar'
+import type { TableCellPoint, TableCellSelection } from './table-editor-overlay'
 import type { ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
 import { computed, onBeforeUnmount, ref, shallowRef, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ShapePaintToolbar from './ShapePaintToolbar.vue'
+import TableEditorOverlay from './TableEditorOverlay.vue'
 import SlideCanvas from './SlideCanvas.vue'
 import SelectionOverlay from './SelectionOverlay.vue'
 import TextBoxEditor from './TextBoxEditor.vue'
@@ -54,6 +56,8 @@ const emit = defineEmits<{
   'set-stroke': [stroke: Fill | null]
   'set-stroke-width': [width: number | null]
   'set-stroke-style': [style: StrokeStyle | null]
+  'select-table-cell': [payload: { elementId: string; selection: TableCellSelection }]
+  'edit-table-cell': [payload: { elementId: string; point: TableCellPoint }]
 }>()
 
 const EMU_TO_CSS_PIXEL = 96 / 914400
@@ -372,6 +376,30 @@ const textEditorProps = computed(() => {
     ...(props.bridgeFactory ? { bridgeFactory: props.bridgeFactory } : {}),
   }
 })
+
+/**
+ * The table cell overlay only appears for a single selected table. It owns its own cell selection
+ * and reports it upward; the host turns that into `selectTableCell` so the engine holds the truth.
+ */
+const selectedTableNode = computed<SceneTableNode | undefined>(() => {
+  const elementIds = selectedElementIds.value
+  const node = elementIds.length === 1
+    ? props.scene?.nodes.find((entry) => entry.id === elementIds[0])
+    : undefined
+  return node?.kind === 'table' ? node : undefined
+})
+
+const tableOverlayTransform = computed(() => ({ originX: 0, originY: 0, scale: EMU_TO_CSS_PIXEL * props.zoom }))
+
+function selectTableCell(selection: TableCellSelection): void {
+  const node = selectedTableNode.value
+  if (node) emit('select-table-cell', { elementId: node.id, selection })
+}
+
+function editTableCell(point: TableCellPoint): void {
+  const node = selectedTableNode.value
+  if (node) emit('edit-table-cell', { elementId: node.id, point })
+}
 
 function overlayBounds(): ScreenBounds | undefined {
   const preview = resizePreview.value
@@ -707,6 +735,15 @@ onBeforeUnmount(() => {
           @rotate="rotationMove"
           @rotate-end="rotationEnd"
           @rotate-cancel="rotationCancel"
+        />
+        <TableEditorOverlay
+          v-if="selectedTableNode"
+          active
+          :table="selectedTableNode"
+          :transform="tableOverlayTransform"
+          @select="selectTableCell"
+          @select-end="selectTableCell"
+          @edit="editTableCell"
         />
         <div
           v-if="textEditorProps"
