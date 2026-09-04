@@ -7,6 +7,7 @@ import {
   type Color,
   type Fill,
   type OuterShadow,
+  type PictureFill,
   type Rect,
   type ThemeEffectStyleEntry,
   type ShapeElement,
@@ -283,10 +284,35 @@ function serializeShadowXml(shadow: OuterShadow | undefined): string {
  * relationship are allocated per slide, exactly as `p:pic` does; the child order is the ECMA one
  * (`a:blip`, then `a:srcRect`, then the fill mode).
  */
+function serializeBlipEffectsXml(effects: PictureFill['effects']): string {
+  return (effects ?? []).map((effect) => effect.type === 'grayscl'
+    ? '<a:grayscl/>'
+    : `<a:alphaModFix amt="${effect.amount}"/>`).join('')
+}
+
+/** `a:tile` and `a:stretch` are a choice in `CT_BlipFillProperties`, so exactly one of them is written. */
+function serializeFillModeXml(fill: PictureFill): string {
+  const tile = fill.tile
+  if (!tile) return '<a:stretch><a:fillRect/></a:stretch>'
+  const attributes = attrs([
+    ['tx', tile.offsetX],
+    ['ty', tile.offsetY],
+    ['sx', tile.scaleX],
+    ['sy', tile.scaleY],
+    ['flip', tile.flip],
+    ['algn', tile.align],
+  ])
+  return `<a:tile${attributes}/>`
+}
+
 function serializePictureFillXml(element: ShapeElement | TextElement, relationshipId: string | undefined): string {
   const fill = element.pictureFill
   if (!fill || !relationshipId) return ''
-  return `<a:blipFill><a:blip r:embed="${escapeXml(relationshipId)}"/>${serializeCrop(fill.sourceCrop)}<a:stretch><a:fillRect/></a:stretch></a:blipFill>`
+  const effects = serializeBlipEffectsXml(fill.effects)
+  const blip = effects
+    ? `<a:blip r:embed="${escapeXml(relationshipId)}">${effects}</a:blip>`
+    : `<a:blip r:embed="${escapeXml(relationshipId)}"/>`
+  return `<a:blipFill>${blip}${serializeCrop(fill.sourceCrop)}${serializeFillModeXml(fill)}</a:blipFill>`
 }
 
 export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: number, pictureRelationshipId?: string): string {

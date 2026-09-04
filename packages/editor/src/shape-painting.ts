@@ -3,7 +3,7 @@ import { gradientAxis, rotationRadians } from '@ppt4ai/geometry'
 import type { Rect, ResolvedColor, ResolvedGradient, ResolvedShadow, StrokeCap, StrokeJoin, StrokeStyle } from '@ppt4ai/model'
 import type { SceneShapeNode, ScenePictureFill } from '@ppt4ai/render'
 import type { DecodedImage } from './image-canvas-renderer'
-import { cropSource } from './image-painting'
+import { applyEffects, cropSource } from './image-painting'
 import { withFlipAndRotation } from './rotation-transform'
 
 export interface ShapePageMapping {
@@ -263,6 +263,38 @@ export function paintPathFills(
  *
  * The clip is undone before returning, or the stroke drawn next would be clipped to half its width.
  */
+const EMU_PER_PIXEL = 9525
+
+/**
+ * `a:tile`. The tile is the source at its natural size — pixels at 96 dpi, hence `EMU_PER_PIXEL` — scaled
+ * by `sx`/`sy`, offset by `tx`/`ty` and anchored to the corner `algn` names. `createPattern` repeats it
+ * and the matrix carries all of that, so nothing here is invented.
+ *
+ * `@flip` is not painted: mirroring alternate tiles needs a pre-composed 2×2 tile, which a repeat
+ * pattern cannot express. The word stays in the model and in the file.
+ */
+function tileMatrix(tile: NonNullable<ScenePictureFill['tile']>, bounds: Rect, image: DecodedImage, scale: number): DOMMatrix2DInit {
+  const scaleX = (tile.scaleX ?? 100000) / 100000
+  const scaleY = (tile.scaleY ?? 100000) / 100000
+  const width = image.width * EMU_PER_PIXEL * scale * scaleX
+  const height = image.height * EMU_PER_PIXEL * scale * scaleY
+  // Written as explicit sets rather than prefix tests, because `ctr` ends in `r` without meaning right.
+  const align = tile.align ?? 'tl'
+  const right = align === 'r' || align === 'tr' || align === 'br'
+  const bottom = align === 'b' || align === 'bl' || align === 'br'
+  const centreX = align === 'ctr' || align === 't' || align === 'b'
+  const centreY = align === 'ctr' || align === 'l' || align === 'r'
+  const anchorX = bounds.x + (right ? bounds.w - width : centreX ? (bounds.w - width) / 2 : 0)
+  const anchorY = bounds.y + (bottom ? bounds.h - height : centreY ? (bounds.h - height) / 2 : 0)
+  // The init dictionary rather than a `DOMMatrix`: `setTransform` accepts it, and it needs no DOM.
+  return {
+    a: width / image.width,
+    d: height / image.height,
+    e: anchorX + (tile.offsetX ?? 0) * scale,
+    f: anchorY + (tile.offsetY ?? 0) * scale,
+  }
+}
+
 function paintPictureFill(
   context: ShapeContext,
   path: readonly PathCommand[],
@@ -273,9 +305,19 @@ function paintPictureFill(
 ): void {
   context.save()
   try {
+    context.globalAlpha = 1
+    applyEffects(context, fill.effects)
+    if (fill.tile) {
+      const pattern = context.createPattern(image.source, 'repeat')
+      if (!pattern) return
+      pattern.setTransform(tileMatrix(fill.tile, bounds, image, mapping.scale))
+      tracePath(context, path, mapping)
+      context.fillStyle = pattern
+      context.fill()
+      return
+    }
     tracePath(context, path, mapping)
     context.clip()
-    context.globalAlpha = 1
     const source = cropSource(image, fill.sourceCrop)
     if (source) context.drawImage(image.source, ...source, bounds.x, bounds.y, bounds.w, bounds.h)
     else context.drawImage(image.source, bounds.x, bounds.y, bounds.w, bounds.h)

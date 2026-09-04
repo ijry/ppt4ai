@@ -53,7 +53,8 @@ function applyMask(
   context.clip()
 }
 
-function applyEffects(
+/** Exported because a shape's picture fill carries the same two `a:blip` effects. */
+export function applyEffects(
   context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   effects: ImageEffect[] | undefined,
 ): void {

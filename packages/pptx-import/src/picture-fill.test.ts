@@ -87,15 +87,36 @@ describe('shape picture fill import', () => {
     expect(shapeElement(document, 'el_1').pictureFill).toEqual({ assetId: 'asset_ppt_media_image1_png' })
   })
 
-  /** Decision 2: the six placement attributes are what make a tile a tile, so it stays unexpressed. */
-  it('refuses a tiled blip fill and registers no asset', async () => {
+  /**
+   * This used to assert the opposite — a tiled fill was refused whole, so the shape painted nothing.
+   * The six placement attributes are modeled now; `flip` is kept but not painted.
+   */
+  it('reads a tiled blip fill and its placement', async () => {
     const adapter = new RecordingAdapter()
-    const fill = '<a:blipFill><a:blip r:embed="rId2"/><a:tile tx="0" ty="0" sx="50000" sy="50000" algn="tl"/></a:blipFill>'
+    const fill = '<a:blipFill><a:blip r:embed="rId2"/><a:tile tx="76200" ty="-38100" sx="50000" sy="60000" flip="x" algn="ctr"/></a:blipFill>'
     const document = await documentFor(shape(2, fill), { adapter })
 
-    expect(shapeElement(document, 'el_1').pictureFill).toBeUndefined()
-    expect(document.assets).toBeUndefined()
-    expect(adapter.writes).toEqual([])
+    expect(shapeElement(document, 'el_1').pictureFill).toEqual({
+      assetId: 'asset_ppt_media_image1_png',
+      tile: { offsetX: 76200, offsetY: -38100, scaleX: 50000, scaleY: 60000, align: 'ctr', flip: 'x' },
+    })
+    expect(adapter.writes).toHaveLength(1)
+  })
+
+  it('reads the blip effects a shape fill carries', async () => {
+    const fill = '<a:blipFill><a:blip r:embed="rId2"><a:alphaModFix amt="40000"/><a:grayscl/></a:blip><a:stretch/></a:blipFill>'
+    const document = await documentFor(shape(2, fill))
+
+    expect(shapeElement(document, 'el_1').pictureFill?.effects).toEqual([
+      { type: 'alphaModFix', amount: 40000 },
+      { type: 'grayscl' },
+    ])
+  })
+
+  it('leaves the tile field absent for a stretched fill', async () => {
+    const document = await documentFor(shape(2, stretched))
+
+    expect(shapeElement(document, 'el_1').pictureFill).not.toHaveProperty('tile')
   })
 
   it('leaves the fill unset when the relationship or the media part is missing', async () => {

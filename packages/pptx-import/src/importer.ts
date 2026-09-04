@@ -1,4 +1,4 @@
-import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -931,11 +931,30 @@ function parseOuterShadow(shape: XmlNode): OuterShadow | undefined {
 }
 
 /**
- * `a:blipFill` on a shape's `spPr`. `a:tile` is refused rather than painted as one stretched copy:
- * its six placement attributes decide where the repeats land, and guessing them puts the pattern in
- * the wrong place. A blip fill with no fill mode at all reads as stretch, which is what `p:pic`
- * already does with its own blip.
+ * `a:blipFill` on a shape's `spPr`. A blip fill with no fill mode at all reads as stretch, which is what
+ * `p:pic` already does with its own blip; `a:tile` now carries its own placement instead of being
+ * refused, so the only thing left unread here is `a:stretch`'s `a:fillRect` insets.
  */
+/** `a:tile`'s six attributes. Absent values stay absent so the model does not claim defaults it read. */
+function parsePictureTile(fill: XmlNode): PictureTile | undefined {
+  const tile = child(fill, 'tile')
+  if (!tile) return undefined
+  const offsetX = parseIntegerAttribute(attribute(tile, 'tx'))
+  const offsetY = parseIntegerAttribute(attribute(tile, 'ty'))
+  const scaleX = parseIntegerAttribute(attribute(tile, 'sx'))
+  const scaleY = parseIntegerAttribute(attribute(tile, 'sy'))
+  const align = attribute(tile, 'algn')?.trim()
+  const flip = attribute(tile, 'flip')?.trim()
+  return {
+    ...(offsetX === undefined ? {} : { offsetX }),
+    ...(offsetY === undefined ? {} : { offsetY }),
+    ...(scaleX !== undefined && scaleX >= 0 ? { scaleX } : {}),
+    ...(scaleY !== undefined && scaleY >= 0 ? { scaleY } : {}),
+    ...(align && isOoxmlToken(align) ? { align } : {}),
+    ...(flip && isOoxmlToken(flip) ? { flip } : {}),
+  }
+}
+
 function parseShapePictureFill(
   shape: XmlNode,
   slidePath: string,
@@ -945,7 +964,7 @@ function parseShapePictureFill(
 ): { pictureFill: PictureFill; metadata: AssetMetadata; bytes: Uint8Array } | undefined {
   const properties = shapeProperties(shape)
   const fill = properties && child(properties, 'blipFill')
-  if (!fill || child(fill, 'tile')) return undefined
+  if (!fill) return undefined
   const blip = child(fill, 'blip')
   const relationshipId = blip && attribute(blip, 'embed')
   const mediaPath = relationshipTarget(slidePath, slideRelations, relationshipId, 'image')
@@ -958,7 +977,18 @@ function parseShapePictureFill(
     return undefined
   }
   const sourceCrop = parseImageCrop(fill)
-  return { pictureFill: { assetId, ...(sourceCrop ? { sourceCrop } : {}) }, metadata, bytes }
+  const tile = parsePictureTile(fill)
+  const effects = parseImageEffects(fill)
+  return {
+    pictureFill: {
+      assetId,
+      ...(sourceCrop ? { sourceCrop } : {}),
+      ...(tile ? { tile } : {}),
+      ...(effects ? { effects } : {}),
+    },
+    metadata,
+    bytes,
+  }
 }
 
 /**

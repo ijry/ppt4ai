@@ -293,6 +293,27 @@ export interface PictureFill {
   assetId: string
   /** `a:srcRect`: thousandths of a percent trimmed from each side of the source, as on `p:pic`. */
   sourceCrop?: ImageCrop
+  /** `a:tile`. Present means the fill repeats; absent means the `a:stretch` form. */
+  tile?: PictureTile
+  /** `a:blip`'s own effects, the same two `p:pic` models and paints. */
+  effects?: ImageEffect[]
+}
+
+/**
+ * `a:tile`. The tile's own size is the source's natural size — pixels at 96 dpi — scaled by `sx`/`sy`,
+ * which is what makes `createPattern` plus a transform enough to paint it without inventing anything.
+ */
+export interface PictureTile {
+  /** `@tx`/`@ty` in EMU. */
+  offsetX?: number
+  offsetY?: number
+  /** `@sx`/`@sy` in thousandths of a percent of the source's natural size. */
+  scaleX?: number
+  scaleY?: number
+  /** `@algn` verbatim: which corner of the shape box the first tile is anchored to. */
+  align?: string
+  /** `@flip` verbatim. Painting does not mirror alternate tiles — a repeat pattern cannot. */
+  flip?: string
 }
 
 export interface TextMarks {
@@ -1371,6 +1392,28 @@ function validateOuterShadow(value: OuterShadow, path: string, errors: string[])
   }
 }
 
+/**
+ * `a:tile`'s numbers. The offsets are signed EMU (a tile grid can start outside the box) while the
+ * scales are non-negative percentages; `align` and `flip` are OOXML words the model only preserves.
+ */
+function validatePictureTile(value: PictureTile, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  for (const field of ['offsetX', 'offsetY'] as const) {
+    if (value[field] !== undefined) validateFiniteNumber(value[field], `${path}.${field}`, errors, Number.isInteger, 'must be an integer')
+  }
+  for (const field of ['scaleX', 'scaleY'] as const) {
+    if (value[field] !== undefined) {
+      validateFiniteNumber(value[field], `${path}.${field}`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')
+    }
+  }
+  for (const field of ['align', 'flip'] as const) {
+    if (value[field] !== undefined && !isOoxmlToken(value[field])) errors.push(`${path}.${field} must be a token`)
+  }
+}
+
 /** `a:srcRect` sides, shared by `ImageElement.sourceCrop` and `PictureFill.sourceCrop`. */
 function validateImageCrop(value: ImageCrop, path: string, errors: string[]): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -1404,23 +1447,28 @@ function validateImageAppearance(element: ImageElement, path: string, errors: st
     errors.push(`${path}.maskPreset must be a preset geometry token`)
   }
 
-  if (element.effects !== undefined) {
-    if (!Array.isArray(element.effects)) {
-      errors.push(`${path}.effects must be an array`)
-    } else element.effects.forEach((effect, index) => {
-      const effectPath = `${path}.effects[${index}]`
-      if (!effect || typeof effect !== 'object' || Array.isArray(effect)) {
-        errors.push(`${effectPath} must be an object`)
-        return
-      }
-      const effectValue = effect as unknown as Record<string, unknown>
-      if (typeof effectValue.type !== 'string' || !imageEffects.has(effectValue.type)) {
-        errors.push(`${effectPath}.type must be a supported image effect type`)
-      } else if (effectValue.type === 'alphaModFix') {
-        validateFiniteNumber(effectValue.amount, `${effectPath}.amount`, errors, (number) => Number.isInteger(number) && number >= 0 && number <= 100000, 'must be between 0 and 100000')
-      }
-    })
+  if (element.effects !== undefined) validateImageEffects(element.effects, `${path}.effects`, errors)
+}
+
+/** Shared by `ImageElement.effects` and `PictureFill.effects`: the same two effects, the same rules. */
+function validateImageEffects(value: unknown, path: string, errors: string[]): void {
+  if (!Array.isArray(value)) {
+    errors.push(`${path} must be an array`)
+    return
   }
+  value.forEach((effect, index) => {
+    const effectPath = `${path}[${index}]`
+    if (!effect || typeof effect !== 'object' || Array.isArray(effect)) {
+      errors.push(`${effectPath} must be an object`)
+      return
+    }
+    const effectValue = effect as unknown as Record<string, unknown>
+    if (typeof effectValue.type !== 'string' || !imageEffects.has(effectValue.type)) {
+      errors.push(`${effectPath}.type must be a supported image effect type`)
+    } else if (effectValue.type === 'alphaModFix') {
+      validateFiniteNumber(effectValue.amount, `${effectPath}.amount`, errors, (number) => Number.isInteger(number) && number >= 0 && number <= 100000, 'must be between 0 and 100000')
+    }
+  })
 }
 
 function validateTextMarks(value: unknown, path: string, errors: string[]): void {
@@ -1955,6 +2003,8 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
           if (element.pictureFill.sourceCrop !== undefined) {
             validateImageCrop(element.pictureFill.sourceCrop, `${picturePath}.sourceCrop`, errors)
           }
+          if (element.pictureFill.tile !== undefined) validatePictureTile(element.pictureFill.tile, `${picturePath}.tile`, errors)
+          if (element.pictureFill.effects !== undefined) validateImageEffects(element.pictureFill.effects, `${picturePath}.effects`, errors)
         }
       }
     }
