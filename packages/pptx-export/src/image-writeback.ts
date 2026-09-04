@@ -1,4 +1,4 @@
-import type { ImageElement, ImageMimeType } from '@ppt4ai/model'
+import type { ImageCrop, ImageElement, ImageMimeType } from '@ppt4ai/model'
 
 function escapeXml(value: string): string {
   return value
@@ -51,8 +51,8 @@ function serializeTransform(element: ImageElement): string {
   return `<a:xfrm${attributes}><a:off x="${element.bounds.x}" y="${element.bounds.y}"/><a:ext cx="${element.bounds.w}" cy="${element.bounds.h}"/></a:xfrm>`
 }
 
-function serializeCrop(element: ImageElement): string {
-  const crop = element.sourceCrop
+/** Takes the crop rather than the element, because a shape's picture fill carries the same `a:srcRect`. */
+export function serializeCrop(crop: ImageCrop | undefined): string {
   if (!crop) return ''
   const attributes = [
     crop.left !== undefined ? ` l="${crop.left}"` : '',
@@ -75,7 +75,7 @@ function serializeGeometry(element: ImageElement): string {
 }
 
 export function serializePictureXml(element: ImageElement, relationshipId: string, shapeId: number): string {
-  return `<p:pic><p:nvPicPr><p:cNvPr id="${shapeId}" name="${escapeXml(element.id)}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${escapeXml(relationshipId)}">${serializeEffects(element)}</a:blip>${serializeCrop(element)}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${serializeTransform(element)}${serializeGeometry(element)}</p:spPr></p:pic>`
+  return `<p:pic><p:nvPicPr><p:cNvPr id="${shapeId}" name="${escapeXml(element.id)}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${escapeXml(relationshipId)}">${serializeEffects(element)}</a:blip>${serializeCrop(element.sourceCrop)}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${serializeTransform(element)}${serializeGeometry(element)}</p:spPr></p:pic>`
 }
 
 export function serializeImageRelationship(id: string, target: string): string {

@@ -19,6 +19,7 @@ import {
   type ThemeLineStyleEntry,
   type ThemeStyleEntry,
 } from '@ppt4ai/model'
+import { serializeCrop } from './image-writeback.js'
 import { serializeTableXml } from './table.js'
 import { attrs, escapeXml, serializeColorXml, serializeFillXml, serializeTextBodyXml, type XmlAttribute } from './text-xml.js'
 
@@ -255,7 +256,18 @@ function serializeShapeStyleXml(styleRef: ShapeStyleReference | undefined): stri
     + '</p:style>'
 }
 
-export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: number): string {
+/**
+ * A shape's `a:blipFill`. `relationshipId` comes from the caller because the media part and its
+ * relationship are allocated per slide, exactly as `p:pic` does; the child order is the ECMA one
+ * (`a:blip`, then `a:srcRect`, then the fill mode).
+ */
+function serializePictureFillXml(element: ShapeElement | TextElement, relationshipId: string | undefined): string {
+  const fill = element.pictureFill
+  if (!fill || !relationshipId) return ''
+  return `<a:blipFill><a:blip r:embed="${escapeXml(relationshipId)}"/>${serializeCrop(fill.sourceCrop)}<a:stretch><a:fillRect/></a:stretch></a:blipFill>`
+}
+
+export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: number, pictureRelationshipId?: string): string {
   const isText = element.kind === 'text'
   // A text element only has a preset when it came from a shape that carried text; `rect` is what a
   // plain text box writes, and what PowerPoint reads for a box with no geometry of its own.
@@ -270,7 +282,10 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   const line = element.stroke
     ? `<a:ln${attrs([['w', element.strokeWidth], ['cap', element.strokeCap]])}>${serializeFillXml(element.stroke)}${prstDash}${join}</a:ln>`
     : ''
-  const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${serializeGeometry(preset)}${serializeFillXml(element.fill)}${line}</p:spPr>`
+  // One fill node per shape: the picture replaces the colour, the way the scene and the command do.
+  const pictureFill = serializePictureFillXml(element, pictureRelationshipId)
+  const fill = pictureFill === '' ? serializeFillXml(element.fill) : pictureFill
+  const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${serializeGeometry(preset)}${fill}${line}</p:spPr>`
   const textBody = isText
     ? serializeTextBodyXml(element.body ?? { paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }] })
     : ''

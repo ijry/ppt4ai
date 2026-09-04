@@ -58,6 +58,16 @@ function validateElementKinds(document: Ppt4aiDocument): void {
   }
 }
 
+/**
+ * Every asset a slide element needs: a picture is one, and so is a shape whose fill is one. One
+ * function, so materialization and serialization cannot disagree about which elements need media.
+ */
+function assetReference(element: Element): string | undefined {
+  if (element.kind === 'image') return element.assetId
+  if (element.kind === 'shape' || element.kind === 'text') return element.pictureFill?.assetId
+  return undefined
+}
+
 async function materializeAssets(document: Ppt4aiDocument, options: CreatePptxOptions): Promise<{ assets: Map<string, MaterializedAsset>; extensions: Set<string> }> {
   const assets = new Map<string, MaterializedAsset>()
   const extensions = new Set<string>()
@@ -67,31 +77,32 @@ async function materializeAssets(document: Ppt4aiDocument, options: CreatePptxOp
     if (!slide) throw new Error(`PPTX generation slide missing: ${slideId}`)
     for (const elementId of slide.elementIds) {
       const element = elementFor(document, slideId, elementId)
-      if (element.kind !== 'image') continue
-      if (assets.has(element.assetId)) continue
-      const metadata = document.assets?.[element.assetId]
-      if (!metadata) throw new Error(`PPTX generation asset metadata missing: ${element.assetId}`)
-      if (!options.assetAdapter) throw new Error(`PPTX generation asset adapter missing: ${element.assetId}`)
+      const assetId = assetReference(element)
+      if (assetId === undefined) continue
+      if (assets.has(assetId)) continue
+      const metadata = document.assets?.[assetId]
+      if (!metadata) throw new Error(`PPTX generation asset metadata missing: ${assetId}`)
+      if (!options.assetAdapter) throw new Error(`PPTX generation asset adapter missing: ${assetId}`)
       let sourceBytes: Uint8Array | undefined
       try {
-        sourceBytes = await options.assetAdapter.get(element.assetId)
+        sourceBytes = await options.assetAdapter.get(assetId)
       } catch (cause) {
-        throw new Error(`PPTX generation asset read failed: ${element.assetId}`, { cause })
+        throw new Error(`PPTX generation asset read failed: ${assetId}`, { cause })
       }
-      if (sourceBytes === undefined) throw new Error(`PPTX generation asset bytes missing: ${element.assetId}`)
+      if (sourceBytes === undefined) throw new Error(`PPTX generation asset bytes missing: ${assetId}`)
       const bytes = new Uint8Array(sourceBytes)
       const bitmap = parseBitmapMetadata(bytes)
-      if (!bitmap || bitmap.mimeType !== metadata.mimeType) throw new Error(`PPTX generation asset bytes MIME mismatch: ${element.assetId}`)
+      if (!bitmap || bitmap.mimeType !== metadata.mimeType) throw new Error(`PPTX generation asset bytes MIME mismatch: ${assetId}`)
       let extension: string
       try {
         extension = imageExtension(metadata.mimeType)
       } catch (cause) {
-        throw new Error(`PPTX generation asset MIME unsupported: ${element.assetId}`, { cause })
+        throw new Error(`PPTX generation asset MIME unsupported: ${assetId}`, { cause })
       }
       const path = allocateMediaPath(entryNames, metadata.mimeType)
       entryNames.add(path)
       extensions.add(extension)
-      assets.set(element.assetId, { path, bytes })
+      assets.set(assetId, { path, bytes })
     }
   }
   return { assets, extensions }
@@ -105,23 +116,27 @@ function serializeSlideElements(document: Ppt4aiDocument, slideId: string, asset
   const relationshipIds = new Set<string>(['rId1'])
   const relationshipByMediaPath = new Map<string, string>()
   const serializedElements: string[] = []
+  // One relationship per media part, so a picture and a shape filled with the same photo share it.
+  const relationshipFor = (assetId: string): string => {
+    const asset = assets.get(assetId)
+    if (!asset) throw new Error(`PPTX generation asset materialization missing: ${assetId}`)
+    const existing = relationshipByMediaPath.get(asset.path)
+    if (existing) return existing
+    const relationshipId = allocateRelationshipId(relationshipIds)
+    relationshipIds.add(relationshipId)
+    relationshipByMediaPath.set(asset.path, relationshipId)
+    imageRelationships.push(serializeImageRelationship(relationshipId, `../media/${asset.path.slice('ppt/media/'.length)}`))
+    return relationshipId
+  }
   for (const elementId of slide.elementIds) {
     const element = elementFor(document, slideId, elementId)
     if (element.kind === 'shape' || element.kind === 'text') {
-      serializedElements.push(serializeShapeXml(element, nextShapeId))
+      const pictureRelationshipId = element.pictureFill ? relationshipFor(element.pictureFill.assetId) : undefined
+      serializedElements.push(serializeShapeXml(element, nextShapeId, pictureRelationshipId))
     } else if (element.kind === 'table') {
       serializedElements.push(serializeTableFrameXml(element, nextShapeId))
     } else if (element.kind === 'image') {
-      const asset = assets.get(element.assetId)
-      if (!asset) throw new Error(`PPTX generation asset materialization missing: ${element.assetId}`)
-      let relationshipId = relationshipByMediaPath.get(asset.path)
-      if (!relationshipId) {
-        relationshipId = allocateRelationshipId(relationshipIds)
-        relationshipIds.add(relationshipId)
-        relationshipByMediaPath.set(asset.path, relationshipId)
-        imageRelationships.push(serializeImageRelationship(relationshipId, `../media/${asset.path.slice('ppt/media/'.length)}`))
-      }
-      serializedElements.push(serializePictureXml(element, relationshipId, nextShapeId))
+      serializedElements.push(serializePictureXml(element, relationshipFor(element.assetId), nextShapeId))
     } else {
       throw new Error(`PPTX generation unsupported element kind: ${element.kind}`)
     }
