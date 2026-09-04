@@ -1390,17 +1390,26 @@ export class EditorEngine {
   private setElementPaint(elementId: string, field: 'fill' | 'stroke', paint: Fill | null): void {
     const element = this.outlineTarget(elementId)
     const current = element[field]
-    if (JSON.stringify(current ?? null) === JSON.stringify(paint)) return
+    // Picking a fill replaces whatever fill was there, so a picture fill goes with it. Leaving it
+    // would paint the picture on the canvas (it wins in the scene) while the exporter wrote the new
+    // colour into the file — the two disagreeing is worse than either being wrong.
+    const clearsPicture = field === 'fill' && element.pictureFill !== undefined
+    if (!clearsPicture && JSON.stringify(current ?? null) === JSON.stringify(paint)) return
 
     const nextDocument = clone(this.document)
     const next = nextDocument.elements[elementId]!
     if (next.kind !== 'shape' && next.kind !== 'text') throw new Error(`element cannot carry an outline: ${elementId}`)
     if (paint === null) delete next[field]
     else next[field] = clone(paint)
+    if (clearsPicture) delete next.pictureFill
     const validation = validateDocument(nextDocument)
     if (!validation.valid) throw new Error(`element ${field} is invalid: ${elementId}: ${validation.errors.join('; ')}`)
 
-    this.commit([{ path: ['elements', elementId, field], value: paint === null ? undefined : paint }])
+    // One commit, so one undo puts the picture back together with the colour it replaced.
+    this.commit([
+      { path: ['elements', elementId, field], value: paint === null ? undefined : paint },
+      ...(clearsPicture ? [{ path: ['elements', elementId, 'pictureFill'], value: undefined }] : []),
+    ])
   }
 
   private setElementRotation(elementId: string, rotation: number): void {

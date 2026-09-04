@@ -214,3 +214,64 @@ describe('paint commands refuse elements that cannot carry paint', () => {
       .toThrow('element does not exist: nope')
   })
 })
+
+/** A picture fill needs its asset in the document, which the fills above have no reason to carry. */
+function pictureFilledEngine(overrides: Partial<Extract<Element, { kind: 'shape' }>> = {}): EditorEngine {
+  return new EditorEngine({
+    ...documentWith({ id: 'el_shape', kind: 'shape', preset: 'rect', bounds, stroke: navy, pictureFill: { assetId: 'asset_photo' }, ...overrides }),
+    assets: { asset_photo: { id: 'asset_photo', mimeType: 'image/png' } },
+  })
+}
+
+describe('setElementFill on a picture-filled shape', () => {
+  it('replaces the picture with the colour', () => {
+    const engine = pictureFilledEngine()
+
+    engine.dispatch({ type: 'setElementFill', elementId: 'el_shape', fill: red })
+
+    expect(shapeOf(engine).fill).toEqual(red)
+    expect(shapeOf(engine).pictureFill).toBeUndefined()
+  })
+
+  it('clears the picture when the fill is removed altogether', () => {
+    const engine = pictureFilledEngine()
+
+    engine.dispatch({ type: 'setElementFill', elementId: 'el_shape', fill: null })
+
+    expect(shapeOf(engine).fill).toBeUndefined()
+    expect(shapeOf(engine).pictureFill).toBeUndefined()
+  })
+
+  /** One commit, so the colour and the picture it replaced come back together. */
+  it('restores both on a single undo', () => {
+    const engine = pictureFilledEngine()
+
+    engine.dispatch({ type: 'setElementFill', elementId: 'el_shape', fill: red })
+    engine.dispatch({ type: 'undo' })
+
+    expect(shapeOf(engine).pictureFill).toEqual({ assetId: 'asset_photo' })
+    expect(shapeOf(engine).fill).toBeUndefined()
+  })
+
+  /**
+   * The no-op guard has to look past the colour: a shape whose colour already matches still has a
+   * picture to clear, and returning early there would leave the canvas painting the photo.
+   */
+  it('clears the picture even when the colour is unchanged', () => {
+    const engine = pictureFilledEngine({ fill: red })
+
+    engine.dispatch({ type: 'setElementFill', elementId: 'el_shape', fill: red })
+
+    expect(shapeOf(engine).fill).toEqual(red)
+    expect(shapeOf(engine).pictureFill).toBeUndefined()
+  })
+
+  it('leaves the picture alone when only the outline changes', () => {
+    const engine = pictureFilledEngine()
+
+    engine.dispatch({ type: 'setElementStroke', elementId: 'el_shape', stroke: red })
+
+    expect(shapeOf(engine).stroke).toEqual(red)
+    expect(shapeOf(engine).pictureFill).toEqual({ assetId: 'asset_photo' })
+  })
+})
