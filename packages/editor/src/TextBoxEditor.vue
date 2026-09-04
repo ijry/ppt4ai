@@ -12,6 +12,8 @@ import {
   type TextEditorSelection,
   type TextEditorSnapshot,
   type TextFormattingState,
+  type TextMarkName,
+  type TextMarksPatch,
 } from '@ppt4ai/text'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import SelectionOverlay from './SelectionOverlay.vue'
@@ -187,6 +189,17 @@ watch(interaction, (nextInteraction) => {
 }, { deep: true, immediate: true })
 
 onMounted(createController)
+/**
+ * The formatting commands are exposed rather than taken as props: they are imperative actions on the
+ * live editor selection, and a prop would have to encode "apply this once", which is what an
+ * imperative call already says. The state travels the other way through `update:formatting`.
+ */
+defineExpose({
+  setMarks: (patch: TextMarksPatch) => controller.value?.setMarks(patch),
+  toggleMark: (name: TextMarkName) => controller.value?.toggleMark(name),
+  setAlignment: (align: 'left' | 'center' | 'right') => controller.value?.setAlignment(align),
+})
+
 onBeforeUnmount(destroyController)
 </script>
 

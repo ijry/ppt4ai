@@ -7,12 +7,13 @@ import type { ShapePaintToolbarProps } from './shape-paint-toolbar'
 import type { TableCellPoint, TableCellSelection } from './table-editor-overlay'
 import type { TableBorderPatch } from './table-editor-controller'
 import type { TableFormattingToolbarProps } from './table-formatting-toolbar'
-import type { ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
+import type { ImeInputBridge, ImeInputBridgeOptions, TextFormattingState, TextMarkName, TextMarksPatch } from '@ppt4ai/text'
 import { computed, onBeforeUnmount, ref, shallowRef, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ShapePaintToolbar from './ShapePaintToolbar.vue'
 import TableEditorOverlay from './TableEditorOverlay.vue'
 import TableCellTextEditor from './TableCellTextEditor.vue'
+import TextFormattingToolbar from './TextFormattingToolbar.vue'
 import TableFormattingToolbar from './TableFormattingToolbar.vue'
 import SlideCanvas from './SlideCanvas.vue'
 import SelectionOverlay from './SelectionOverlay.vue'
@@ -38,6 +39,8 @@ const props = withDefaults(defineProps<{
   bridgeFactory?: (options: ImeInputBridgeOptions) => ImeInputBridge
   zoom?: number
   devicePixelRatio?: number
+  /** The host supplies these: a browser cannot enumerate installed fonts. */
+  fontFamilies?: readonly string[]
 }>(), { zoom: 1 })
 
 const emit = defineEmits<{
@@ -68,6 +71,9 @@ const emit = defineEmits<{
   'set-table-cell-borders': [borders: TableBorderPatch]
   'table-cell-text': [payload: { elementId: string; point: TableCellPoint; body: TextBody }]
 }>()
+
+/** Supplied by the host because a browser cannot enumerate installed fonts. */
+const FONT_SIZES: readonly number[] = [8, 10, 12, 14, 18, 24, 32, 40, 54, 72]
 
 const EMU_TO_CSS_PIXEL = 96 / 914400
 
@@ -435,6 +441,29 @@ function selectTableCell(selection: TableCellSelection): void {
 const editingCellPoint = ref<TableCellPoint>()
 
 /**
+ * Text formatting is only meaningful while a text editor is open, and the state comes from that
+ * editor's own selection — which is why it arrives by emit rather than being derived from the scene.
+ * The commands go the other way, through the editor's exposed methods, because applying a mark is an
+ * imperative action on a live selection, not a value to render.
+ *
+ * Only the element text editor is wired here. Table cell text goes through `TableCellTextEditor`,
+ * which wraps `TextBoxEditor` and does not re-expose these methods, so cell formatting is left out
+ * rather than half-connected.
+ */
+interface TextFormattingHandle {
+  setMarks: (patch: TextMarksPatch) => void
+  toggleMark: (name: TextMarkName) => void
+  setAlignment: (align: 'left' | 'center' | 'right') => void
+}
+
+const textFormatting = shallowRef<TextFormattingState>()
+const textBoxRef = ref<TextFormattingHandle>()
+
+function updateTextFormatting(state: TextFormattingState): void {
+  textFormatting.value = state
+}
+
+/**
  * A double-click both reports the intent and opens the inline editor. The editor owns the draft and
  * hands back a body on commit; the host turns that into `selectTableCell` + `setTableCellText`.
  */
@@ -754,6 +783,16 @@ onBeforeUnmount(() => {
           </button>
         </template>
       </div>
+      <TextFormattingToolbar
+        v-if="textEditorProps && textFormatting"
+        active
+        :state="textFormatting"
+        :font-families="props.fontFamilies ?? []"
+        :font-sizes="FONT_SIZES"
+        @set-marks="textBoxRef?.setMarks($event)"
+        @toggle-mark="textBoxRef?.toggleMark($event)"
+        @set-alignment="textBoxRef?.setAlignment($event)"
+      />
       <TableFormattingToolbar
         v-if="selectedTableNode"
         v-bind="tableFormatting"
@@ -830,9 +869,11 @@ onBeforeUnmount(() => {
           @focusout="handleTextFocusOut"
         >
           <TextBoxEditor
+            ref="textBoxRef"
             v-bind="textEditorProps"
             @update:body="updateEditingDraft"
             @update:composing="updateEditingComposing"
+            @update:formatting="updateTextFormatting"
           />
         </div>
       </template>
