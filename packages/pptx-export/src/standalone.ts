@@ -68,6 +68,12 @@ function assetReference(element: Element): string | undefined {
   return undefined
 }
 
+/** A table's cells can each hold a photo, so an element can need more than one asset. */
+function tableAssetReferences(element: Element): string[] {
+  if (element.kind !== 'table') return []
+  return element.rows.flatMap((row) => row.cells.flatMap((cell) => cell.pictureFill ? [cell.pictureFill.assetId] : []))
+}
+
 /** A slide's own photo background needs materializing too, and shares media with any element using it. */
 function slideAssetReferences(document: Ppt4aiDocument, slideId: string): string[] {
   const slide = document.slides[slideId]
@@ -76,8 +82,9 @@ function slideAssetReferences(document: Ppt4aiDocument, slideId: string): string
   return [
     ...(background ? [background] : []),
     ...slide.elementIds.flatMap((elementId) => {
-      const assetId = assetReference(elementFor(document, slideId, elementId))
-      return assetId ? [assetId] : []
+      const element = elementFor(document, slideId, elementId)
+      const assetId = assetReference(element)
+      return [...(assetId ? [assetId] : []), ...tableAssetReferences(element)]
     }),
   ]
 }
@@ -145,7 +152,7 @@ function serializeSlideElements(document: Ppt4aiDocument, slideId: string, asset
       const pictureRelationshipId = element.pictureFill ? relationshipFor(element.pictureFill.assetId) : undefined
       serializedElements.push(serializeShapeXml(element, nextShapeId, pictureRelationshipId))
     } else if (element.kind === 'table') {
-      serializedElements.push(serializeTableFrameXml(element, nextShapeId))
+      serializedElements.push(serializeTableFrameXml(element, nextShapeId, relationshipFor))
     } else if (element.kind === 'image') {
       serializedElements.push(serializePictureXml(element, relationshipFor(element.assetId), nextShapeId))
     } else {

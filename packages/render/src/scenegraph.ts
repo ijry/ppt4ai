@@ -134,6 +134,8 @@ export interface SceneImageNode {
 
 export interface SceneTableLayoutCell extends TableLayoutCell {
   textLayout: SceneTextLayout
+  /** `a:tcPr/a:blipFill`, with metadata inlined so painting can decode it like any other picture. */
+  pictureFill?: ScenePictureFill
   resolvedStyle: ResolvedTableCellStyle
   resolvedFillColor?: ResolvedColor
   resolvedBorderColors?: Partial<Record<keyof TableCellBorders, ResolvedColor>>
@@ -486,7 +488,7 @@ function createTextNode(
   return node
 }
 
-function createTableNode(element: Extract<Element, { kind: 'table' }>, context: SceneThemeContext, tableStyles?: Ppt4aiDocument['tableStyles']): SceneTableNode {
+function createTableNode(element: Extract<Element, { kind: 'table' }>, context: SceneThemeContext, tableStyles?: Ppt4aiDocument['tableStyles'], assets?: Ppt4aiDocument['assets']): SceneTableNode {
   const tableLayout = layoutTable(element)
   const node: SceneTableNode = {
     id: element.id,
@@ -498,7 +500,9 @@ function createTableNode(element: Extract<Element, { kind: 'table' }>, context: 
         const sourceCell = element.rows[cell.row]?.cells.find((candidate) => candidate.column === cell.column)
         if (!sourceCell) throw new Error(`table layout references missing cell: ${element.id}[${cell.row},${cell.column}]`)
         const resolvedStyle = resolveTableCellStyle(element, sourceCell, cell.row, cell.column, tableStyles)
-        const fillColor = resolvedFillColor(resolvedStyle.fill, context)
+        const cellPicture = scenePictureFill(sourceCell, assets)
+        // A picture in the cell is the cell's fill, so no colour paints under it — the rule shapes follow.
+        const fillColor = cellPicture ? undefined : resolvedFillColor(resolvedStyle.fill, context)
         const borderColors = resolveBorderColors(resolvedStyle.borders, context)
         const textStyle = resolveTableTextStyle(resolvedStyle.text, context)
         const body = mergeTableTextDefaults(cell.body, resolvedStyle.text)
@@ -506,6 +510,7 @@ function createTableNode(element: Extract<Element, { kind: 'table' }>, context: 
           ...cell,
           resolvedStyle,
           textLayout: toSceneTextLayout(layoutText({ bounds: cell.bounds, body }), context),
+          ...(cellPicture ? { pictureFill: cellPicture } : {}),
           ...(fillColor ? { resolvedFillColor: fillColor } : {}),
           ...(borderColors ? { resolvedBorderColors: borderColors } : {}),
           ...(textStyle ? { resolvedTextStyle: textStyle } : {}),
@@ -600,7 +605,7 @@ function createNode(
     case 'text':
       return createTextNode(element, context, layout, master, assets)
     case 'table':
-      return createTableNode(element, context, tableStyles)
+      return createTableNode(element, context, tableStyles, assets)
     case 'image':
       return createImageNode(element, assets)
     case 'group':

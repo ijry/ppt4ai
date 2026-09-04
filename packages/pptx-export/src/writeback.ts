@@ -1064,7 +1064,24 @@ function backgroundReplacements(xml: string, background: SlideBackground | undef
   return [{ start: tree.start, end: tree.start, value }]
 }
 
-function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: string, scanned: ScannedSlide, imageReplacements: Replacement[], strictIdentity: boolean): string {
+/** Asset id to the relationship the source table already uses for it, so nothing new has to be added. */
+function tablePictureRelationships(
+  table: XmlElement,
+  slidePath: string,
+  relationships: SlideRelationship[],
+): (assetId: string) => string | undefined {
+  const byAsset = new Map<string, string>()
+  for (const blip of descendants(table.children, 'blip')) {
+    const relationshipId = blip.attributes['r:embed'] ?? blip.attributes.embed
+    const relationship = relationships.find((value) => value.id === relationshipId && value.type === 'image')
+    if (!relationship || !relationshipId) continue
+    const assetId = stableAssetId(resolveTarget(slidePath, relationship.target))
+    if (!byAsset.has(assetId)) byAsset.set(assetId, relationshipId)
+  }
+  return (assetId) => byAsset.get(assetId)
+}
+
+function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: string, scanned: ScannedSlide, imageReplacements: Replacement[], strictIdentity: boolean, slidePath: string, relationships: SlideRelationship[]): string {
   const slide = document.slides[slideId]
   if (!slide) throw new Error(`PPTX export document slide missing: ${slideId}`)
   const sourceElements = scanned.elements
@@ -1121,7 +1138,9 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
     const table = firstDescendant(sourceElement, 'tbl')
     if (!table) throw new Error(`PPTX export table source missing for element ${element.id}`)
     replacements.push(...transformReplacements(xml, sourceElement, element))
-    replacements.push({ start: table.start, end: table.end, value: serializeTableXml(element) })
+    // The whole `a:tbl` is rebuilt, so the cells' pictures would vanish unless their relationships come
+    // along: the ids are read back out of the table being replaced and matched by asset.
+    replacements.push({ start: table.start, end: table.end, value: serializeTableXml(element, tablePictureRelationships(table, slidePath, relationships)) })
   }
 
   for (let index = sourceElements.length; index < slide.elementIds.length; index += 1) {
@@ -1451,7 +1470,7 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       pictures.push(serializePictureXml(element, relationshipId, nextShapeId))
       nextShapeId += 1
     }
-    const replacedSlide = replaceSlideTables(document, slideId, slideXml, scanned, imageReplacements, plan.mode === 'reuse')
+    const replacedSlide = replaceSlideTables(document, slideId, slideXml, scanned, imageReplacements, plan.mode === 'reuse', slidePath, slideRelationships)
     const materializedSlide = appendBeforeSpTreeClose(replacedSlide, pictures)
     const rewrittenSlide = plan.source && slide.colorMapOverride !== undefined
       ? rewriteSlideColorMapXml(materializedSlide, slide.colorMapOverride, slideId)

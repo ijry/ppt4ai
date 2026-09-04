@@ -560,6 +560,8 @@ export interface TableCell {
   body: TextBody
   fill?: Fill
   borders?: TableCellBorders
+  /** `a:tcPr/a:blipFill` — a photo in the cell. Outside `Fill` for the reason `PictureFill` explains. */
+  pictureFill?: PictureFill
 }
 
 export interface TableRow {
@@ -1790,7 +1792,7 @@ function validateTableStyle(value: unknown, path: string, errors: string[]): voi
   }
 }
 
-function validateTableCell(value: unknown, path: string, rowIndex: number, rowCount: number, columnCount: number, occupied: Map<string, string>, errors: string[]): void {
+function validateTableCell(value: unknown, path: string, rowIndex: number, rowCount: number, columnCount: number, occupied: Map<string, string>, errors: string[], assets?: Ppt4aiDocument['assets']): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     errors.push(`${path} must be an object`)
     return
@@ -1823,12 +1825,15 @@ function validateTableCell(value: unknown, path: string, rowIndex: number, rowCo
     if (!result.valid) for (const error of result.errors) errors.push(`${path}.body.${error}`)
   }
   if ('fill' in cell && cell.fill !== undefined) validateFill(cell.fill, `${path}.fill`, errors)
+  if ('pictureFill' in cell && cell.pictureFill !== undefined) {
+    validatePictureFill(cell.pictureFill as PictureFill, `${path}.pictureFill`, assets, errors)
+  }
   if ('borders' in cell && cell.borders !== undefined) {
     validateTableCellBorders(cell.borders, `${path}.borders`, errors)
   }
 }
 
-function validateTableElement(value: TableElement, path: string, errors: string[]): void {
+function validateTableElement(value: TableElement, path: string, errors: string[], assets?: Ppt4aiDocument['assets']): void {
   if (value.style !== undefined) validateTableStyleReference(value.style, `${path}.style`, errors)
   if (!Array.isArray(value.columns) || value.columns.length === 0) errors.push(`${path}.columns must be non-empty`)
   else value.columns.forEach((column, index) => validateFiniteNumber(column, `${path}.columns[${index}]`, errors, (number) => number > 0, 'must be positive'))
@@ -1848,7 +1853,7 @@ function validateTableElement(value: TableElement, path: string, errors: string[
       errors.push(`${rowPath}.cells must be an array`)
       return
     }
-    row.cells.forEach((cell, cellIndex) => validateTableCell(cell, `${rowPath}.cells[${cellIndex}]`, rowIndex, value.rows.length, value.columns.length, occupied, errors))
+    row.cells.forEach((cell, cellIndex) => validateTableCell(cell, `${rowPath}.cells[${cellIndex}]`, rowIndex, value.rows.length, value.columns.length, occupied, errors, assets))
   })
 }
 
@@ -2077,7 +2082,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
         if (!value.elements[childId]) errors.push(`group ${elementId} references missing child: ${childId}`)
       }
     } else if (element.kind === 'table') {
-      validateTableElement(element, `elements.${elementId}`, errors)
+      validateTableElement(element, `elements.${elementId}`, errors, value.assets)
     } else if (element.kind === 'image') {
       if (typeof element.assetId !== 'string' || element.assetId.length === 0) errors.push(`image element ${elementId} assetId must be a non-empty string`)
       else if (!value.assets?.[element.assetId]) errors.push(`image element ${elementId} references missing asset: ${element.assetId}`)

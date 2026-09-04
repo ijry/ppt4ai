@@ -1,7 +1,8 @@
 import type { Rect, ResolvedColor, TableBorder, TableCellBorders } from '@ppt4ai/model'
 import type { SceneTableLayoutCell, SceneTableNode } from '@ppt4ai/render'
+import type { DecodedImage } from './image-canvas-renderer'
 import { withRotation } from './rotation-transform'
-import { dashPattern } from './shape-painting'
+import { dashPattern, paintPictureFill } from './shape-painting'
 import { paintTextLayout, type TextPageMapping } from './text-painting'
 
 export interface TablePageMapping extends TextPageMapping {}
@@ -54,7 +55,26 @@ function mappedRect(rect: Rect, mapping: TablePageMapping): Rect {
   }
 }
 
-function paintCellFill(context: TableContext, cell: SceneTableLayoutCell, mapping: TablePageMapping): void {
+function paintCellFill(
+  context: TableContext,
+  cell: SceneTableLayoutCell,
+  mapping: TablePageMapping,
+  pictures?: ReadonlyMap<string, DecodedImage>,
+): void {
+  const picture = cell.pictureFill ? pictures?.get(cell.pictureFill.assetId) : undefined
+  if (cell.pictureFill && picture) {
+    const bounds = mappedRect(cell.bounds, mapping)
+    // The cell rectangle as a path, so the shared picture painter clips and stretches exactly as it does
+    // for a shape — that is where crop, tile and the blip effects already live.
+    paintPictureFill(context, [
+      { type: 'move', x: cell.bounds.x, y: cell.bounds.y },
+      { type: 'line', x: cell.bounds.x + cell.bounds.w, y: cell.bounds.y },
+      { type: 'line', x: cell.bounds.x + cell.bounds.w, y: cell.bounds.y + cell.bounds.h },
+      { type: 'line', x: cell.bounds.x, y: cell.bounds.y + cell.bounds.h },
+      { type: 'close' },
+    ], mapping, bounds, cell.pictureFill, picture)
+    return
+  }
   if (!cell.resolvedFillColor) return
   const style = colorState(cell.resolvedFillColor, 'table fill color')
   const bounds = mappedRect(cell.bounds, mapping)
@@ -115,7 +135,16 @@ function paintCellBorder(
   context.stroke()
 }
 
-export function paintTableNode(context: TableContext, node: SceneTableNode, mapping: TablePageMapping): void {
+/**
+ * `pictures` maps an asset to its decoded bitmap. The caller loads them, because loading is asynchronous
+ * and painting is not; a cell whose photo is missing paints its borders and text as before.
+ */
+export function paintTableNode(
+  context: TableContext,
+  node: SceneTableNode,
+  mapping: TablePageMapping,
+  pictures?: ReadonlyMap<string, DecodedImage>,
+): void {
   context.save()
   try {
     validateMapping(mapping)
@@ -123,7 +152,7 @@ export function paintTableNode(context: TableContext, node: SceneTableNode, mapp
     validateRect(node.layout.bounds, 'table layout bounds')
     for (const cell of node.layout.cells) validateRect(cell.bounds, 'table cell bounds')
     withRotation(context, mappedRect(node.bounds, mapping), node.transform, () => {
-      for (const cell of node.layout.cells) paintCellFill(context, cell, mapping)
+      for (const cell of node.layout.cells) paintCellFill(context, cell, mapping, pictures)
       for (const cell of node.layout.cells) {
         for (const side of borderSides) paintCellBorder(context, cell, side, mapping)
       }

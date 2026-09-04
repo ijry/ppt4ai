@@ -46,11 +46,17 @@ function imageIssue(node: SceneImageNode, outcome: Exclude<ImageLoadOutcome, { s
   return { nodeId: node.id, kind: node.kind, code: outcome.code, message: outcome.message }
 }
 
-function drawNode(context: CanvasRenderingContext2D, node: SceneNode, scale: number, picture?: DecodedImage): void {
+function drawNode(
+  context: CanvasRenderingContext2D,
+  node: SceneNode,
+  scale: number,
+  picture?: DecodedImage,
+  cellPictures?: ReadonlyMap<string, DecodedImage>,
+): void {
   const mapping = { scale, offsetX: 0, offsetY: 0 }
   if (node.kind === 'shape') paintShapeNode(context, node, mapping, picture)
   else if (node.kind === 'text') paintTextNode(context, node, mapping, picture)
-  else if (node.kind === 'table') paintTableNode(context, node, mapping)
+  else if (node.kind === 'table') paintTableNode(context, node, mapping, cellPictures)
   else throw new Error('image nodes require decoded image data')
 }
 
@@ -181,6 +187,22 @@ export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; deco
             // issue and the node still draws: losing a photo should not take the outline and the
             // text with it, the way a failed `p:pic` legitimately skips its whole node.
             let picture: DecodedImage | undefined
+            // A table asks for one picture per filled cell, so it gets a map rather than a single image.
+            const cellPictures = new Map<string, DecodedImage>()
+            if (node.kind === 'table') {
+              for (const cell of node.layout.cells) {
+                const fill = cell.pictureFill
+                if (!fill || cellPictures.has(fill.assetId)) continue
+                const outcome = await imageLoader.load({
+                  id: node.id,
+                  assetId: fill.assetId,
+                  ...(fill.metadata ? { metadata: fill.metadata } : {}),
+                })
+                if (outcome.status === 'failed') {
+                  result.issues.push({ nodeId: node.id, kind: node.kind, code: outcome.code, message: outcome.message })
+                } else cellPictures.set(fill.assetId, outcome.image)
+              }
+            }
             const pictureFill = node.kind === 'shape' || node.kind === 'text' ? node.pictureFill : undefined
             if (pictureFill) {
               const outcome = await imageLoader.load({
@@ -192,7 +214,7 @@ export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; deco
                 result.issues.push({ nodeId: node.id, kind: node.kind, code: outcome.code, message: outcome.message })
               } else picture = outcome.image
             }
-            drawNode(context, node, scale, picture)
+            drawNode(context, node, scale, picture, cellPictures)
           }
           result.drawnNodeIds.push(node.id)
         } catch (error) {

@@ -247,7 +247,24 @@ export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): 
             if (node.kind === 'shape') paintShapeNode(context, node, mapping, picture)
             else paintTextNode(context, node, mapping, picture)
           } else if (node.kind === 'table') {
-            paintTableNode(context, node, mapping)
+            const cellPictures = new Map<string, DecodedImage>()
+            for (const cell of node.layout.cells) {
+              const fill = cell.pictureFill
+              if (!fill || cellPictures.has(fill.assetId)) continue
+              try {
+                cellPictures.set(fill.assetId, await loadAsset(request, {
+                  id: node.id,
+                  assetId: fill.assetId,
+                  ...(fill.metadata ? { metadata: fill.metadata } : {}),
+                }))
+              } catch (error) {
+                if (isCancelled(request.requestId)) return
+                const code = (error as { thumbnailCode?: string }).thumbnailCode
+                issues.push(issue(node, code === 'missing-asset' || code === 'resource-failed' ? code : 'decode-failed', error))
+              }
+              if (isCancelled(request.requestId)) return
+            }
+            paintTableNode(context, node, mapping, cellPictures)
           } else {
             const image = await loadAsset(request, node)
             if (isCancelled(request.requestId)) return

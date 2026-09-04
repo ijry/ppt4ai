@@ -628,7 +628,15 @@ interface ImportedTableCell {
   cell: TableCell
 }
 
-function parseTable(frame: XmlNode, id: string): TableElement | undefined {
+interface TableMediaContext {
+  slidePath: string
+  slideRelations: Relationship[]
+  entries: Record<string, Uint8Array>
+  register: (asset: { pictureFill: PictureFill; metadata: AssetMetadata; bytes: Uint8Array }) => void
+  reportUnsupportedMedia?: (partPath: string) => void
+}
+
+function parseTable(frame: XmlNode, id: string, media?: TableMediaContext): TableElement | undefined {
   const bounds = parseBounds(frame)
   const table = findDescendants(frame, 'tbl')[0]
   if (!bounds || !table) return undefined
@@ -695,6 +703,13 @@ function parseTable(frame: XmlNode, id: string): TableElement | undefined {
       const borders = properties ? parseTableCellBorders(properties) : undefined
       if (fill) cell.fill = fill
       if (borders) cell.borders = borders
+      const cellPicture = media && properties
+        ? parsePictureFillNode(child(properties, 'blipFill'), media.slidePath, media.slideRelations, media.entries, media.reportUnsupportedMedia)
+        : undefined
+      if (cellPicture) {
+        cell.pictureFill = cellPicture.pictureFill
+        media?.register(cellPicture)
+      }
       const parsed: ImportedTableCell = { row: rowIndex, column, rowSpan, colSpan, cell }
       if (rowSpan > 1) cell.rowSpan = rowSpan
       if (colSpan > 1) cell.colSpan = colSpan
@@ -970,6 +985,46 @@ function parsePictureTile(fill: XmlNode): PictureTile | undefined {
     ...(scaleY !== undefined && scaleY >= 0 ? { scaleY } : {}),
     ...(align && isOoxmlToken(align) ? { align } : {}),
     ...(flip && isOoxmlToken(flip) ? { flip } : {}),
+  }
+}
+
+/**
+ * `a:blipFill` under an arbitrary container (`p:spPr`, `p:bgPr`, `a:tcPr`), resolved to an asset. Shared so
+ * a shape fill, a slide background and a table cell all register the same media once.
+ */
+function parsePictureFillNode(
+  fill: XmlNode | undefined,
+  slidePath: string,
+  slideRelations: Relationship[],
+  entries: Record<string, Uint8Array>,
+  reportUnsupportedMedia?: (partPath: string) => void,
+): { pictureFill: PictureFill; metadata: AssetMetadata; bytes: Uint8Array } | undefined {
+  if (!fill) return undefined
+  const blip = child(fill, 'blip')
+  const relationshipId = blip && attribute(blip, 'embed')
+  const mediaPath = relationshipTarget(slidePath, slideRelations, relationshipId, 'image')
+  const bytes = mediaPath && entries[mediaPath]
+  if (!mediaPath || !bytes) return undefined
+  const assetId = stableAssetId(mediaPath)
+  const metadata = parseBitmapMetadata(mediaPath, bytes, assetId)
+  if (!metadata) {
+    reportUnsupportedMedia?.(mediaPath)
+    return undefined
+  }
+  const sourceCrop = parseImageCrop(fill)
+  const tile = parsePictureTile(fill)
+  const stretch = tile ? undefined : parsePictureStretch(fill)
+  const effects = parseImageEffects(fill)
+  return {
+    pictureFill: {
+      assetId,
+      ...(sourceCrop ? { sourceCrop } : {}),
+      ...(tile ? { tile } : {}),
+      ...(stretch ? { stretch } : {}),
+      ...(effects ? { effects } : {}),
+    },
+    metadata,
+    bytes,
   }
 }
 
@@ -1608,6 +1663,9 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
     }
 
     const elementIds: string[] = []
+    // Table cells register their media through a buffer: the adapter write is awaited outside the
+    // synchronous cell walk, which cannot await.
+    const registeredAssets: Array<{ metadata: AssetMetadata; bytes: Uint8Array }> = []
     const shapes = findSlideShapes(slidePart.xml)
     // Groups are registered before their children so the flattened scene cascades rotation.
     const groupIds = new Map<number, string>()
@@ -1665,7 +1723,25 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
         }
         continue
       }
-      const element = localName(shape.node.name) === 'graphicFrame' ? parseTable(shape.node, id) : parseElement(shape.node, id, true)
+      const tableMedia: TableMediaContext = {
+        slidePath,
+        slideRelations,
+        entries,
+        register: (asset) => {
+          if (assets[asset.metadata.id]) return
+          assets[asset.metadata.id] = asset.metadata
+          registeredAssets.push(asset)
+        },
+        reportUnsupportedMedia: (partPath) => {
+          options.onIssue?.({
+            code: 'unsupported-media',
+            slideId,
+            partPath,
+            message: `table cell fill skipped because ${partPath} is not a supported bitmap format`,
+          })
+        },
+      }
+      const element = localName(shape.node.name) === 'graphicFrame' ? parseTable(shape.node, id, tableMedia) : parseElement(shape.node, id, true)
       if (!element) continue
       // A shape's picture fill is resolved here rather than in `parseElement`, because only this loop
       // has the relationships and part bytes the blip points at — the same reason `parsePicture` takes
@@ -1689,6 +1765,9 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
       }
       elements[id] = element
       registerChild(shape, id)
+    }
+    for (const asset of registeredAssets) {
+      await options.assetAdapter?.put(asset.metadata.id, new Uint8Array(asset.bytes), asset.metadata)
     }
     for (const [shapeIndex, groupId] of groupIds) {
       const childIds = groupChildIds.get(shapeIndex) ?? []

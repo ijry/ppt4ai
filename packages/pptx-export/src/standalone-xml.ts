@@ -375,11 +375,11 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   return `<p:sp>${nonVisualProperties}${shapeProperties}${serializeShapeStyleXml(element.styleRef)}${textBody}</p:sp>`
 }
 
-export function serializeTableFrameXml(table: TableElement, shapeId: number): string {
+export function serializeTableFrameXml(table: TableElement, shapeId: number, pictureRelationships?: (assetId: string) => string | undefined): string {
   const placeholder = serializePlaceholder(table.placeholder)
   const nonVisualProperties = `<p:nvGraphicFramePr><p:cNvPr id="${shapeId}" name="${escapeXml(table.id)}"/><p:cNvGraphicFramePr/><p:nvPr>${placeholder}</p:nvPr></p:nvGraphicFramePr>`
   const transform = `<p:xfrm${serializeTransformAttributes(table)}>${serializeTransformContents(table.bounds)}</p:xfrm>`
-  const graphic = `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">${serializeTableXml(table)}</a:graphicData></a:graphic>`
+  const graphic = `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">${serializeTableXml(table, pictureRelationships)}</a:graphicData></a:graphic>`
   return `<p:graphicFrame>${nonVisualProperties}${transform}${graphic}</p:graphicFrame>`
 }
 
