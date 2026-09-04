@@ -10,8 +10,28 @@ export interface GeometryBounds {
 
 export type PathCommand =
   | { type: 'move' | 'line'; x: number; y: number }
+  | { type: 'cubic'; x1: number; y1: number; x2: number; y2: number; x: number; y: number }
+  | { type: 'quad'; x1: number; y1: number; x: number; y: number }
   | { type: 'arc'; cx: number; cy: number; rx: number; ry: number; start: number; end: number }
   | { type: 'close' }
+
+/**
+ * `a:custGeom`'s commands, mirrored from `@ppt4ai/model`'s `CustomGeometryCommand` the same way
+ * `PresetGeometry` is: this package sits below the model and takes the shape structurally.
+ */
+export type CustomPathCommand =
+  | { type: 'move' | 'line'; x: number; y: number }
+  | { type: 'cubic'; x1: number; y1: number; x2: number; y2: number; x: number; y: number }
+  | { type: 'quad'; x1: number; y1: number; x: number; y: number }
+  | { type: 'arc'; widthRadius: number; heightRadius: number; startAngle: number; swingAngle: number }
+  | { type: 'close' }
+
+export interface CustomPath {
+  /** `a:path/@w`/`@h`. Absent means the commands are already in the shape's own coordinates. */
+  width?: number
+  height?: number
+  commands: CustomPathCommand[]
+}
 
 export interface GeometryPoint {
   x: number
@@ -223,6 +243,60 @@ function trianglePath({ x, y, w, h }: GeometryBounds): PathCommand[] {
     { type: 'line', x, y: y + h },
     { type: 'close' },
   ]
+}
+
+/**
+ * `a:custGeom`'s path list mapped into the shape's box. Each `a:path` declares the coordinate space its
+ * numbers live in (`@w`/`@h`), so the mapping is a plain scale; a path with no space of its own is
+ * already in the shape's coordinates.
+ *
+ * `a:arcTo` gives radii and angles but no centre, so the centre comes from the current point:
+ * `centre = current − (wR·cos(stAng), hR·sin(stAng))`. That is the standard reading of the element, and
+ * it is why this builder tracks the pen position while it walks the commands.
+ */
+export function createCustomPath(paths: readonly CustomPath[], bounds: GeometryBounds): PathCommand[] {
+  const commands: PathCommand[] = []
+  for (const path of paths) {
+    const scaleX = path.width && path.width > 0 ? bounds.w / path.width : 1
+    const scaleY = path.height && path.height > 0 ? bounds.h / path.height : 1
+    const mapX = (value: number): number => bounds.x + value * scaleX
+    const mapY = (value: number): number => bounds.y + value * scaleY
+    let currentX = bounds.x
+    let currentY = bounds.y
+    for (const command of path.commands) {
+      if (command.type === 'move' || command.type === 'line') {
+        currentX = mapX(command.x)
+        currentY = mapY(command.y)
+        commands.push({ type: command.type, x: currentX, y: currentY })
+      } else if (command.type === 'cubic') {
+        currentX = mapX(command.x)
+        currentY = mapY(command.y)
+        commands.push({
+          type: 'cubic',
+          x1: mapX(command.x1), y1: mapY(command.y1),
+          x2: mapX(command.x2), y2: mapY(command.y2),
+          x: currentX, y: currentY,
+        })
+      } else if (command.type === 'quad') {
+        currentX = mapX(command.x)
+        currentY = mapY(command.y)
+        commands.push({ type: 'quad', x1: mapX(command.x1), y1: mapY(command.y1), x: currentX, y: currentY })
+      } else if (command.type === 'arc') {
+        const rx = command.widthRadius * scaleX
+        const ry = command.heightRadius * scaleY
+        const start = rotationRadians(command.startAngle)
+        const end = start + rotationRadians(command.swingAngle)
+        const cx = currentX - Math.cos(start) * rx
+        const cy = currentY - Math.sin(start) * ry
+        commands.push({ type: 'arc', cx, cy, rx, ry, start, end })
+        currentX = cx + Math.cos(end) * rx
+        currentY = cy + Math.sin(end) * ry
+      } else {
+        commands.push({ type: 'close' })
+      }
+    }
+  }
+  return commands
 }
 
 export function createPresetPath(preset: PresetGeometry, bounds: GeometryBounds): PathCommand[] {

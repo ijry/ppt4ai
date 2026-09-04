@@ -6,6 +6,34 @@
  */
 export type PresetGeometry = string
 
+/**
+ * One `a:custGeom` command. `arc` keeps `a:arcTo`'s own shape — radii plus start and swing angles in
+ * 60000ths of a degree — because the centre it needs comes from the pen position, which only the path
+ * builder knows.
+ */
+export type CustomGeometryCommand =
+  | { type: 'move' | 'line'; x: number; y: number }
+  | { type: 'cubic'; x1: number; y1: number; x2: number; y2: number; x: number; y: number }
+  | { type: 'quad'; x1: number; y1: number; x: number; y: number }
+  | { type: 'arc'; widthRadius: number; heightRadius: number; startAngle: number; swingAngle: number }
+  | { type: 'close' }
+
+export interface CustomGeometryPath {
+  /** `a:path/@w`/`@h`: the coordinate space these commands are expressed in. */
+  width?: number
+  height?: number
+  commands: CustomGeometryCommand[]
+}
+
+/**
+ * `a:custGeom`'s path list, but only when every coordinate is a literal number. A path whose points come
+ * from `a:gdLst` formulas is not modeled at all — the formula language is the same unverifiable table the
+ * 187 presets need — and the shape falls back to its `preset`, which is what it drew before.
+ */
+export interface CustomGeometry {
+  paths: CustomGeometryPath[]
+}
+
 /** The four `prst` words `createPresetPath` has a real outline for. */
 export const PAINTED_PRESET_GEOMETRIES: readonly string[] = ['rect', 'roundRect', 'ellipse', 'triangle']
 
@@ -399,6 +427,8 @@ export interface ShapeElement {
   flipV?: boolean
   fill?: Fill
   stroke?: Fill
+  /** `a:custGeom`'s literal path list; when present it replaces `preset` for drawing. */
+  customGeometry?: CustomGeometry
   /** An `a:blipFill`, which replaces `fill` rather than layering with it — see `PictureFill`. */
   pictureFill?: PictureFill
   /** `a:effectLst/a:outerShdw`; the only effect modeled so far. */
@@ -443,6 +473,7 @@ export interface TextElement {
   body?: TextBody
   fill?: Fill
   stroke?: Fill
+  customGeometry?: CustomGeometry
   pictureFill?: PictureFill
   shadow?: OuterShadow
   strokeWidth?: number
@@ -1414,6 +1445,47 @@ function validatePictureTile(value: PictureTile, path: string, errors: string[])
   }
 }
 
+const customGeometryCommandFields: Readonly<Record<string, readonly string[]>> = {
+  move: ['x', 'y'],
+  line: ['x', 'y'],
+  cubic: ['x1', 'y1', 'x2', 'y2', 'x', 'y'],
+  quad: ['x1', 'y1', 'x', 'y'],
+  arc: ['widthRadius', 'heightRadius', 'startAngle', 'swingAngle'],
+  close: [],
+}
+
+/** Every coordinate is a finite number by construction — the importer only models literal paths. */
+function validateCustomGeometry(value: CustomGeometry, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray(value.paths)) {
+    errors.push(`${path}.paths must be an array`)
+    return
+  }
+  value.paths.forEach((subPath, pathIndex) => {
+    const subPathPath = `${path}.paths[${pathIndex}]`
+    if (!subPath || typeof subPath !== 'object' || Array.isArray(subPath) || !Array.isArray(subPath.commands)) {
+      errors.push(`${subPathPath}.commands must be an array`)
+      return
+    }
+    for (const field of ['width', 'height'] as const) {
+      if (subPath[field] !== undefined) {
+        validateFiniteNumber(subPath[field], `${subPathPath}.${field}`, errors, (number) => number > 0, 'must be positive')
+      }
+    }
+    subPath.commands.forEach((command, index) => {
+      const commandPath = `${subPathPath}.commands[${index}]`
+      const fields = command && typeof command === 'object' ? customGeometryCommandFields[(command as { type?: string }).type ?? ''] : undefined
+      if (!fields) {
+        errors.push(`${commandPath}.type must be a supported path command`)
+        return
+      }
+      const values = command as unknown as Record<string, unknown>
+      for (const field of fields) {
+        validateFiniteNumber(values[field], `${commandPath}.${field}`, errors, Number.isFinite, 'must be a finite number')
+      }
+    })
+  })
+}
+
 /** `a:srcRect` sides, shared by `ImageElement.sourceCrop` and `PictureFill.sourceCrop`. */
 function validateImageCrop(value: ImageCrop, path: string, errors: string[]): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -1990,6 +2062,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       if (element.fill !== undefined) validateFill(element.fill, `elements.${elementId}.fill`, errors)
       if (element.stroke !== undefined) validateFill(element.stroke, `elements.${elementId}.stroke`, errors)
       if (element.shadow !== undefined) validateOuterShadow(element.shadow, `elements.${elementId}.shadow`, errors)
+      if (element.customGeometry !== undefined) validateCustomGeometry(element.customGeometry, `elements.${elementId}.customGeometry`, errors)
       // Same rule an image's `assetId` gets: a reference the asset map cannot answer paints nothing,
       // and finding that out at paint time would only surface as a silently empty shape.
       if (element.pictureFill !== undefined) {

@@ -1,6 +1,6 @@
-import { boundsCentre, cascadeTransform, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
+import { boundsCentre, cascadeTransform, createCustomPath, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -351,6 +351,16 @@ function shapeStroke(
  * under it. Compositing a transparent PNG over a fallback colour would show a colour the file never
  * asked for, and the file said the fill is this picture.
  */
+/**
+ * `a:custGeom` wins over `prst` when the file gave us a literal path: the preset is only the fallback
+ * OOXML itself uses when a shape has no custom geometry, and unknown presets already draw a rectangle.
+ */
+function shapePath(element: { preset?: PresetGeometry; customGeometry?: CustomGeometry }, bounds: Rect, fallbackPreset = 'rect'): PathCommand[] {
+  const custom = element.customGeometry
+  if (custom) return createCustomPath(custom.paths, bounds)
+  return createPresetPath(element.preset ?? fallbackPreset, bounds)
+}
+
 function scenePictureFill(element: { pictureFill?: PictureFill }, assets?: Ppt4aiDocument['assets']): ScenePictureFill | undefined {
   const fill = element.pictureFill
   if (!fill) return undefined
@@ -395,7 +405,7 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
     id: element.id,
     kind: 'shape',
     bounds: element.bounds,
-    path: createPresetPath(element.preset, element.bounds),
+    path: shapePath(element, element.bounds),
   }
 
   if (element.fill) node.fill = element.fill
@@ -453,7 +463,7 @@ function createTextNode(
   // or from the theme style matrix. Plain text keeps the scene shape it had before, and `rect`
   // covers a filled text box whose source declared no geometry. A picture fill needs the path too —
   // it is what the picture gets clipped to.
-  if (fillColor || strokeColor || pictureFill) node.path = createPresetPath(element.preset ?? 'rect', element.bounds)
+  if (fillColor || strokeColor || pictureFill) node.path = shapePath(element, element.bounds)
   if (fillColor) node.resolvedFillColor = fillColor
   const fillGradient = pictureFill ? undefined : shapeFillGradient(element, context)
   if (fillGradient) node.resolvedFillGradient = fillGradient

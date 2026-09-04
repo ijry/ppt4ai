@@ -1,4 +1,4 @@
-import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -996,6 +996,64 @@ function parseShapePictureFill(
  * standalone export wrote that back into the file; `rect` remains the answer for an absent or
  * malformed word, which is also OOXML's default geometry.
  */
+/**
+ * `a:custGeom/a:pathLst`. Every coordinate has to be a literal number: OOXML also allows guide names
+ * (`x="adj1"`) resolved through `a:gdLst`'s formula language, and that table is as unverifiable here as
+ * the preset outlines are. One non-numeric coordinate therefore discards the whole geometry — half a
+ * path would join lines to invented places, which is worse than the rectangle it falls back to.
+ */
+function parseCustomGeometry(shape: XmlNode): CustomGeometry | undefined {
+  const geometry = shapeProperties(shape) && child(shapeProperties(shape)!, 'custGeom')
+  const list = geometry && child(geometry, 'pathLst')
+  if (!list) return undefined
+  const paths: CustomGeometryPath[] = []
+  for (const pathNode of children(list, 'path')) {
+    const commands: CustomGeometryCommand[] = []
+    for (const commandNode of pathNode.children) {
+      const name = localName(commandNode.name)
+      if (name === 'close') {
+        commands.push({ type: 'close' })
+        continue
+      }
+      const points = children(commandNode, 'pt').map((point) => ({
+        x: parseNumber(attribute(point, 'x')),
+        y: parseNumber(attribute(point, 'y')),
+      }))
+      if (points.some((point) => point.x === undefined || point.y === undefined)) return undefined
+      if ((name === 'moveTo' || name === 'lnTo') && points.length === 1) {
+        commands.push({ type: name === 'moveTo' ? 'move' : 'line', x: points[0]!.x!, y: points[0]!.y! })
+      } else if (name === 'cubicBezTo' && points.length === 3) {
+        commands.push({
+          type: 'cubic',
+          x1: points[0]!.x!, y1: points[0]!.y!,
+          x2: points[1]!.x!, y2: points[1]!.y!,
+          x: points[2]!.x!, y: points[2]!.y!,
+        })
+      } else if (name === 'quadBezTo' && points.length === 2) {
+        commands.push({ type: 'quad', x1: points[0]!.x!, y1: points[0]!.y!, x: points[1]!.x!, y: points[1]!.y! })
+      } else if (name === 'arcTo') {
+        const widthRadius = parseNumber(attribute(commandNode, 'wR'))
+        const heightRadius = parseNumber(attribute(commandNode, 'hR'))
+        const startAngle = parseNumber(attribute(commandNode, 'stAng'))
+        const swingAngle = parseNumber(attribute(commandNode, 'swAng'))
+        if (widthRadius === undefined || heightRadius === undefined || startAngle === undefined || swingAngle === undefined) return undefined
+        commands.push({ type: 'arc', widthRadius, heightRadius, startAngle, swingAngle })
+      } else {
+        return undefined
+      }
+    }
+    if (commands.length === 0) continue
+    const width = parseNumber(attribute(pathNode, 'w'))
+    const height = parseNumber(attribute(pathNode, 'h'))
+    paths.push({
+      ...(width !== undefined && width > 0 ? { width } : {}),
+      ...(height !== undefined && height > 0 ? { height } : {}),
+      commands,
+    })
+  }
+  return paths.length > 0 ? { paths } : undefined
+}
+
 function parsePreset(shape: XmlNode): PresetGeometry {
   const geometry = findDescendants(shape, 'prstGeom')[0]
   const preset = geometry && attribute(geometry, 'prst')?.trim()
@@ -1282,6 +1340,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     if (textJoin) element.strokeJoin = textJoin
     const textShadow = parseOuterShadow(shape)
     if (textShadow) element.shadow = textShadow
+    const textGeometry = parseCustomGeometry(shape)
+    if (textGeometry) element.customGeometry = textGeometry
     const styleRef = parseShapeStyleReference(shape)
     if (styleRef) element.styleRef = styleRef
     return element
@@ -1311,6 +1371,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   if (shapeJoin) element.strokeJoin = shapeJoin
   const shapeShadow = parseOuterShadow(shape)
   if (shapeShadow) element.shadow = shapeShadow
+  const shapeGeometry = parseCustomGeometry(shape)
+  if (shapeGeometry) element.customGeometry = shapeGeometry
   const shapeStyleRef = parseShapeStyleReference(shape)
   if (shapeStyleRef) element.styleRef = shapeStyleRef
   return element

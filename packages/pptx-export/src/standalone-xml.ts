@@ -244,6 +244,34 @@ function serializeGeometry(preset: ShapeElement['preset']): string {
   return `<a:prstGeom prst="${escapeXml(preset)}"><a:avLst/></a:prstGeom>`
 }
 
+/**
+ * `a:custGeom` from the literal path list. Written instead of `a:prstGeom`, because a shape that carries
+ * custom geometry is not the preset — before this it was exported as `prst="rect"`, which threw the path
+ * away. `a:avLst` stays empty: the adjust values belong to the guide language the model does not read.
+ */
+function serializeCustomGeometry(geometry: NonNullable<ShapeElement['customGeometry']>): string {
+  const paths = geometry.paths.map((path) => {
+    const commands = path.commands.map((command) => {
+      switch (command.type) {
+        case 'close':
+          return '<a:close/>'
+        case 'move':
+          return `<a:moveTo><a:pt x="${command.x}" y="${command.y}"/></a:moveTo>`
+        case 'line':
+          return `<a:lnTo><a:pt x="${command.x}" y="${command.y}"/></a:lnTo>`
+        case 'cubic':
+          return `<a:cubicBezTo><a:pt x="${command.x1}" y="${command.y1}"/><a:pt x="${command.x2}" y="${command.y2}"/><a:pt x="${command.x}" y="${command.y}"/></a:cubicBezTo>`
+        case 'quad':
+          return `<a:quadBezTo><a:pt x="${command.x1}" y="${command.y1}"/><a:pt x="${command.x}" y="${command.y}"/></a:quadBezTo>`
+        default:
+          return `<a:arcTo wR="${command.widthRadius}" hR="${command.heightRadius}" stAng="${command.startAngle}" swAng="${command.swingAngle}"/>`
+      }
+    }).join('')
+    return `<a:path${attrs([['w', path.width], ['h', path.height]])}>${commands}</a:path>`
+  }).join('')
+  return `<a:custGeom><a:avLst/><a:pathLst>${paths}</a:pathLst></a:custGeom>`
+}
+
 function serializePlaceholder(placeholder: string | undefined): string {
   if (placeholder === undefined) return ''
   const separator = placeholder.indexOf(':')
@@ -333,7 +361,8 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   // One fill node per shape: the picture replaces the colour, the way the scene and the command do.
   const pictureFill = serializePictureFillXml(element, pictureRelationshipId)
   const fill = pictureFill === '' ? serializeFillXml(element.fill) : pictureFill
-  const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${serializeGeometry(preset)}${fill}${line}${serializeShadowXml(element.shadow)}</p:spPr>`
+  const geometry = element.customGeometry ? serializeCustomGeometry(element.customGeometry) : serializeGeometry(preset)
+  const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${geometry}${fill}${line}${serializeShadowXml(element.shadow)}</p:spPr>`
   const textBody = isText
     ? serializeTextBodyXml(element.body ?? { paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }] })
     : ''

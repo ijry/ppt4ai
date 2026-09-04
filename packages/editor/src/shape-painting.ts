@@ -174,6 +174,10 @@ export function tracePath(context: ShapeContext, path: readonly PathCommand[], m
       context.moveTo(mapX(command.x), mapY(command.y))
     } else if (command.type === 'line') {
       context.lineTo(mapX(command.x), mapY(command.y))
+    } else if (command.type === 'cubic') {
+      context.bezierCurveTo(mapX(command.x1), mapY(command.y1), mapX(command.x2), mapY(command.y2), mapX(command.x), mapY(command.y))
+    } else if (command.type === 'quad') {
+      context.quadraticCurveTo(mapX(command.x1), mapY(command.y1), mapX(command.x), mapY(command.y))
     } else if (command.type === 'arc') {
       const rx = finite(command.rx, 'shape arc rx')
       const ry = finite(command.ry, 'shape arc ry')
