@@ -2,7 +2,7 @@
 import type { Color, Fill, StrokeStyle, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import { DEFAULT_THEME_COLORS } from '@ppt4ai/model'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
-import { AssetLibrary, hexFromColor, PptEditor, ShapePaintToolbar, THEME_SLOT_GROUPS, ThemePanel, themeFontModels, themeSlotGroup, ThumbnailCanvas, type ShapePaintToolbarProps, type ThemePanelFontModel, type ThemePanelSlotModel } from '@ppt4ai/editor'
+import { AssetLibrary, hexFromColor, PptEditor, THEME_SLOT_GROUPS, ThemePanel, themeFontModels, themeSlotGroup, ThumbnailCanvas, type ThemePanelFontModel, type ThemePanelSlotModel } from '@ppt4ai/editor'
 import { normalizeTextElement } from '@ppt4ai/text'
 import { useI18n } from 'vue-i18n'
 import { ImageFileReadError, readImageUploadFile, type PlaygroundImageUploadInput } from './image-file-upload'
@@ -75,32 +75,6 @@ const themeFonts = computed<ThemePanelFontModel[]>(() => {
   const themeId = activeThemeId.value
   const theme = themeId ? activeSlideSnapshot.value.engineState.document.themes?.[themeId] : undefined
   return theme ? themeFontModels(theme.fonts) : []
-})
-
-/**
- * Reads the resolved values off the scene node rather than the element's own fields, for the reason
- * the controller records: a shape whose colour comes from the theme style matrix carries no `fill`,
- * so the element would report a default while the canvas shows the themed colour.
- */
-const shapePaint = computed<ShapePaintToolbarProps>(() => {
-  const state = activeSlideSnapshot.value.engineState
-  const selected = state.selection.length === 1 ? state.document.elements[state.selection[0]!] : undefined
-  if (selected?.kind !== 'shape' && selected?.kind !== 'text') {
-    return { active: false, fillIsGradient: false, strokeIsGradient: false }
-  }
-  const node = scene.value.nodes.find((entry) => entry.id === selected.id)
-  const painted = node?.kind === 'shape' || node?.kind === 'text' ? node : undefined
-  const width = painted?.strokeWidth ?? selected.strokeWidth
-  const style = painted?.strokeStyle ?? selected.strokeStyle
-  return {
-    active: true,
-    fillColor: painted?.resolvedFillColor ? `#${painted.resolvedFillColor.rgb.toUpperCase()}` : '#FFFFFF',
-    fillIsGradient: painted?.resolvedFillGradient !== undefined,
-    strokeColor: painted?.resolvedStrokeColor ? `#${painted.resolvedStrokeColor.rgb.toUpperCase()}` : '#000000',
-    strokeIsGradient: painted?.resolvedStrokeGradient !== undefined,
-    ...(width === undefined ? {} : { strokeWidth: width }),
-    ...(style === undefined ? {} : { strokeStyle: style }),
-  }
 })
 
 function setShapeFill(fill: Fill | null): void {
@@ -346,6 +320,10 @@ async function uploadFile(event: Event): Promise<void> {
           @flip-element="flipElement"
           @flip-selection="flipSelection"
           @text-edit="updateTextElement"
+          @set-fill="setShapeFill"
+          @set-stroke="setShapeStroke"
+          @set-stroke-width="setShapeStrokeWidth"
+          @set-stroke-style="setShapeStrokeStyle"
         />
         <nav data-testid="editing-history-toolbar" class="mt-4 flex flex-wrap items-center gap-2" :aria-label="t('playground.history.title')">
           <button data-testid="history-undo" type="button" :disabled="!canUndo" :aria-label="t('playground.history.undo')" :title="t('playground.history.undo')" class="border border-slate-400 px-3 py-1 text-sm hover:border-slate-700 disabled:cursor-not-allowed disabled:opacity-50" @click="undo">
@@ -435,13 +413,6 @@ async function uploadFile(event: Event): Promise<void> {
           @select="selectAsset"
           @insert="insertAsset"
           @replace="replaceAsset"
-        />
-        <ShapePaintToolbar
-          v-bind="shapePaint"
-          @set-fill="setShapeFill"
-          @set-stroke="setShapeStroke"
-          @set-stroke-width="setShapeStrokeWidth"
-          @set-stroke-style="setShapeStrokeStyle"
         />
         <ThemePanel
           :active="activeThemeId !== undefined"

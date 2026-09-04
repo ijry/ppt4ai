@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import type { SnapGuide, SnapOptions } from '@ppt4ai/engine'
 import { rotatePointAround } from '@ppt4ai/geometry'
-import type { AssetAdapter, Rect, TextBody } from '@ppt4ai/model'
+import type { AssetAdapter, Fill, Rect, StrokeStyle, TextBody } from '@ppt4ai/model'
 import type { SceneGraph, SceneImageNode } from '@ppt4ai/render'
+import type { ShapePaintToolbarProps } from './shape-paint-toolbar'
 import type { ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
 import { computed, onBeforeUnmount, ref, shallowRef, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import ShapePaintToolbar from './ShapePaintToolbar.vue'
 import SlideCanvas from './SlideCanvas.vue'
 import SelectionOverlay from './SelectionOverlay.vue'
 import TextBoxEditor from './TextBoxEditor.vue'
@@ -48,6 +50,10 @@ const emit = defineEmits<{
   'text-edit': [payload: { elementId: string; body: TextBody }]
   group: []
   ungroup: [payload: { groupId: string }]
+  'set-fill': [fill: Fill | null]
+  'set-stroke': [stroke: Fill | null]
+  'set-stroke-width': [width: number | null]
+  'set-stroke-style': [style: StrokeStyle | null]
 }>()
 
 const EMU_TO_CSS_PIXEL = 96 / 914400
@@ -75,6 +81,33 @@ const selectedElementIds = computed(() => {
     ? props.selectedElementIds
     : props.selectedElementId ? [props.selectedElementId] : []
   return source.filter((id, index) => source.indexOf(id) === index && isInteractiveElementId(id) && elementBounds(id))
+})
+
+/**
+ * Paint state comes from the scene node, which already merged the element's own value, the theme
+ * style reference and the per-property width and dash fallback. Reading the element instead would
+ * show a default for every shape whose colour arrives through `fillRef`.
+ *
+ * The editor stays presentational: it computes what to show and emits intents, and the host turns
+ * those into commands, exactly as it already does for resize and rotation.
+ */
+const shapePaint = computed<ShapePaintToolbarProps>(() => {
+  const elementIds = selectedElementIds.value
+  const node = elementIds.length === 1
+    ? props.scene?.nodes.find((entry) => entry.id === elementIds[0])
+    : undefined
+  if (node?.kind !== 'shape' && node?.kind !== 'text') {
+    return { active: false, fillIsGradient: false, strokeIsGradient: false }
+  }
+  return {
+    active: true,
+    fillColor: node.resolvedFillColor ? `#${node.resolvedFillColor.rgb.toUpperCase()}` : '#FFFFFF',
+    fillIsGradient: node.resolvedFillGradient !== undefined,
+    strokeColor: node.resolvedStrokeColor ? `#${node.resolvedStrokeColor.rgb.toUpperCase()}` : '#000000',
+    strokeIsGradient: node.resolvedStrokeGradient !== undefined,
+    ...(node.strokeWidth === undefined ? {} : { strokeWidth: node.strokeWidth }),
+    ...(node.strokeStyle === undefined ? {} : { strokeStyle: node.strokeStyle }),
+  }
 })
 
 function toScreenBounds(bounds: Rect): ScreenBounds {
@@ -631,6 +664,13 @@ onBeforeUnmount(() => {
           </button>
         </template>
       </div>
+      <ShapePaintToolbar
+        v-bind="shapePaint"
+        @set-fill="emit('set-fill', $event)"
+        @set-stroke="emit('set-stroke', $event)"
+        @set-stroke-width="emit('set-stroke-width', $event)"
+        @set-stroke-style="emit('set-stroke-style', $event)"
+      />
     </header>
     <div ref="canvasElement" class="ppt-editor__canvas relative" role="img" :aria-label="t('editor.canvas.ariaLabel')">
       <template v-if="props.scene && props.adapter">
