@@ -193,6 +193,23 @@ export interface Fill {
   gradient?: Gradient
 }
 
+/**
+ * `a:blipFill` on a shape. It stays outside `Fill` because a blip fill has no colour to put in the
+ * required `color` — a gradient could donate its first stop, a picture has nothing — and because
+ * `Fill` also types run colours, table cells, backgrounds and theme entries, none of which support a
+ * picture. Keeping `fill` absent for a picture-filled shape also means the range writeback compares
+ * "no fill" on both sides and leaves the source `a:blipFill` untouched.
+ *
+ * Only the `a:stretch` form is expressible: `a:tile` needs six more attributes to place its repeats,
+ * so a tiled fill stays unmodeled and paints nothing, the same way `a:path` gradients do.
+ */
+export interface PictureFill {
+  /** Key into `Ppt4aiDocument.assets`, the same asset space `ImageElement.assetId` uses. */
+  assetId: string
+  /** `a:srcRect`: thousandths of a percent trimmed from each side of the source, as on `p:pic`. */
+  sourceCrop?: ImageCrop
+}
+
 export interface TextMarks {
   /** `a:latin`: the Latin-script typeface, and the fallback for every script we do not classify. */
   fontFamily?: string
@@ -265,6 +282,8 @@ export interface ShapeElement {
   flipV?: boolean
   fill?: Fill
   stroke?: Fill
+  /** An `a:blipFill`, which replaces `fill` rather than layering with it — see `PictureFill`. */
+  pictureFill?: PictureFill
   /** `a:ln/@w` in EMU. Absent means the source said nothing, so painting keeps its hairline default. */
   strokeWidth?: number
   /** `a:ln/a:prstDash`, narrowed to what painting can express. */
@@ -305,6 +324,7 @@ export interface TextElement {
   body?: TextBody
   fill?: Fill
   stroke?: Fill
+  pictureFill?: PictureFill
   strokeWidth?: number
   strokeStyle?: StrokeStyle
   strokeCap?: StrokeCap
@@ -1182,6 +1202,19 @@ function validateColorMap(value: unknown, path: string, errors: string[]): void 
   }
 }
 
+/** `a:srcRect` sides, shared by `ImageElement.sourceCrop` and `PictureFill.sourceCrop`. */
+function validateImageCrop(value: ImageCrop, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const crop = value as unknown as Record<string, unknown>
+  for (const side of ['left', 'top', 'right', 'bottom']) {
+    const number = crop[side]
+    if (number !== undefined) validateFiniteNumber(number, `${path}.${side}`, errors, (candidate) => Number.isInteger(candidate) && candidate >= 0 && candidate <= 100000, 'must be between 0 and 100000')
+  }
+}
+
 function validateImageAppearance(element: ImageElement, path: string, errors: string[]): void {
   if (element.transform !== undefined) {
     if (!element.transform || typeof element.transform !== 'object' || Array.isArray(element.transform)) {
@@ -1196,17 +1229,7 @@ function validateImageAppearance(element: ImageElement, path: string, errors: st
     }
   }
 
-  if (element.sourceCrop !== undefined) {
-    if (!element.sourceCrop || typeof element.sourceCrop !== 'object' || Array.isArray(element.sourceCrop)) {
-      errors.push(`${path}.sourceCrop must be an object`)
-    } else {
-      const crop = element.sourceCrop as unknown as Record<string, unknown>
-      for (const side of ['left', 'top', 'right', 'bottom']) {
-        const value = crop[side]
-        if (value !== undefined) validateFiniteNumber(value, `${path}.sourceCrop.${side}`, errors, (number) => Number.isInteger(number) && number >= 0 && number <= 100000, 'must be between 0 and 100000')
-      }
-    }
-  }
+  if (element.sourceCrop !== undefined) validateImageCrop(element.sourceCrop, `${path}.sourceCrop`, errors)
 
   if (element.maskPreset !== undefined && !presetGeometries.has(element.maskPreset)) {
     errors.push(`${path}.maskPreset must be a supported image mask preset`)
@@ -1746,6 +1769,21 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     if (element.kind === 'shape' || element.kind === 'text') {
       if (element.fill !== undefined) validateFill(element.fill, `elements.${elementId}.fill`, errors)
       if (element.stroke !== undefined) validateFill(element.stroke, `elements.${elementId}.stroke`, errors)
+      // Same rule an image's `assetId` gets: a reference the asset map cannot answer paints nothing,
+      // and finding that out at paint time would only surface as a silently empty shape.
+      if (element.pictureFill !== undefined) {
+        const picturePath = `elements.${elementId}.pictureFill`
+        if (!element.pictureFill || typeof element.pictureFill !== 'object' || Array.isArray(element.pictureFill)) {
+          errors.push(`${picturePath} must be an object`)
+        } else {
+          const assetId = element.pictureFill.assetId
+          if (typeof assetId !== 'string' || assetId.length === 0) errors.push(`${picturePath}.assetId must be a non-empty string`)
+          else if (!value.assets?.[assetId]) errors.push(`${picturePath} references missing asset: ${assetId}`)
+          if (element.pictureFill.sourceCrop !== undefined) {
+            validateImageCrop(element.pictureFill.sourceCrop, `${picturePath}.sourceCrop`, errors)
+          }
+        }
+      }
     }
   }
 
