@@ -110,7 +110,14 @@ function parseColorTransforms(node: XmlNode): ColorTransform[] | undefined {
   for (const transformNode of node.children) {
     const type = localName(transformNode.name)
     if (!isOoxmlToken(type)) continue
-    const value = parseIntegerAttribute(attribute(transformNode, 'val'))
+    const raw = attribute(transformNode, 'val')
+    // No `val` at all is the switch form (`a:comp`, `a:inv`, `a:gray`); a `val` that is out of its
+    // type's range is malformed and still drops.
+    if (raw === undefined) {
+      transforms.push({ type })
+      continue
+    }
+    const value = parseIntegerAttribute(raw)
     if (value !== undefined && colorTransformValueIsValid(type, value)) transforms.push({ type, value })
   }
   return transforms.length > 0 ? transforms : undefined

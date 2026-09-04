@@ -25,10 +25,10 @@ export function sourceColor(element: XmlElement | undefined): Color | undefined 
     // Mirrors the importer, including its per-type ranges: comparing a source `satMod` against a model
     // that dropped it is what used to make an edited colour look unchanged.
     const transforms = child.children.flatMap((transform) => {
+      if (!isOoxmlToken(transform.localName)) return []
+      if (transform.attributes.val === undefined) return [{ type: transform.localName }]
       const value = Number(transform.attributes.val)
-      return isOoxmlToken(transform.localName) && colorTransformValueIsValid(transform.localName, value)
-        ? [{ type: transform.localName, value }]
-        : []
+      return colorTransformValueIsValid(transform.localName, value) ? [{ type: transform.localName, value }] : []
     })
     return transforms.length > 0 ? { ...color, transforms } : color
   }

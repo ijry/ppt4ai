@@ -47,6 +47,12 @@ describe('colour transform maths', () => {
     }
   })
 
+  /** Switch-shaped transforms have no value; dividing `undefined` would resolve the colour to NaN. */
+  it('carries a valueless switch without touching the colour', () => {
+    expect(resolveColor({ ...accent, transforms: [{ type: 'gray' }, { type: 'inv' }, { type: 'comp' }] })?.rgb).toBe('4472C4')
+    expect(resolveColor({ ...accent, transforms: [{ type: 'gray' }, { type: 'lumMod', value: 75000 }] })?.rgb).toBe('2F5597')
+  })
+
   it('keeps the existing families working', () => {
     expect(resolved([{ type: 'lumMod', value: 75000 }])).toBe('2F5597')
     expect(resolved([{ type: 'shade', value: 50000 }])).toBe('223962')
@@ -91,6 +97,10 @@ describe('colour transform validation', () => {
     expect(errorsFor([{ type: 'satMod', value: 1.5 }]).length).toBeGreaterThan(0)
     expect(errorsFor([{ type: 'satMod', value: -1 }]).length).toBeGreaterThan(0)
     expect(errorsFor([{ type: 'not a token!', value: 1 }])).toContain('elements.el_shape.fill.color.transforms[0].type must be a color transform token')
+  })
+
+  it('accepts a transform with no value at all', () => {
+    expect(errorsFor([{ type: 'comp' }, { type: 'gray' }])).toEqual([])
   })
 
   /** `*Off` is signed in the schema, so a negative offset is legal where a negative `*Mod` is not. */

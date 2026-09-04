@@ -56,7 +56,8 @@ export function colorTransformValueIsValid(type: string, value: number): boolean
 
 export interface ColorTransform {
   type: ColorTransformType
-  value: number
+  /** Absent for the switch-shaped transforms (`a:comp`, `a:inv`, `a:gray`), which carry no `val`. */
+  value?: number
 }
 
 export type ThemeColorSlot = 'dk1' | 'lt1' | 'dk2' | 'lt2' | 'accent1' | 'accent2' | 'accent3' | 'accent4' | 'accent5' | 'accent6' | 'hlink' | 'folHlink'
@@ -793,6 +794,10 @@ function applyColorTransforms(rgb: [number, number, number], alpha: number, tran
   let currentRgb = [...rgb] as [number, number, number]
   let currentAlpha = alpha
   for (const transform of transforms ?? []) {
+    // A switch-shaped transform has no value: `a:comp`, `a:inv` and `a:gray` are preserved by the model
+    // but not computed (their algorithms are not verifiable here), and dividing `undefined` would turn
+    // the whole colour into NaN.
+    if (transform.value === undefined) continue
     const factor = transform.value / 100000
     if (transform.type === 'tint') currentRgb = currentRgb.map((channel) => channel + (255 - channel) * factor) as [number, number, number]
     else if (transform.type === 'shade') currentRgb = currentRgb.map((channel) => channel * factor) as [number, number, number]
@@ -1231,7 +1236,9 @@ function validateColor(value: unknown, path: string, errors: string[]): void {
         errors.push(`${transformPath}.type must be a color transform token`)
       }
       const type = typeof transformValue.type === 'string' ? transformValue.type : ''
-      validateFiniteNumber(transformValue.value, `${transformPath}.value`, errors, (number) => colorTransformValueIsValid(type, number), 'must be an integer within its transform range')
+      if (transformValue.value !== undefined) {
+        validateFiniteNumber(transformValue.value, `${transformPath}.value`, errors, (number) => colorTransformValueIsValid(type, number), 'must be an integer within its transform range')
+      }
     })
   }
 }
