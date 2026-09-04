@@ -178,6 +178,8 @@ function resolvedFillGradient(fill: Fill | undefined, context: SceneThemeContext
     stops,
     ...(gradient.angle === undefined ? {} : { angle: gradient.angle }),
     ...(gradient.scaled === undefined ? {} : { scaled: gradient.scaled }),
+    ...(gradient.path === undefined ? {} : { path: gradient.path }),
+    ...(gradient.fillToRect === undefined ? {} : { fillToRect: structuredClone(gradient.fillToRect) }),
   }
 }
 

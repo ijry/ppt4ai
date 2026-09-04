@@ -89,10 +89,13 @@ describe('linear gradient on import', () => {
     expect(await firstElement(gradient('<a:gs pos="0"/>'))).not.toHaveProperty('fill')
   })
 
-  /** `a:path` gradients stay unmodeled, exactly as before this existed. */
-  it('ignores a path gradient', async () => {
-    expect(await firstElement(`<a:gradFill><a:gsLst>${twoStops}</a:gsLst><a:path path="circle"/></a:gradFill>`))
-      .not.toHaveProperty('fill')
+  /** `a:path` gradients are modeled now; the form and its stops both reach the model. */
+  it('reads a path gradient rather than dropping the fill', async () => {
+    const element = await firstElement(`<a:gradFill><a:gsLst>${twoStops}</a:gsLst><a:path path="circle"/></a:gradFill>`)
+    if (element?.kind !== 'shape' || !element.fill?.gradient) throw new Error('fixture did not import a gradient')
+
+    expect(element.fill.gradient.path).toBe('circle')
+    expect(element.fill.gradient.stops).toHaveLength(2)
   })
 
   /** Stop order is the source's, because sorting would quietly repair a malformed file. */

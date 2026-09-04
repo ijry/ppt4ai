@@ -1,5 +1,5 @@
 import type { AssetAdapter, Rect, ResolvedColor, ResolvedGradient } from '@ppt4ai/model'
-import { gradientAxis } from '@ppt4ai/geometry'
+import { gradientAxis, gradientFocus } from '@ppt4ai/geometry'
 import type { PathCommand } from '@ppt4ai/geometry'
 import type { SceneGraph, SceneImageNode, SceneNode } from '@ppt4ai/render'
 import { paintPictureFill, paintShapeNode } from './shape-painting'
@@ -89,8 +89,12 @@ function createBackgroundGradient(
   gradient: ResolvedGradient,
   mappedBounds: Rect,
 ): CanvasGradient {
-  const axis = gradientAxis(mappedBounds, gradient.angle ?? 0, gradient.scaled ?? false)
-  const canvasGradient = context.createLinearGradient(axis.from.x, axis.from.y, axis.to.x, axis.to.y)
+  // A path gradient is a circle on the rect it converges to; anything else runs along the axis.
+  const focus = gradient.path ? gradientFocus(mappedBounds, gradient.fillToRect) : undefined
+  const axis = focus ? undefined : gradientAxis(mappedBounds, gradient.angle ?? 0, gradient.scaled ?? false)
+  const canvasGradient = focus
+    ? context.createRadialGradient(focus.centre.x, focus.centre.y, 0, focus.centre.x, focus.centre.y, focus.radius)
+    : context.createLinearGradient(axis!.from.x, axis!.from.y, axis!.to.x, axis!.to.y)
   for (const stop of gradient.stops) {
     const { style, alpha } = colorStyle(stop.color)
     const offset = Math.min(1, Math.max(0, stop.pos / 100000))

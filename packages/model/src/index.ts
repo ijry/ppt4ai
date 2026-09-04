@@ -228,6 +228,8 @@ export interface ResolvedGradient {
   stops: { pos: number; color: ResolvedColor }[]
   angle?: number
   scaled?: boolean
+  path?: GradientPath
+  fillToRect?: GradientFillToRect
 }
 
 /**
@@ -261,10 +263,20 @@ export interface GradientStop {
   color: Color
 }
 
+/** `a:path/a:fillToRect`: the rect a path gradient converges to, as thousandths of a percent inset. */
+export interface GradientFillToRect {
+  left?: number
+  top?: number
+  right?: number
+  bottom?: number
+}
+
 /**
- * A linear `a:gradFill`. Only `a:lin` is modeled — `a:path` gradients stay unexpressible, the same
- * as before this existed. Stops keep document order rather than being sorted by `pos`, because
- * reordering would quietly repair a malformed file instead of surfacing it.
+ * A `a:gradFill`. `a:lin` gives `angle`/`scaled`; `a:path` gives `path`/`fillToRect`. OOXML makes them
+ * a choice and the model keeps whichever the file had — a hand-built document carrying both paints as
+ * the path form, the way a shape carrying both a colour and a picture fill paints the picture. Stops
+ * keep document order rather than being sorted by `pos`, because reordering would quietly repair a
+ * malformed file instead of surfacing it.
  */
 export interface Gradient {
   /** At least two, or the fill is a plain colour instead. */
@@ -273,7 +285,12 @@ export interface Gradient {
   angle?: number
   /** `a:lin/@scaled`: the angle is measured in the shape's unit square and stretched to its box. */
   scaled?: boolean
+  /** `a:path/@path`. All three paint as a circular gradient; the word survives the round trip. */
+  path?: GradientPath
+  fillToRect?: GradientFillToRect
 }
+
+export type GradientPath = 'circle' | 'rect' | 'shape'
 
 /**
  * `color` stays required and carries the gradient's first stop, so every consumer that reads only
@@ -973,6 +990,8 @@ export function resolveStyleFillGradient(
     stops,
     ...(gradient.angle === undefined ? {} : { angle: gradient.angle }),
     ...(gradient.scaled === undefined ? {} : { scaled: gradient.scaled }),
+    ...(gradient.path === undefined ? {} : { path: gradient.path }),
+    ...(gradient.fillToRect === undefined ? {} : { fillToRect: structuredClone(gradient.fillToRect) }),
   }
 }
 
@@ -1736,6 +1755,8 @@ function validateTableBorder(value: unknown, path: string, errors: string[]): vo
   if ('style' in border && (typeof border.style !== 'string' || !tableBorderStyles.has(border.style))) errors.push(`${path}.style must be a supported preset dash token or none`)
 }
 
+const gradientPaths = new Set<GradientPath>(['circle', 'rect', 'shape'])
+
 function validateGradient(value: unknown, path: string, errors: string[]): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     errors.push(`${path} must be an object`)
@@ -1763,6 +1784,21 @@ function validateGradient(value: unknown, path: string, errors: string[]): void 
     validateFiniteNumber(gradient.angle, `${path}.angle`, errors, (number) => Number.isInteger(number), 'must be an integer')
   }
   if (gradient.scaled !== undefined && typeof gradient.scaled !== 'boolean') errors.push(`${path}.scaled must be a boolean`)
+  if (gradient.path !== undefined && !gradientPaths.has(gradient.path as GradientPath)) {
+    errors.push(`${path}.path must be circle, rect, or shape`)
+  }
+  if (gradient.fillToRect !== undefined) {
+    if (!gradient.fillToRect || typeof gradient.fillToRect !== 'object' || Array.isArray(gradient.fillToRect)) {
+      errors.push(`${path}.fillToRect must be an object`)
+    } else {
+      const rect = gradient.fillToRect as Record<string, unknown>
+      // The same range `a:srcRect` insets get: a percentage of the box, and never negative.
+      for (const side of ['left', 'top', 'right', 'bottom']) {
+        if (rect[side] === undefined) continue
+        validateFiniteNumber(rect[side], `${path}.fillToRect.${side}`, errors, (number) => Number.isInteger(number) && number >= 0 && number <= 100000, 'must be an integer between 0 and 100000')
+      }
+    }
+  }
 }
 
 function validateFill(value: unknown, path: string, errors: string[]): void {

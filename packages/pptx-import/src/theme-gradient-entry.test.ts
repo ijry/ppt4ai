@@ -56,14 +56,18 @@ describe('theme gradient entries on import', () => {
     expect(scheme?.backgroundStyles?.[0]).toMatchObject({ gradient: { angle: 5400000 } })
   })
 
-  /** `a:path` stays unexpressible, the same decision the direct gradient slice made. */
-  it('still nulls a path gradient entry', async () => {
+  /**
+   * `a:path` is expressible now, so a theme entry holding one is a real entry rather than the `null` that
+   * means "a form the model cannot state" — a shape taking its fill from this `fillRef` gets the circle.
+   */
+  it('models a path gradient entry instead of nulling it', async () => {
     const scheme = await formatScheme(
       '<a:gradFill><a:gsLst><a:gs pos="0"><a:schemeClr val="phClr"/></a:gs>'
-      + '<a:gs pos="100000"><a:schemeClr val="phClr"/></a:gs></a:gsLst><a:path path="circle"/></a:gradFill>',
+      + '<a:gs pos="100000"><a:schemeClr val="phClr"/></a:gs></a:gsLst>'
+      + '<a:path path="circle"><a:fillToRect l="50000" t="50000" r="50000" b="50000"/></a:path></a:gradFill>',
     )
 
-    expect(scheme?.fillStyles).toEqual([null])
+    expect(scheme?.fillStyles?.[0]).toMatchObject({ gradient: { path: 'circle', fillToRect: { left: 50000, top: 50000, right: 50000, bottom: 50000 } } })
   })
 
   it('still nulls a pattern or picture entry', async () => {

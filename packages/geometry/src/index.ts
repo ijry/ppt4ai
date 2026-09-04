@@ -55,6 +55,37 @@ export function boundsCentre(bounds: GeometryBounds): GeometryPoint {
   return { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 }
 }
 
+export interface GradientFocus {
+  centre: GeometryPoint
+  radius: number
+}
+
+/**
+ * The circle an `a:path` gradient paints along: `a:fillToRect` is the rect the gradient converges to, so
+ * its centre is where the first stop sits, and the radius reaches the box's farthest corner so the last
+ * stop covers every corner instead of leaving one unpainted.
+ *
+ * Insets are thousandths of a percent from each side; an absent rect means no inset, which puts the
+ * focus at the box centre. A converged rect can be degenerate — `l=t=r=b=50000` is the centre point, and
+ * `l=100000 r=0` is the right edge — which is exactly how OOXML expresses a centre or corner gradient.
+ */
+export function gradientFocus(bounds: GeometryBounds, fillToRect?: { left?: number; top?: number; right?: number; bottom?: number }): GradientFocus {
+  const inset = (value: number | undefined): number => (value ?? 0) / 100000
+  const left = bounds.x + bounds.w * inset(fillToRect?.left)
+  const right = bounds.x + bounds.w * (1 - inset(fillToRect?.right))
+  const top = bounds.y + bounds.h * inset(fillToRect?.top)
+  const bottom = bounds.y + bounds.h * (1 - inset(fillToRect?.bottom))
+  const centre = { x: (left + right) / 2, y: (top + bottom) / 2 }
+  const corners = [
+    { x: bounds.x, y: bounds.y },
+    { x: bounds.x + bounds.w, y: bounds.y },
+    { x: bounds.x, y: bounds.y + bounds.h },
+    { x: bounds.x + bounds.w, y: bounds.y + bounds.h },
+  ]
+  const radius = Math.max(...corners.map((corner) => Math.hypot(corner.x - centre.x, corner.y - centre.y)))
+  return { centre, radius }
+}
+
 export interface GradientAxis {
   from: GeometryPoint
   to: GeometryPoint

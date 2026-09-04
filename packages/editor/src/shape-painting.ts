@@ -1,5 +1,5 @@
 import type { PathCommand } from '@ppt4ai/geometry'
-import { gradientAxis, rotationRadians } from '@ppt4ai/geometry'
+import { gradientAxis, gradientFocus, rotationRadians } from '@ppt4ai/geometry'
 import type { Rect, ResolvedColor, ResolvedGradient, ResolvedShadow, StrokeCap, StrokeJoin, StrokeStyle } from '@ppt4ai/model'
 import type { SceneShapeNode, ScenePictureFill } from '@ppt4ai/render'
 import type { DecodedImage } from './image-canvas-renderer'
@@ -139,21 +139,34 @@ function mapRect(bounds: Rect, mapping: ShapePageMapping): Rect {
 }
 
 /**
- * A canvas gradient along the axis `gradientAxis` computes for the mapped box. Stop positions are
- * thousandths of a percent in the model and a 0..1 offset on the canvas, and they are clamped
- * because `addColorStop` throws outside that range while the model only bounds each stop on its own.
+ * A canvas gradient across the mapped box: an `a:path` gradient is a circle centred on the rect it
+ * converges to, anything else is the axis `gradientAxis` computes. Stop positions are thousandths of a
+ * percent in the model and a 0..1 offset on the canvas, and they are clamped because `addColorStop`
+ * throws outside that range while the model only bounds each stop on its own.
  *
  * Alpha rides on the stop colour rather than `globalAlpha`, since stops can differ in transparency.
  */
 function fillGradient(context: ShapeContext, gradient: ResolvedGradient, bounds: Rect): CanvasGradient {
-  const axis = gradientAxis(bounds, gradient.angle ?? 0, gradient.scaled ?? false)
-  const canvasGradient = context.createLinearGradient(axis.from.x, axis.from.y, axis.to.x, axis.to.y)
+  const canvasGradient = gradient.path
+    ? radialGradient(context, gradient, bounds)
+    : linearGradient(context, gradient, bounds)
   for (const stop of gradient.stops) {
     const { style, alpha } = colorStyle(stop.color)
     const offset = Math.min(1, Math.max(0, stop.pos / 100000))
     canvasGradient.addColorStop(offset, alpha >= 1 ? style : rgbaStyle(style, alpha))
   }
   return canvasGradient
+}
+
+function linearGradient(context: ShapeContext, gradient: ResolvedGradient, bounds: Rect): CanvasGradient {
+  const axis = gradientAxis(bounds, gradient.angle ?? 0, gradient.scaled ?? false)
+  return context.createLinearGradient(axis.from.x, axis.from.y, axis.to.x, axis.to.y)
+}
+
+/** All three `a:path` words paint as a circle: canvas has no rect or shape gradient to offer. */
+function radialGradient(context: ShapeContext, gradient: ResolvedGradient, bounds: Rect): CanvasGradient {
+  const focus = gradientFocus(bounds, gradient.fillToRect)
+  return context.createRadialGradient(focus.centre.x, focus.centre.y, 0, focus.centre.x, focus.centre.y, focus.radius)
 }
 
 function rgbaStyle(hex: string, alpha: number): string {

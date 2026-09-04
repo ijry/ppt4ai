@@ -76,8 +76,15 @@ export function serializeFillXml(fill: Fill | undefined): string {
   const stops = gradient.stops
     .map((stop) => `<a:gs${attrs([['pos', stop.pos]])}>${serializeColorXml(stop.color)}</a:gs>`)
     .join('')
-  const linear = `<a:lin${attrs([['ang', gradient.angle], ['scaled', booleanAttribute(gradient.scaled)]])}/>`
-  return `<a:gradFill><a:gsLst>${stops}</a:gsLst>${linear}</a:gradFill>`
+  // `a:lin` and `a:path` are a choice, and the path form wins when a hand-built model states both —
+  // the same precedence painting uses.
+  const rect = gradient.fillToRect
+  const form = gradient.path
+    ? `<a:path${attrs([['path', gradient.path]])}>`
+      + `${rect ? `<a:fillToRect${attrs([['l', rect.left], ['t', rect.top], ['r', rect.right], ['b', rect.bottom]])}/>` : ''}`
+      + '</a:path>'
+    : `<a:lin${attrs([['ang', gradient.angle], ['scaled', booleanAttribute(gradient.scaled)]])}/>`
+  return `<a:gradFill><a:gsLst>${stops}</a:gsLst>${form}</a:gradFill>`
 }
 
 /**

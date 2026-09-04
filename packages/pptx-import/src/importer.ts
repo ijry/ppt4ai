@@ -376,15 +376,47 @@ function parseGradientStops(gradient: XmlNode): GradientStop[] {
  * them exactly as the solid-only parser did. Two usable stops are the minimum for a gradient; one
  * stop is the flat colour PowerPoint also paints, and none is no fill at all.
  */
+/**
+ * `a:lin` and `a:path` are a choice in `CT_GradientFill`. Before `a:path` was modeled an unrecognised
+ * form threw the stops away and left the shape with no fill at all, which is worse than a flat colour;
+ * now the form the file used reaches the model and painting picks the circle.
+ */
 function parseGradientNode(gradient: XmlNode): Fill | undefined {
   const linear = child(gradient, 'lin')
-  if (!linear) return undefined
+  const pathNode = child(gradient, 'path')
+  if (!linear && !pathNode) return undefined
   const stops = parseGradientStops(gradient)
   const first = stops[0]
   if (!first) return undefined
   if (stops.length < 2) return { color: first.color }
-  const angle = parseIntegerAttribute(attribute(linear, 'ang'))
-  const scaled = attribute(linear, 'scaled')
+  if (pathNode) {
+    const path = attribute(pathNode, 'path')
+    const fillToRect = child(pathNode, 'fillToRect')
+    const inset = (name: string): number | undefined => {
+      const value = parseIntegerAttribute(fillToRect ? attribute(fillToRect, name) : undefined)
+      return value !== undefined && value >= 0 && value <= 100000 ? value : undefined
+    }
+    const left = inset('l')
+    const top = inset('t')
+    const right = inset('r')
+    const bottom = inset('b')
+    const insets = {
+      ...(left === undefined ? {} : { left }),
+      ...(top === undefined ? {} : { top }),
+      ...(right === undefined ? {} : { right }),
+      ...(bottom === undefined ? {} : { bottom }),
+    }
+    return {
+      color: first.color,
+      gradient: {
+        stops,
+        ...(path === 'circle' || path === 'rect' || path === 'shape' ? { path } : {}),
+        ...(Object.keys(insets).length > 0 ? { fillToRect: insets } : {}),
+      },
+    }
+  }
+  const angle = parseIntegerAttribute(attribute(linear!, 'ang'))
+  const scaled = attribute(linear!, 'scaled')
   return {
     color: first.color,
     gradient: {
