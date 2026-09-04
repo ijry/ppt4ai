@@ -80,4 +80,73 @@ describe('ThumbnailCanvas', () => {
     app.unmount()
     expect(worker.terminateCalls).toBe(1)
   })
+
+  /**
+   * `renderThumbnail` is called as `void renderThumbnail()`, so a rethrow used to land nowhere and
+   * become an unhandled rejection: 92 of them in one playground test file, enough to make the whole
+   * `vitest run` exit 1 while every assertion passed.
+   */
+  it('emits error when the renderer cannot render at all', async () => {
+    const worker = new TestWorker()
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    const errors: unknown[] = []
+    const renders: unknown[] = []
+    const app = createApp({
+      setup: () => () => h(ThumbnailCanvas, {
+        scene: scene('only'),
+        adapter,
+        width: 120,
+        height: 68,
+        workerFactory: { create: () => worker },
+        onRender: (value: unknown) => renders.push(value),
+        onError: (value: unknown) => errors.push(value),
+      }),
+    })
+    const host = document.createElement('div')
+    document.body.append(host)
+    app.mount(host)
+
+    await vi.waitFor(() => expect(errors).toHaveLength(1))
+    expect((errors[0] as Error).message).toBe('bitmaprenderer context is unavailable')
+    expect(renders).toEqual([])
+    // Nothing reached the worker, because the context check happens before the request goes out.
+    expect(worker.posts).toEqual([])
+
+    app.unmount()
+  })
+
+  /** Cancelling is the normal path — every prop change cancels the render in flight. */
+  it('stays silent when a render is cancelled by the next one', async () => {
+    const worker = new TestWorker()
+    const bitmapContext = { transferFromImageBitmap: vi.fn() }
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(bitmapContext as unknown as RenderingContext)
+    const state = reactive({ scene: scene('first'), width: 120, height: 68 })
+    const errors: unknown[] = []
+    const renders: unknown[] = []
+    const app = createApp({
+      setup: () => () => h(ThumbnailCanvas, {
+        scene: state.scene,
+        adapter,
+        width: state.width,
+        height: state.height,
+        workerFactory: { create: () => worker },
+        onRender: (value: unknown) => renders.push(value),
+        onError: (value: unknown) => errors.push(value),
+      }),
+    })
+    const host = document.createElement('div')
+    document.body.append(host)
+    app.mount(host)
+    await nextTick()
+
+    state.scene = scene('second')
+    await nextTick()
+    await nextTick()
+    worker.emit(result(2, 'second'))
+    await vi.waitFor(() => expect(renders).toHaveLength(1))
+
+    expect(errors).toEqual([])
+
+    app.unmount()
+  })
 })

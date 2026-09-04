@@ -35,7 +35,18 @@ function select(assetId: string): void {
 }
 
 function renderFinished(itemId: string, result: ThumbnailRenderResult): void {
-  const failed = result.issues.length > 0
+  markFailure(itemId, result.issues.length > 0)
+}
+
+/**
+ * A renderer-level failure means the same thing to the reader as a per-node issue does — this asset
+ * has no thumbnail — so it reuses the message rather than inventing a second one.
+ */
+function renderFailed(itemId: string): void {
+  markFailure(itemId, true)
+}
+
+function markFailure(itemId: string, failed: boolean): void {
   if (failedAssetIds.value.has(itemId) === failed) return
   const next = new Set(failedAssetIds.value)
   if (failed) next.add(itemId)
@@ -82,6 +93,7 @@ function renderFinished(itemId: string, result: ThumbnailRenderResult): void {
                 ...(workerFactory === undefined ? {} : { workerFactory }),
               }"
               @render="renderFinished(item.id, $event)"
+              @error="renderFailed(item.id)"
             />
           </div>
           <div class="mt-2 truncate text-sm font-medium" :title="item.displayName">{{ item.metadata.originalFilename ?? t('assetLibrary.unnamed', { id: item.id }) }}</div>

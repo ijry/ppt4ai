@@ -24,9 +24,10 @@ const assets: Record<string, AssetMetadata> = {
   asset_unknown: { id: 'asset_unknown', mimeType: 'image/gif' },
 }
 
-function mountLibrary(props: Record<string, unknown> = {}) {
-  const bitmapContext = { transferFromImageBitmap: vi.fn() }
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(bitmapContext as unknown as RenderingContext)
+/** `bitmapContext: false` is how a browser without `bitmaprenderer` support behaves, jsdom included. */
+function mountLibrary(props: Record<string, unknown> = {}, bitmapContext = true) {
+  const context = bitmapContext ? { transferFromImageBitmap: vi.fn() } : null
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as unknown as RenderingContext)
   const workers: TestWorker[] = []
   const events: Array<{ name: string; value: unknown }> = []
   const app = createApp({
@@ -106,6 +107,21 @@ describe('AssetLibrary', () => {
     await vi.waitFor(() => {
       expect(host.querySelector('[data-asset-id="asset_a"] [role="status"]')?.textContent).toContain('缩略图不可用')
     })
+    app.unmount()
+  })
+
+  /**
+   * A renderer that cannot start at all means the same thing to the reader as a per-node issue, so it
+   * reuses that message. Before the `error` event existed this failure was invisible here and arrived
+   * as an unhandled rejection instead.
+   */
+  it('shows the thumbnail failure when the renderer cannot render at all', async () => {
+    const { app, host, workers } = mountLibrary({ assets: { asset_a: assets.asset_a } }, false)
+
+    await vi.waitFor(() => {
+      expect(host.querySelector('[data-asset-id="asset_a"] [role="status"]')?.textContent).toContain('缩略图不可用')
+    })
+    expect(workers[0]?.posts ?? []).toEqual([])
     app.unmount()
   })
 
