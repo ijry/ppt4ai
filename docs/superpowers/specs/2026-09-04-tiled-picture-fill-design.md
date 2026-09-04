@@ -1,6 +1,6 @@
 # 平铺图片填充与 blip 效果设计
 
-> 状态：设计
+> 状态：已实现（2026-09-04，`0dfb656`）
 > 日期：2026-09-04
 
 ## 1. 目标
@@ -38,7 +38,7 @@ export interface PictureTile {
 }
 ```
 
-`createPattern(image, 'repeat')` 加 `pattern.setTransform(...)` 正好表达「缩放 + 位移」的瓦片网格：源图原始尺寸按 96 dpi 换算成 EMU（`px × 9525`），再乘页面映射，因此 `sx`/`sy`/`tx`/`ty` 与 `algn` 都是**算得出的**，不发明数值。
+`createPattern(image, 'repeat')` 加 `pattern.setTransform(...)`（传 `DOMMatrix2DInit` 纯对象，绘制层因此不依赖 DOM） 正好表达「缩放 + 位移」的瓦片网格：源图原始尺寸按 96 dpi 换算成 EMU（`px × 9525`），再乘页面映射，因此 `sx`/`sy`/`tx`/`ty` 与 `algn` 都是**算得出的**，不发明数值。
 
 **`@flip` 只保存不绘制**：`flip="x"` 要求相邻瓦片交替镜像，一个 `repeat` pattern 表达不了 —— 要先把 2×2 的镜像组合画到离屏画布再拿去平铺。那是独立一刀，代价写进限制。
 
