@@ -1,6 +1,6 @@
-import { EditorEngine, type EngineState, type ImageFlipAxis, type SnapOptions } from '@ppt4ai/engine'
+import { EditorEngine, type EngineCommand, type EngineState, type ImageFlipAxis, type SnapOptions } from '@ppt4ai/engine'
 import { createImageAssetController, ImageAssetControllerError } from '@ppt4ai/editor'
-import type { AssetAdapter, AssetMetadata, Color, Element, ImageElement, Ppt4aiDocument, Rect, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Color, Element, Fill, ImageElement, Ppt4aiDocument, Rect, StrokeStyle, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
 export interface PlaygroundAssetHostSnapshot {
@@ -33,6 +33,10 @@ export interface PlaygroundAssetHost {
   toggleSelectedElementFlip(elementId: string, axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   flipSelection(axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
+  setSelectedFill(fill: Fill | null): PlaygroundAssetHostSnapshot
+  setSelectedStroke(stroke: Fill | null): PlaygroundAssetHostSnapshot
+  setSelectedStrokeWidth(width: number | null): PlaygroundAssetHostSnapshot
+  setSelectedStrokeStyle(style: StrokeStyle | null): PlaygroundAssetHostSnapshot
   setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): PlaygroundAssetHostSnapshot
   setThemeFont(themeId: string, slot: ThemeFontSlot, script: ThemeFontScript, typeface: string | null): PlaygroundAssetHostSnapshot
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
@@ -146,6 +150,27 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
     status = { kind: 'error', message }
     return snapshot()
   }
+  /**
+   * The paint commands are element-scoped, so the toolbar only acts on a single shape or text
+   * element. A multi-selection or any other kind reports `paint-target-required` rather than
+   * silently editing whichever element happens to be first.
+   */
+  const paintSelection = (
+    command: (elementId: string) => EngineCommand,
+    label: string,
+  ): PlaygroundAssetHostSnapshot => {
+    const state = engine.getState()
+    const selected = state.selection.length === 1 ? state.document.elements[state.selection[0]!] : undefined
+    if (selected?.kind !== 'shape' && selected?.kind !== 'text') return fail('paint-target-required')
+    try {
+      engine.dispatch(command(selected.id))
+      status = { kind: 'success', message: `${label}-updated` }
+    } catch {
+      return fail(`${label}-failed`)
+    }
+    return snapshot()
+  }
+
   const selectElements = (elementIds: string[]): PlaygroundAssetHostSnapshot => {
     const validElementIds = elementIds.filter((elementId, index) => (
       elementIds.indexOf(elementId) === index && Boolean(engine.getState().document.elements[elementId])
@@ -315,6 +340,18 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
         return fail('element-operation-failed')
       }
       return snapshot()
+    },
+    setSelectedFill(fill) {
+      return paintSelection((elementId) => ({ type: 'setElementFill', elementId, fill }), 'fill')
+    },
+    setSelectedStroke(stroke) {
+      return paintSelection((elementId) => ({ type: 'setElementStroke', elementId, stroke }), 'stroke')
+    },
+    setSelectedStrokeWidth(width) {
+      return paintSelection((elementId) => ({ type: 'setElementStrokeWidth', elementId, width }), 'stroke-width')
+    },
+    setSelectedStrokeStyle(style) {
+      return paintSelection((elementId) => ({ type: 'setElementStrokeStyle', elementId, style }), 'stroke-style')
     },
     setThemeColor(themeId, slot, color) {
       if (!engine.getState().document.themes?.[themeId]) return fail('theme-missing')

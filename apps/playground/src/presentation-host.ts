@@ -1,6 +1,6 @@
 import type { EngineState, ImageFlipAxis, SnapOptions } from '@ppt4ai/engine'
 import { documentToSceneGraph, type SceneGraph } from '@ppt4ai/render'
-import type { AssetAdapter, AssetMetadata, Color, Element, Ppt4aiDocument, Rect, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Color, Element, Fill, Ppt4aiDocument, Rect, StrokeStyle, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import { createPlaygroundAssetHost, type PlaygroundAssetHost, type PlaygroundAssetHostSnapshot } from './asset-host'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
@@ -55,6 +55,10 @@ export interface PlaygroundPresentationHost {
   toggleSelectedElementFlip(elementId: string, axis: ImageFlipAxis): PlaygroundPresentationSnapshot
   flipSelection(axis: ImageFlipAxis): PlaygroundPresentationSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundPresentationSnapshot
+  setSelectedFill(fill: Fill | null): PlaygroundPresentationSnapshot
+  setSelectedStroke(stroke: Fill | null): PlaygroundPresentationSnapshot
+  setSelectedStrokeWidth(width: number | null): PlaygroundPresentationSnapshot
+  setSelectedStrokeStyle(style: StrokeStyle | null): PlaygroundPresentationSnapshot
   setThemeColor(slot: ThemeColorSlot, color: Color | null): PlaygroundPresentationSnapshot
   setThemeFont(slot: ThemeFontSlot, script: ThemeFontScript, typeface: string | null): PlaygroundPresentationSnapshot
   selectAsset(assetId: string): PlaygroundPresentationSnapshot
@@ -479,6 +483,18 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     },
     updateTextElement(elementId, body) {
       return forward((host) => host.updateTextElement(elementId, body))
+    },
+    setSelectedFill(fill) {
+      return forward((host) => host.setSelectedFill(fill))
+    },
+    setSelectedStroke(stroke) {
+      return forward((host) => host.setSelectedStroke(stroke))
+    },
+    setSelectedStrokeWidth(width) {
+      return forward((host) => host.setSelectedStrokeWidth(width))
+    },
+    setSelectedStrokeStyle(style) {
+      return forward((host) => host.setSelectedStrokeStyle(style))
     },
     setThemeColor(slot, color) {
       return forward((host) => host.setThemeColor(activeThemeId(host) ?? '', slot, color))
