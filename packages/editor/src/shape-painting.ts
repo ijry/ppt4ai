@@ -299,7 +299,7 @@ function tileMatrix(tile: NonNullable<ScenePictureFill['tile']>, bounds: Rect, i
   }
 }
 
-function paintPictureFill(
+export function paintPictureFill(
   context: ShapeContext,
   path: readonly PathCommand[],
   mapping: ShapePageMapping,

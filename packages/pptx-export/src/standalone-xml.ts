@@ -378,7 +378,15 @@ export function serializeTableFrameXml(table: TableElement, shapeId: number): st
 }
 
 /** `p:bg` comes before `p:spTree` inside `p:cSld`, and `p:bgPr` needs an effect list to be valid. */
-function serializeBackgroundXml(background: SlideBackground | undefined): string {
+function serializeBackgroundXml(background: SlideBackground | undefined, pictureRelationshipId?: string): string {
+  if (background?.pictureFill && pictureRelationshipId) {
+    const fill = background.pictureFill
+    const effects = serializeBlipEffectsXml(fill.effects)
+    const blip = effects
+      ? `<a:blip r:embed="${escapeXml(pictureRelationshipId)}">${effects}</a:blip>`
+      : `<a:blip r:embed="${escapeXml(pictureRelationshipId)}"/>`
+    return `<p:bg><p:bgPr><a:blipFill>${blip}${serializeCrop(fill.sourceCrop)}${serializeFillModeXml(fill)}</a:blipFill><a:effectLst/></p:bgPr></p:bg>`
+  }
   if (background?.fill) return `<p:bg><p:bgPr>${serializeFillXml(background.fill)}<a:effectLst/></p:bgPr></p:bg>`
   if (background?.styleRef) {
     const color = background.styleRef.color
@@ -387,8 +395,8 @@ function serializeBackgroundXml(background: SlideBackground | undefined): string
   return ''
 }
 
-export function serializeSlideXml(elements: string[], background?: SlideBackground): string {
-  return `${xmlHeader}<p:sld xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}"><p:cSld>${serializeBackgroundXml(background)}<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${elements.join('')}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`
+export function serializeSlideXml(elements: string[], background?: SlideBackground, backgroundRelationshipId?: string): string {
+  return `${xmlHeader}<p:sld xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}"><p:cSld>${serializeBackgroundXml(background, backgroundRelationshipId)}<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>${elements.join('')}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`
 }
 
 export function serializeEmptySlideXml(): string {

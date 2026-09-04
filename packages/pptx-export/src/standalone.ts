@@ -68,6 +68,20 @@ function assetReference(element: Element): string | undefined {
   return undefined
 }
 
+/** A slide's own photo background needs materializing too, and shares media with any element using it. */
+function slideAssetReferences(document: Ppt4aiDocument, slideId: string): string[] {
+  const slide = document.slides[slideId]
+  if (!slide) throw new Error(`PPTX generation slide missing: ${slideId}`)
+  const background = slide.background?.pictureFill?.assetId
+  return [
+    ...(background ? [background] : []),
+    ...slide.elementIds.flatMap((elementId) => {
+      const assetId = assetReference(elementFor(document, slideId, elementId))
+      return assetId ? [assetId] : []
+    }),
+  ]
+}
+
 async function materializeAssets(document: Ppt4aiDocument, options: CreatePptxOptions): Promise<{ assets: Map<string, MaterializedAsset>; extensions: Set<string> }> {
   const assets = new Map<string, MaterializedAsset>()
   const extensions = new Set<string>()
@@ -75,10 +89,7 @@ async function materializeAssets(document: Ppt4aiDocument, options: CreatePptxOp
   for (const slideId of document.slideOrder) {
     const slide = document.slides[slideId]
     if (!slide) throw new Error(`PPTX generation slide missing: ${slideId}`)
-    for (const elementId of slide.elementIds) {
-      const element = elementFor(document, slideId, elementId)
-      const assetId = assetReference(element)
-      if (assetId === undefined) continue
+    for (const assetId of slideAssetReferences(document, slideId)) {
       if (assets.has(assetId)) continue
       const metadata = document.assets?.[assetId]
       if (!metadata) throw new Error(`PPTX generation asset metadata missing: ${assetId}`)
@@ -142,8 +153,13 @@ function serializeSlideElements(document: Ppt4aiDocument, slideId: string, asset
     }
     nextShapeId += 1
   }
+  const backgroundAsset = slide.background?.pictureFill?.assetId
   return {
-    xml: serializeSlideXml(serializedElements, document.slides[slideId]?.background),
+    xml: serializeSlideXml(
+      serializedElements,
+      slide.background,
+      backgroundAsset ? relationshipFor(backgroundAsset) : undefined,
+    ),
     relationships: serializeSlideRelationshipsXml(imageRelationships),
   }
 }

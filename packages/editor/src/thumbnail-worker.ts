@@ -3,7 +3,7 @@ import { gradientAxis } from '@ppt4ai/geometry'
 import type { SceneGraph, SceneImageNode, SceneShapeNode, SceneTableNode, SceneTextNode } from '@ppt4ai/render'
 import { decodeBrowserImage } from './browser-image-decoder'
 import { paintImageNode } from './image-painting'
-import { paintShapeNode, type ShapePageMapping } from './shape-painting'
+import { paintPictureFill, paintShapeNode, type ShapePageMapping } from './shape-painting'
 import { paintTableNode } from './table-painting'
 import { paintTextNode } from './text-painting'
 import type { DecodedImage, ImageDecoder, ImageLoadRequest } from './image-canvas-renderer'
@@ -182,7 +182,34 @@ export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): 
       const drawnNodeIds: string[] = []
       const skippedNodeIds: string[] = []
       const issues: ThumbnailRenderResponse['result']['issues'] = []
-      // Same order the canvas renderer uses: the page fill goes down before any node.
+      // Same order the canvas renderer uses: the photo background first, then the page fill, then nodes.
+      const backgroundPicture = request.scene.backgroundPicture
+      if (backgroundPicture) {
+        try {
+          const image = await loadAsset(request, {
+            id: request.scene.slideId,
+            assetId: backgroundPicture.assetId,
+            ...(backgroundPicture.metadata ? { metadata: backgroundPicture.metadata } : {}),
+          })
+          if (isCancelled(request.requestId)) return
+          const page = { x: 0, y: 0, w: request.scene.page.w, h: request.scene.page.h }
+          paintPictureFill(context, [
+            { type: 'move', x: 0, y: 0 },
+            { type: 'line', x: page.w, y: 0 },
+            { type: 'line', x: page.w, y: page.h },
+            { type: 'line', x: 0, y: page.h },
+            { type: 'close' },
+          ], mapping, mapBounds(page, mapping), backgroundPicture, image)
+        } catch (error) {
+          if (isCancelled(request.requestId)) return
+          const code = (error as { thumbnailCode?: string }).thumbnailCode
+          issues.push({
+            nodeId: request.scene.slideId,
+            code: code === 'missing-asset' || code === 'resource-failed' ? code : 'decode-failed',
+            message: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
       const background = request.scene.background
       if (background) {
         const bgBounds = { x: mapping.offsetX, y: mapping.offsetY, w: request.scene.page.w * mapping.scale, h: request.scene.page.h * mapping.scale }

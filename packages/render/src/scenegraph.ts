@@ -15,6 +15,8 @@ export interface SceneGraph {
   background?: ResolvedColor
   /** Present only for a linear gradient background; `background` stays set as the flat fallback. */
   backgroundGradient?: ResolvedGradient
+  /** A photo background (`p:bg/a:blipFill`); painting draws it across the page before any node. */
+  backgroundPicture?: ScenePictureFill
 }
 
 export interface SceneGroup {
@@ -677,6 +679,10 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
   const background = resolveSlideBackground(slide, layout, master, theme, context.colorMap)
   const backgroundFill = slide.background?.fill ?? layout?.background?.fill ?? master?.background?.fill
   const backgroundGradient = backgroundFill?.gradient ? resolvedFillGradient(backgroundFill, context) : undefined
+  // The whole `p:bg` replaces its inherited counterpart in OOXML, so the picture comes from the first
+  // background in the chain that declares one — the same order `resolveSlideBackground` walks.
+  const declared = slide.background ?? layout?.background ?? master?.background
+  const backgroundPicture = scenePictureFill({ ...(declared?.pictureFill ? { pictureFill: declared.pictureFill } : {}) }, value.assets)
 
   return {
     slideId,
@@ -684,6 +690,7 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
     nodes,
     ...(background ? { background } : {}),
     ...(backgroundGradient ? { backgroundGradient } : {}),
+    ...(backgroundPicture ? { backgroundPicture } : {}),
     ...(groups.length > 0 ? { groups } : {}),
   }
 }

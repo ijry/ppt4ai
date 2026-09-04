@@ -1,7 +1,8 @@
 import type { AssetAdapter, Rect, ResolvedColor, ResolvedGradient } from '@ppt4ai/model'
 import { gradientAxis } from '@ppt4ai/geometry'
+import type { PathCommand } from '@ppt4ai/geometry'
 import type { SceneGraph, SceneImageNode, SceneNode } from '@ppt4ai/render'
-import { paintShapeNode } from './shape-painting'
+import { paintPictureFill, paintShapeNode } from './shape-painting'
 import { paintTableNode } from './table-painting'
 import { paintTextNode } from './text-painting'
 import { createImageNodeLoader, type DecodedImage, type ImageDecoder, type ImageLoadOutcome } from './image-canvas-renderer'
@@ -93,6 +94,25 @@ function createBackgroundGradient(
 }
 
 
+/** The page box as a path, so the shared picture painter can fill it exactly as it fills a shape. */
+function paintPageBackgroundPicture(
+  context: CanvasRenderingContext2D,
+  scene: SceneGraph,
+  scale: number,
+  fill: NonNullable<SceneGraph['backgroundPicture']>,
+  image: DecodedImage,
+): void {
+  const bounds = { x: 0, y: 0, w: scene.page.w, h: scene.page.h }
+  const path: PathCommand[] = [
+    { type: 'move', x: 0, y: 0 },
+    { type: 'line', x: bounds.w, y: 0 },
+    { type: 'line', x: bounds.w, y: bounds.h },
+    { type: 'line', x: 0, y: bounds.h },
+    { type: 'close' },
+  ]
+  paintPictureFill(context, path, { scale, offsetX: 0, offsetY: 0 }, mapBounds(bounds, scale), fill, image)
+}
+
 export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; decoder?: ImageDecoder }): SlideCanvasRenderer {
   const imageLoader = createImageNodeLoader(options)
   let disposed = false
@@ -119,6 +139,20 @@ export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; deco
       context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
 
       const scale = EMU_TO_CSS_PIXEL * zoom
+      // A photo background goes down before the colour it may sit on: `p:bg` replaces the whole
+      // background, so the picture is the background rather than something layered over one.
+      if (scene.backgroundPicture) {
+        const outcome = await imageLoader.load({
+          id: scene.slideId,
+          assetId: scene.backgroundPicture.assetId,
+          ...(scene.backgroundPicture.metadata ? { metadata: scene.backgroundPicture.metadata } : {}),
+        })
+        if (outcome.status === 'failed') {
+          result.issues.push({ nodeId: scene.slideId, kind: 'shape', code: outcome.code, message: outcome.message })
+        } else {
+          paintPageBackgroundPicture(context, scene, scale, scene.backgroundPicture, outcome.image)
+        }
+      }
       // The page fill goes down first, in the same space the node painters draw in.
       if (scene.background) {
         const mappedBounds = { x: 0, y: 0, w: scene.page.w * scale, h: scene.page.h * scale }

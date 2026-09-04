@@ -48,6 +48,8 @@ interface ScannedSlide {
   elements: ScannedElement[]
   invalidPictures: Array<{ expectedId: string; error: Error }>
   nextElementNumber: number
+  /** The asset the source's own `p:bg/a:blipFill` resolves to, so a photo background compares equal. */
+  backgroundAssetId?: string
 }
 
 interface SourceSlide {
@@ -603,10 +605,29 @@ function groupHasBounds(element: XmlElement): boolean {
     && numericAttribute(extent, 'cx') && numericAttribute(extent, 'cy')
 }
 
+function sourceBackgroundAssetId(roots: XmlElement[], slidePath: string, relationships: SlideRelationship[]): string | undefined {
+  const common = descendants(roots, 'cSld')[0]
+  const bg = common?.children.find((child) => child.localName === 'bg')
+  const properties = bg?.children.find((child) => child.localName === 'bgPr')
+  const fill = properties?.children.find((child) => child.localName === 'blipFill')
+  const blip = fill?.children.find((child) => child.localName === 'blip')
+  const relationshipId = blip?.attributes['r:embed'] ?? blip?.attributes.embed
+  const relationship = relationships.find((value) => value.id === relationshipId && value.type === 'image')
+  return relationship ? stableAssetId(resolveTarget(slidePath, relationship.target)) : undefined
+}
+
 function slideElements(xml: string, slideId: string, slidePath: string, relationships: SlideRelationship[], entries: Map<string, ZipEntry>, elementNumberStart: number): ScannedSlide {
   const roots = scanXml(xml)
+  const backgroundAssetId = sourceBackgroundAssetId(roots, slidePath, relationships)
   const tree = descendants(roots, 'spTree')[0]
-  if (!tree) return { elements: [], invalidPictures: [], nextElementNumber: elementNumberStart }
+  if (!tree) {
+    return {
+      elements: [],
+      invalidPictures: [],
+      nextElementNumber: elementNumberStart,
+      ...(backgroundAssetId ? { backgroundAssetId } : {}),
+    }
+  }
   const result: ScannedElement[] = []
   const invalidPictures: Array<{ expectedId: string; error: Error }> = []
   let elementNumber = elementNumberStart
@@ -642,7 +663,12 @@ function slideElements(xml: string, slideId: string, slidePath: string, relation
     }
   }
   visit(tree.children)
-  return { elements: result, invalidPictures, nextElementNumber: elementNumber }
+  return {
+    elements: result,
+    invalidPictures,
+    nextElementNumber: elementNumber,
+    ...(backgroundAssetId ? { backgroundAssetId } : {}),
+  }
 }
 
 function sourcePackage(entries: Map<string, ZipEntry>): SourcePackage {
@@ -971,10 +997,13 @@ function rewriteContentTypes(
 }
 
 /** Mirrors the importer's `parseBackground`, so an untouched background compares equal. */
-function sourceBackground(bg: XmlElement | undefined): SlideBackground | undefined {
+function sourceBackground(bg: XmlElement | undefined, backgroundAssetId?: string): SlideBackground | undefined {
   if (!bg) return undefined
   const properties = bg.children.find((child) => child.localName === 'bgPr')
   const fillNode = properties?.children.find((child) => fillNodeNames.has(child.localName))
+  // A photo background reads as its resolved asset, so an untouched one compares equal instead of
+  // looking like "no background" and getting the whole node rewritten.
+  if (fillNode?.localName === 'blipFill' && backgroundAssetId) return { pictureFill: { assetId: backgroundAssetId } }
   const fill = sourceFill(fillNode)
   if (fill) return { fill }
   const reference = bg.children.find((child) => child.localName === 'bgRef')
@@ -986,6 +1015,7 @@ function sourceBackground(bg: XmlElement | undefined): SlideBackground | undefin
 
 function backgroundsEqual(left: SlideBackground | undefined, right: SlideBackground | undefined): boolean {
   if (!left || !right) return left === right
+  if ((left.pictureFill?.assetId ?? undefined) !== (right.pictureFill?.assetId ?? undefined)) return false
   if (!fillsEqual(left.fill, right.fill)) return false
   const leftRef = left.styleRef
   const rightRef = right.styleRef
@@ -1008,13 +1038,16 @@ function serializeBackgroundNode(prefix: string, background: SlideBackground): s
  * way round) replaces the whole node, and clearing the background deletes it — which is exactly what
  * "inherit from the layout" means in OOXML.
  */
-function backgroundReplacements(xml: string, background: SlideBackground | undefined): Replacement[] {
+function backgroundReplacements(xml: string, background: SlideBackground | undefined, backgroundAssetId?: string): Replacement[] {
   const roots = scanXml(xml)
   const common = descendants(roots, 'cSld')[0]
   if (!common) return []
   const bg = common.children.find((child) => child.localName === 'bg')
-  const existing = sourceBackground(bg)
+  const existing = sourceBackground(bg, backgroundAssetId)
   if (backgroundsEqual(existing, background)) return []
+  // A picture background cannot be introduced here: it needs a media part and a relationship, and no
+  // command can ask for one. Leaving the source alone is the only choice that does not corrupt it.
+  if (background?.pictureFill) return []
   if (!background) return bg ? [{ start: bg.start, end: bg.end, value: '' }] : []
   const properties = bg?.children.find((child) => child.localName === 'bgPr')
   const fillNode = properties?.children.find((child) => fillNodeNames.has(child.localName))
@@ -1037,7 +1070,7 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
   const sourceElements = scanned.elements
   if (slide.elementIds.length < sourceElements.length) throw new Error(`PPTX export element count mismatch for slide ${slideId}`)
 
-  const replacements: Replacement[] = [...imageReplacements, ...backgroundReplacements(xml, slide.background)]
+  const replacements: Replacement[] = [...imageReplacements, ...backgroundReplacements(xml, slide.background, scanned.backgroundAssetId)]
   for (let index = 0; index < sourceElements.length; index += 1) {
     const source = sourceElements[index]
     const elementId = slide.elementIds[index]

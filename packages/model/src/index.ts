@@ -187,6 +187,8 @@ export const DEFAULT_THEME_STYLE_FILL: Fill = { color: { type: 'scheme', v: 'phC
 export interface SlideBackground {
   fill?: Fill
   styleRef?: StyleReference
+  /** `p:bgPr/a:blipFill` — a photo background. Outside `Fill` for the reason `PictureFill` explains. */
+  pictureFill?: PictureFill
 }
 
 export interface Theme {
@@ -1382,7 +1384,7 @@ function validateShapeStyleReference(value: unknown, path: string, errors: strin
   if (font.color !== undefined) validateColor(font.color, `${path}.font.color`, errors)
 }
 
-function validateSlideBackground(value: unknown, path: string, errors: string[]): void {
+function validateSlideBackground(value: unknown, path: string, errors: string[], assets?: Ppt4aiDocument['assets']): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     errors.push(`${path} must be an object`)
     return
@@ -1390,6 +1392,7 @@ function validateSlideBackground(value: unknown, path: string, errors: string[])
   const background = value as Record<string, unknown>
   if (background.fill !== undefined) validateFill(background.fill, `${path}.fill`, errors)
   if (background.styleRef !== undefined) validateStyleReference(background.styleRef, `${path}.styleRef`, errors)
+  if (background.pictureFill !== undefined) validatePictureFill(background.pictureFill as PictureFill, `${path}.pictureFill`, assets, errors)
 }
 
 function validateColorMap(value: unknown, path: string, errors: string[]): void {
@@ -1484,6 +1487,25 @@ function validateCustomGeometry(value: CustomGeometry, path: string, errors: str
       }
     })
   })
+}
+
+/** Shared by shapes, text and slide backgrounds: one asset reference, one crop, one tile, one effect list. */
+function validatePictureFill(
+  value: PictureFill,
+  path: string,
+  assets: Ppt4aiDocument['assets'],
+  errors: string[],
+): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const assetId = value.assetId
+  if (typeof assetId !== 'string' || assetId.length === 0) errors.push(`${path}.assetId must be a non-empty string`)
+  else if (!assets?.[assetId]) errors.push(`${path} references missing asset: ${assetId}`)
+  if (value.sourceCrop !== undefined) validateImageCrop(value.sourceCrop, `${path}.sourceCrop`, errors)
+  if (value.tile !== undefined) validatePictureTile(value.tile, `${path}.tile`, errors)
+  if (value.effects !== undefined) validateImageEffects(value.effects, `${path}.effects`, errors)
 }
 
 /** `a:srcRect` sides, shared by `ImageElement.sourceCrop` and `PictureFill.sourceCrop`. */
@@ -2000,7 +2022,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
 
   for (const [slideId, slide] of Object.entries(value.slides)) {
     if (slide.colorMapOverride !== undefined) validateColorMap(slide.colorMapOverride, `slides.${slideId}.colorMapOverride`, errors)
-    if (slide.background !== undefined) validateSlideBackground(slide.background, `slides.${slideId}.background`, errors)
+    if (slide.background !== undefined) validateSlideBackground(slide.background, `slides.${slideId}.background`, errors, value.assets)
   }
 
   for (const [elementId, element] of Object.entries(value.elements)) {
@@ -2066,19 +2088,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       // Same rule an image's `assetId` gets: a reference the asset map cannot answer paints nothing,
       // and finding that out at paint time would only surface as a silently empty shape.
       if (element.pictureFill !== undefined) {
-        const picturePath = `elements.${elementId}.pictureFill`
-        if (!element.pictureFill || typeof element.pictureFill !== 'object' || Array.isArray(element.pictureFill)) {
-          errors.push(`${picturePath} must be an object`)
-        } else {
-          const assetId = element.pictureFill.assetId
-          if (typeof assetId !== 'string' || assetId.length === 0) errors.push(`${picturePath}.assetId must be a non-empty string`)
-          else if (!value.assets?.[assetId]) errors.push(`${picturePath} references missing asset: ${assetId}`)
-          if (element.pictureFill.sourceCrop !== undefined) {
-            validateImageCrop(element.pictureFill.sourceCrop, `${picturePath}.sourceCrop`, errors)
-          }
-          if (element.pictureFill.tile !== undefined) validatePictureTile(element.pictureFill.tile, `${picturePath}.tile`, errors)
-          if (element.pictureFill.effects !== undefined) validateImageEffects(element.pictureFill.effects, `${picturePath}.effects`, errors)
-        }
+        validatePictureFill(element.pictureFill, `elements.${elementId}.pictureFill`, value.assets, errors)
       }
     }
   }

@@ -1054,6 +1054,48 @@ function parseCustomGeometry(shape: XmlNode): CustomGeometry | undefined {
   return paths.length > 0 ? { paths } : undefined
 }
 
+/**
+ * `p:bg/p:bgPr/a:blipFill` — a photo background. Shares the shape path's media resolution, so the same
+ * media part used by a picture, a shape fill and a background registers one asset. Only slides are read:
+ * a layout or master background would need that part's own relationships, which this loop does not have.
+ */
+function parseBackgroundPictureFill(
+  container: XmlNode | undefined,
+  slidePath: string,
+  slideRelations: Relationship[],
+  entries: Record<string, Uint8Array>,
+  reportUnsupportedMedia?: (partPath: string) => void,
+): { pictureFill: PictureFill; metadata: AssetMetadata; bytes: Uint8Array } | undefined {
+  const background = container && child(container, 'bg')
+  const properties = background && child(background, 'bgPr')
+  const fill = properties && child(properties, 'blipFill')
+  if (!fill) return undefined
+  const blip = child(fill, 'blip')
+  const relationshipId = blip && attribute(blip, 'embed')
+  const mediaPath = relationshipTarget(slidePath, slideRelations, relationshipId, 'image')
+  const bytes = mediaPath && entries[mediaPath]
+  if (!mediaPath || !bytes) return undefined
+  const assetId = stableAssetId(mediaPath)
+  const metadata = parseBitmapMetadata(mediaPath, bytes, assetId)
+  if (!metadata) {
+    reportUnsupportedMedia?.(mediaPath)
+    return undefined
+  }
+  const sourceCrop = parseImageCrop(fill)
+  const tile = parsePictureTile(fill)
+  const effects = parseImageEffects(fill)
+  return {
+    pictureFill: {
+      assetId,
+      ...(sourceCrop ? { sourceCrop } : {}),
+      ...(tile ? { tile } : {}),
+      ...(effects ? { effects } : {}),
+    },
+    metadata,
+    bytes,
+  }
+}
+
 function parsePreset(shape: XmlNode): PresetGeometry {
   const geometry = findDescendants(shape, 'prstGeom')[0]
   const preset = geometry && attribute(geometry, 'prst')?.trim()
@@ -1647,7 +1689,23 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
           presentationId: reference.attributes.id,
         }
       : undefined
-    const slideBackground = parseBackground(findDescendants(slidePart.xml, 'cSld')[0])
+    const common = findDescendants(slidePart.xml, 'cSld')[0]
+    let slideBackground = parseBackground(common)
+    const backgroundPicture = parseBackgroundPictureFill(common, slidePath, slideRelations, entries, (partPath) => {
+      options.onIssue?.({
+        code: 'unsupported-media',
+        slideId,
+        partPath,
+        message: `slide background skipped because ${partPath} is not a supported bitmap format`,
+      })
+    })
+    if (backgroundPicture) {
+      slideBackground = { ...(slideBackground ?? {}), pictureFill: backgroundPicture.pictureFill }
+      if (!assets[backgroundPicture.metadata.id]) {
+        assets[backgroundPicture.metadata.id] = backgroundPicture.metadata
+        await options.assetAdapter?.put(backgroundPicture.metadata.id, new Uint8Array(backgroundPicture.bytes), backgroundPicture.metadata)
+      }
+    }
     slides[slideId] = { id: slideId, elementIds, ...(slideBackground ? { background: slideBackground } : {}), ...(layoutId ? { layoutId } : {}), ...(masterId ? { masterId } : {}), ...(colorMapOverride ? { colorMapOverride } : {}), ...(source ? { source } : {}) }
     slideOrder.push(slideId)
   }
