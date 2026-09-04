@@ -1,6 +1,6 @@
 # 下划线词逐字保存设计
 
-> 状态：设计
+> 状态：已实现（2026-09-04，`f32e789`）
 > 日期：2026-09-04
 
 ## 1. 目标
@@ -44,7 +44,7 @@ none    model="none"    standalone=none  after-text-edit=none
 
 **决策 3：工具栏的开关按「不是 none」判断**
 
-`toggleTextMark` 与状态读取今天问的是 `underline === 'single'`，于是一段 `dbl` 文字在工具栏里显示为**未加下划线** —— 与 `<select>` 把 `lgDashDot` 报成 Solid 是同一个谎。改为「不是 `none` 也不是缺席就是开」；点开仍然写 `single`（工具栏只提供这一种），点关写 `none`。
+`toggleTextMark` 与状态读取今天问的是 `underline === 'single'`，于是一段 `dbl` 文字在工具栏里显示为**未加下划线** —— 与 `<select>` 把 `lgDashDot` 报成 Solid 是同一个谎。改为「不是 `none` 也不是缺席就是开」；点开写 OOXML 的 `sng`（工具栏只提供这一种）—— 模型的词汇表就是文件的词汇表，写内部词会序列化出没有阅读器认识的 `u="single"`，点关写 `none`。
 
 **决策 4：校验只查词形**
 
