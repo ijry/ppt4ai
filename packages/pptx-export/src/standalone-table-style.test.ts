@@ -118,4 +118,21 @@ describe('standalone table style export', () => {
 
     expect(slide).toContain('<a:tblPr tableStyleId="style-1" firstRow="1" bandRow="1">')
   })
+
+  it('writes the interior lines after the four outer ones and reads them back', async () => {
+    const style = fullStyle()
+    style.regions!.wholeTable!.borders!.insideH = { color: { type: 'srgb', v: 'AAAAAA' }, width: 6350, style: 'solid' }
+    style.regions!.wholeTable!.borders!.insideV = { color: { type: 'srgb', v: 'BBBBBB' }, width: 6350, style: 'dash' }
+    const bytes = await createPptx(styledDocument({ 'style-1': style }))
+    const parts = await partsOf(bytes)
+
+    expect(parts.get('ppt/tableStyles.xml')).toContain('<a:bottom><a:ln w="50800"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill></a:ln></a:bottom>'
+      + '<a:insideH><a:ln w="6350"><a:solidFill><a:srgbClr val="AAAAAA"/></a:solidFill></a:ln></a:insideH>'
+      + '<a:insideV><a:ln w="6350"><a:solidFill><a:srgbClr val="BBBBBB"/></a:solidFill><a:prstDash val="dash"/></a:ln></a:insideV></a:tcBdr>')
+
+    const imported = await importPptx(bytes)
+
+    expect(imported.tableStyles?.['style-1']?.regions?.wholeTable?.borders?.insideH).toEqual({ color: { type: 'srgb', v: 'AAAAAA' }, width: 6350, style: 'solid' })
+    expect(imported.tableStyles?.['style-1']?.regions?.wholeTable?.borders?.insideV).toEqual({ color: { type: 'srgb', v: 'BBBBBB' }, width: 6350, style: 'dash' })
+  })
 })

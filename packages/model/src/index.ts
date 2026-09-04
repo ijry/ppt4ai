@@ -526,9 +526,21 @@ export type TableStyleRegionName =
   | 'firstCol'
   | 'lastCol'
 
+/**
+ * A style region's borders. `insideH`/`insideV` describe the lines *between* the region's cells, which
+ * a cell of its own has no notion of — hence a type separate from `TableCellBorders` rather than two
+ * more optional fields a cell could claim.
+ */
+export interface TableStyleBorders extends TableCellBorders {
+  /** `a:insideH`: the interior horizontal line, landing on a cell's top unless it is in the first row. */
+  insideH?: TableBorder
+  /** `a:insideV`: the interior vertical line, landing on a cell's left unless it is in the first column. */
+  insideV?: TableBorder
+}
+
 export interface TableStyleRegion {
   fill?: Fill
-  borders?: TableCellBorders
+  borders?: TableStyleBorders
   text?: TableStyleText
 }
 
@@ -1165,7 +1177,39 @@ export function resolveTextBodyDefaults(element: Element, layout?: SlideLayout, 
   }
 }
 
-function mergeTableStyleRegion(target: ResolvedTableCellStyle, region: TableStyleRegion | undefined): ResolvedTableCellStyle {
+/** Where a cell sits in the grid, which is what decides whether an interior line reaches its edges. */
+interface CellPosition {
+  firstRow: boolean
+  lastRow: boolean
+  firstColumn: boolean
+  lastColumn: boolean
+}
+
+/**
+ * A region's borders as the four sides this cell actually has. An interior line wins on an interior
+ * edge, because a region's `bottom` meaning "every cell's bottom" would leave `insideH` with nothing to
+ * describe. A region stating neither resolves exactly as it did before the two were modeled.
+ */
+function regionBordersForCell(borders: TableStyleBorders | undefined, position: CellPosition): TableCellBorders {
+  if (!borders) return {}
+  const sides: TableCellBorders = {
+    ...(borders.left ? { left: structuredClone(borders.left) } : {}),
+    ...(borders.right ? { right: structuredClone(borders.right) } : {}),
+    ...(borders.top ? { top: structuredClone(borders.top) } : {}),
+    ...(borders.bottom ? { bottom: structuredClone(borders.bottom) } : {}),
+  }
+  if (borders.insideH) {
+    if (!position.firstRow) sides.top = structuredClone(borders.insideH)
+    if (!position.lastRow) sides.bottom = structuredClone(borders.insideH)
+  }
+  if (borders.insideV) {
+    if (!position.firstColumn) sides.left = structuredClone(borders.insideV)
+    if (!position.lastColumn) sides.right = structuredClone(borders.insideV)
+  }
+  return sides
+}
+
+function mergeTableStyleRegion(target: ResolvedTableCellStyle, region: TableStyleRegion | undefined, position: CellPosition): ResolvedTableCellStyle {
   if (!region) return target
   const text = region.text
     ? { ...target.text, ...structuredClone(region.text) }
@@ -1175,7 +1219,7 @@ function mergeTableStyleRegion(target: ResolvedTableCellStyle, region: TableStyl
     ...(region.fill ? { fill: structuredClone(region.fill) } : {}),
     borders: {
       ...target.borders,
-      ...(region.borders ? structuredClone(region.borders) : {}),
+      ...regionBordersForCell(region.borders, position),
     },
     ...(text ? { text } : {}),
   }
@@ -1189,20 +1233,26 @@ export function resolveTableCellStyle(
   tableStyles?: Record<string, TableStyle>,
 ): ResolvedTableCellStyle {
   const style = table.style?.styleId ? tableStyles?.[table.style.styleId] : undefined
+  const position: CellPosition = {
+    firstRow: row === 0,
+    lastRow: row === table.rows.length - 1,
+    firstColumn: column === 0,
+    lastColumn: column === table.columns.length - 1,
+  }
   let resolved: ResolvedTableCellStyle = { borders: {} }
-  resolved = mergeTableStyleRegion(resolved, style?.regions?.wholeTable)
+  resolved = mergeTableStyleRegion(resolved, style?.regions?.wholeTable, position)
   if (table.style?.bandRow) {
     const bandRow = row - (table.style.firstRow ? 1 : 0)
-    if (bandRow >= 0) resolved = mergeTableStyleRegion(resolved, style?.regions?.[bandRow % 2 === 0 ? 'band1H' : 'band2H'])
+    if (bandRow >= 0) resolved = mergeTableStyleRegion(resolved, style?.regions?.[bandRow % 2 === 0 ? 'band1H' : 'band2H'], position)
   }
   if (table.style?.bandColumn) {
     const bandColumn = column - (table.style.firstColumn ? 1 : 0)
-    if (bandColumn >= 0) resolved = mergeTableStyleRegion(resolved, style?.regions?.[bandColumn % 2 === 0 ? 'band1V' : 'band2V'])
+    if (bandColumn >= 0) resolved = mergeTableStyleRegion(resolved, style?.regions?.[bandColumn % 2 === 0 ? 'band1V' : 'band2V'], position)
   }
-  if (table.style?.firstRow && row === 0) resolved = mergeTableStyleRegion(resolved, style?.regions?.firstRow)
-  if (table.style?.lastRow && row === table.rows.length - 1) resolved = mergeTableStyleRegion(resolved, style?.regions?.lastRow)
-  if (table.style?.firstColumn && column === 0) resolved = mergeTableStyleRegion(resolved, style?.regions?.firstCol)
-  if (table.style?.lastColumn && column === table.columns.length - 1) resolved = mergeTableStyleRegion(resolved, style?.regions?.lastCol)
+  if (table.style?.firstRow && row === 0) resolved = mergeTableStyleRegion(resolved, style?.regions?.firstRow, position)
+  if (table.style?.lastRow && row === table.rows.length - 1) resolved = mergeTableStyleRegion(resolved, style?.regions?.lastRow, position)
+  if (table.style?.firstColumn && column === 0) resolved = mergeTableStyleRegion(resolved, style?.regions?.firstCol, position)
+  if (table.style?.lastColumn && column === table.columns.length - 1) resolved = mergeTableStyleRegion(resolved, style?.regions?.lastCol, position)
   if (cell.fill) resolved.fill = structuredClone(cell.fill)
   if (cell.borders) resolved.borders = { ...resolved.borders, ...structuredClone(cell.borders) }
   return resolved
@@ -1731,14 +1781,17 @@ function validateFill(value: unknown, path: string, errors: string[]): void {
   if (gradient !== undefined) validateGradient(gradient, `${path}.gradient`, errors)
 }
 
-function validateTableCellBorders(value: unknown, path: string, errors: string[]): void {
+function validateTableCellBorders(value: unknown, path: string, errors: string[], sides: readonly string[] = ['left', 'right', 'top', 'bottom']): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     errors.push(`${path} must be an object`)
     return
   }
   const borders = value as Record<string, unknown>
-  for (const side of ['left', 'right', 'top', 'bottom']) if (side in borders && borders[side] !== undefined) validateTableBorder(borders[side], `${path}.${side}`, errors)
+  for (const side of sides) if (side in borders && borders[side] !== undefined) validateTableBorder(borders[side], `${path}.${side}`, errors)
 }
+
+/** A region may also state the two interior lines; a cell's own borders may not. */
+const tableStyleBorderSides = ['left', 'right', 'top', 'bottom', 'insideH', 'insideV'] as const
 
 function validateTableStyleRegion(value: unknown, path: string, errors: string[]): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -1747,7 +1800,7 @@ function validateTableStyleRegion(value: unknown, path: string, errors: string[]
   }
   const region = value as Record<string, unknown>
   if ('fill' in region && region.fill !== undefined) validateFill(region.fill, `${path}.fill`, errors)
-  if ('borders' in region && region.borders !== undefined) validateTableCellBorders(region.borders, `${path}.borders`, errors)
+  if ('borders' in region && region.borders !== undefined) validateTableCellBorders(region.borders, `${path}.borders`, errors, tableStyleBorderSides)
   if ('text' in region && region.text !== undefined) {
     if (!region.text || typeof region.text !== 'object' || Array.isArray(region.text)) errors.push(`${path}.text must be an object`)
     else {

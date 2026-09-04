@@ -69,4 +69,17 @@ describe('table style shapes', () => {
 
     expect(region?.text).toEqual({ color: { type: 'srgb', v: 'FFFFFF' }, bold: true, italic: false })
   })
+
+  /** The interior grid lines a real Office style draws with; a cell's own `a:tcPr` has no counterpart. */
+  it('reads the two interior lines', async () => {
+    const region = await regionOf('<a:tcStyle><a:tcBdr>'
+      + '<a:insideH><a:ln w="6350"><a:solidFill><a:srgbClr val="AAAAAA"/></a:solidFill></a:ln></a:insideH>'
+      + '<a:insideV><a:ln w="12700"><a:solidFill><a:srgbClr val="BBBBBB"/></a:solidFill><a:prstDash val="dash"/></a:ln></a:insideV>'
+      + '</a:tcBdr></a:tcStyle>')
+
+    expect(region?.borders).toEqual({
+      insideH: { color: { type: 'srgb', v: 'AAAAAA' }, width: 6350, style: 'solid' },
+      insideV: { color: { type: 'srgb', v: 'BBBBBB' }, width: 12700, style: 'dash' },
+    })
+  })
 })

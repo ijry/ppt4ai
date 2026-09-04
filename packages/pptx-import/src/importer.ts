@@ -1,4 +1,4 @@
-import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -555,18 +555,21 @@ function parseStyleText(node: XmlNode | undefined): TableStyleText | undefined {
  * cell vocabulary — so a real style's borders never arrived. Both are read: the ECMA shape first, the
  * flat one as the fallback that keeps older fixtures working.
  */
-function parseStyleBorders(node: XmlNode | undefined): TableCellBorders | undefined {
+function parseStyleBorders(node: XmlNode | undefined): TableStyleBorders | undefined {
   if (!node) return undefined
-  const sides: Array<[keyof TableCellBorders, string, string]> = [
+  const sides: Array<[keyof TableStyleBorders, string, string | undefined]> = [
     ['left', 'left', 'lnL'],
     ['right', 'right', 'lnR'],
     ['top', 'top', 'lnT'],
     ['bottom', 'bottom', 'lnB'],
+    // The interior lines exist only in the style vocabulary; a cell's `a:tcPr` has no counterpart.
+    ['insideH', 'insideH', undefined],
+    ['insideV', 'insideV', undefined],
   ]
-  const borders: TableCellBorders = {}
+  const borders: TableStyleBorders = {}
   for (const [side, themeable, flat] of sides) {
     const wrapper = child(node, themeable)
-    const border = parseStyleBorder(wrapper ? child(wrapper, 'ln') : child(node, flat))
+    const border = parseStyleBorder(wrapper ? child(wrapper, 'ln') : (flat ? child(node, flat) : undefined))
     if (border) borders[side] = border
   }
   return Object.keys(borders).length > 0 ? borders : undefined
