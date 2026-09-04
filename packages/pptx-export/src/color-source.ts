@@ -1,7 +1,6 @@
-import type { Color, ColorTransformType, Fill } from '@ppt4ai/model'
+import { colorTransformValueIsValid, isOoxmlToken, type Color, type Fill } from '@ppt4ai/model'
 import type { XmlElement } from './xml-range.js'
 
-const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 
 /** Mirrors the importer's `parseColor`; see the note in `text-source.ts` on why it is not shared. */
 export function sourceColor(element: XmlElement | undefined): Color | undefined {
@@ -23,11 +22,12 @@ export function sourceColor(element: XmlElement | undefined): Color | undefined 
       }
     }
     if (!color) continue
+    // Mirrors the importer, including its per-type ranges: comparing a source `satMod` against a model
+    // that dropped it is what used to make an edited colour look unchanged.
     const transforms = child.children.flatMap((transform) => {
-      if (!colorTransformTypes.has(transform.localName as ColorTransformType)) return []
       const value = Number(transform.attributes.val)
-      return Number.isInteger(value) && value >= 0 && value <= 100000
-        ? [{ type: transform.localName as ColorTransformType, value }]
+      return isOoxmlToken(transform.localName) && colorTransformValueIsValid(transform.localName, value)
+        ? [{ type: transform.localName, value }]
         : []
     })
     return transforms.length > 0 ? { ...color, transforms } : color

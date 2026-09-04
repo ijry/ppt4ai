@@ -261,7 +261,9 @@ describe('ppt4ai file model', () => {
               type: 'srgb',
               v: '336699',
               transforms: [
-                { type: 'unknown', value: 50000 },
+                // `unknown` used to be rejected as a type; any token is kept now, so the invalid case
+                // is a word that is not a token at all, plus a fixed-percentage value out of range.
+                { type: 'not a token!', value: 50000 },
                 { type: 'tint', value: -1 },
               ],
             },
@@ -284,8 +286,8 @@ describe('ppt4ai file model', () => {
       errors: [
         'tableStyles.style-1.regions.wholeTable.text.bold must be a boolean',
         'themes.theme-1.colors.invalidSlot is not a supported theme color slot',
-        'themes.theme-1.colors.accent1.transforms[0].type must be a supported color transform type',
-        'themes.theme-1.colors.accent1.transforms[1].value must be between 0 and 100000',
+        'themes.theme-1.colors.accent1.transforms[0].type must be a color transform token',
+        'themes.theme-1.colors.accent1.transforms[1].value must be an integer within its transform range',
         'masters.master_1.colorMap.accent1 must reference a supported theme color slot',
       ],
     })

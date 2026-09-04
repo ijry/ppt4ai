@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -85,7 +85,6 @@ function parseIntegerAttribute(value: string | undefined): number | undefined {
   return Number.isFinite(number) && Number.isInteger(number) ? number : undefined
 }
 
-const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 const colorMapKeys = new Set<ColorMapKey>(['bg1', 'tx1', 'bg2', 'tx2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 const themeFontScripts: readonly ThemeFontScript[] = ['latin', 'ea', 'cs']
@@ -101,13 +100,18 @@ function parseHexColor(value: string | undefined): string | undefined {
   return normalized && /^[0-9A-F]{6}$/.test(normalized) ? normalized : undefined
 }
 
+/**
+ * Every transform the colour node lists, whichever kind it is. The old seven-word whitelist dropped
+ * `satMod` and friends, and the `0..100000` range dropped them a second time — Office writes
+ * `satMod val="160000"`. Colour resolution still only computes the families it understands.
+ */
 function parseColorTransforms(node: XmlNode): ColorTransform[] | undefined {
   const transforms: ColorTransform[] = []
   for (const transformNode of node.children) {
-    const type = localName(transformNode.name) as ColorTransformType
-    if (!colorTransformTypes.has(type)) continue
-    const value = parsePercentage(attribute(transformNode, 'val'))
-    if (value !== undefined) transforms.push({ type, value })
+    const type = localName(transformNode.name)
+    if (!isOoxmlToken(type)) continue
+    const value = parseIntegerAttribute(attribute(transformNode, 'val'))
+    if (value !== undefined && colorTransformValueIsValid(type, value)) transforms.push({ type, value })
   }
   return transforms.length > 0 ? transforms : undefined
 }

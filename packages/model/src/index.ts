@@ -33,7 +33,26 @@ export interface Color {
   transforms?: ColorTransform[]
 }
 
-export type ColorTransformType = 'tint' | 'shade' | 'lumMod' | 'lumOff' | 'alpha' | 'alphaMod' | 'alphaOff'
+/**
+ * A colour transform's element name verbatim (`lumMod`, `satMod`, `comp`, …). The model keeps whatever
+ * the file lists so nothing is dropped on the way out; `applyColorTransforms` does the maths for the
+ * families it understands and carries the rest through untouched.
+ */
+export type ColorTransformType = string
+
+/** Percentages bounded 0..100000 by the schema (`ST_PositiveFixedPercentage`). */
+const FIXED_PERCENTAGE_TRANSFORMS: readonly string[] = ['tint', 'shade', 'alpha', 'alphaMod', 'alphaOff']
+
+/**
+ * The range a transform's value may take, by type. `satMod val="160000"` is Office's own value, so the
+ * `*Mod` family cannot be capped at 100000 — capping it is the second reason `satMod` used to vanish.
+ */
+export function colorTransformValueIsValid(type: string, value: number): boolean {
+  if (!Number.isInteger(value)) return false
+  if (FIXED_PERCENTAGE_TRANSFORMS.includes(type)) return value >= 0 && value <= 100000
+  if (type.endsWith('Mod')) return value >= 0
+  return true
+}
 
 export interface ColorTransform {
   type: ColorTransformType
@@ -776,6 +795,17 @@ function applyColorTransforms(rgb: [number, number, number], alpha: number, tran
       const hsl = rgbToHsl(currentRgb)
       hsl[2] = clamp((transform.type === 'lumMod' ? hsl[2] * factor : hsl[2] + factor), 0, 1)
       currentRgb = hslToRgb(hsl)
+    } else if (transform.type === 'satMod' || transform.type === 'satOff') {
+      // The direct analogue of the lum pair above, in the same HSL space and with the same clamp.
+      const hsl = rgbToHsl(currentRgb)
+      hsl[1] = clamp((transform.type === 'satMod' ? hsl[1] * factor : hsl[1] + factor), 0, 1)
+      currentRgb = hslToRgb(hsl)
+    } else if (transform.type === 'hueMod') {
+      // Only the percentage form: `hue` and `hueOff` are angles in the schema, a unit this project
+      // could not verify, so they are preserved by the model and left out of the maths.
+      const hsl = rgbToHsl(currentRgb)
+      hsl[0] = ((hsl[0] * factor) % 360 + 360) % 360
+      currentRgb = hslToRgb(hsl)
     } else if (transform.type === 'alpha') currentAlpha = clamp(transform.value)
     else if (transform.type === 'alphaMod') currentAlpha = clamp(currentAlpha * factor)
     else if (transform.type === 'alphaOff') currentAlpha = clamp(currentAlpha + transform.value)
@@ -1118,7 +1148,6 @@ const tableBorderStyles = new Set<string>([...strokeStyles, 'none'])
 const strokeCaps = new Set<StrokeCap>(['flat', 'rnd', 'sq'])
 const strokeJoins = new Set<StrokeJoin>(['round', 'bevel', 'miter'])
 const fontCollectionIndexes = new Set(['major', 'minor', 'none'])
-const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 const themeFontSlots = new Set<ThemeFontSlot>(['major', 'minor'])
 const themeFontScripts = new Set<ThemeFontScript>(['latin', 'ea', 'cs'])
@@ -1194,10 +1223,11 @@ function validateColor(value: unknown, path: string, errors: string[]): void {
         return
       }
       const transformValue = transform as Record<string, unknown>
-      if (typeof transformValue.type !== 'string' || !colorTransformTypes.has(transformValue.type as ColorTransformType)) {
-        errors.push(`${transformPath}.type must be a supported color transform type`)
+      if (!isOoxmlToken(transformValue.type)) {
+        errors.push(`${transformPath}.type must be a color transform token`)
       }
-      validateFiniteNumber(transformValue.value, `${transformPath}.value`, errors, (number) => number >= 0 && number <= 100000, 'must be between 0 and 100000')
+      const type = typeof transformValue.type === 'string' ? transformValue.type : ''
+      validateFiniteNumber(transformValue.value, `${transformPath}.value`, errors, (number) => colorTransformValueIsValid(type, number), 'must be an integer within its transform range')
     })
   }
 }
