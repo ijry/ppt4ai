@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type { AssetAdapter } from '@ppt4ai/model'
 import type { SceneGraph, SceneTableLayoutCell } from '@ppt4ai/render'
-import { createApp, h, type App } from 'vue'
+import { createApp, h, nextTick, type App } from 'vue'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createPpt4aiI18n } from './i18n'
 import PptEditor from './PptEditor.vue'
@@ -16,7 +16,7 @@ function cell(row: number, column: number, x: number, y: number): SceneTableLayo
     rowSpan: 1,
     colSpan: 1,
     bounds,
-    body: { paragraphs: [] },
+    body: { paragraphs: [{ runs: [] }] },
     borders: {},
     textLayout: { bounds, fontScale: 100000, overflow: false, contentBounds: bounds, lines: [] },
     resolvedStyle: { borders: {} },
@@ -52,6 +52,13 @@ const scene: SceneGraph = {
 
 const mounted: App[] = []
 
+/**
+ * One i18n instance for the whole file. A fresh `createI18n` per mount starts throwing from the
+ * message compiler once a file passes roughly five of them, which reads as a mysterious
+ * "SyntaxError: Unexpected error" from a locale file that is perfectly valid.
+ */
+const i18n = createPpt4aiI18n()
+
 interface Events {
   selects: unknown[]
   edits: unknown[]
@@ -77,7 +84,7 @@ function mountEditor(selectedElementIds: string[], tableCellSelection?: CellSele
       'onSet-table-cell-borders': (payload: unknown) => { events.borders.push(payload) },
     }),
   })
-  app.use(createPpt4aiI18n())
+  app.use(i18n)
   app.mount(host)
   mounted.push(app)
   return { host, events }
@@ -211,5 +218,32 @@ describe('PptEditor table formatting toolbar', () => {
     ;(host.querySelector('[data-table-formatting-toolbar] [data-action="clear-fill"]') as HTMLButtonElement).click()
 
     expect(events.fills).toEqual([null])
+  })
+})
+
+/** Double-clicking a cell opens the inline editor and commits its body back as an intent. */
+describe('PptEditor table cell text editing', () => {
+  it('opens no editor until a cell is double-clicked', () => {
+    const { host } = mountEditor(['table-1'])
+
+    expect(host.querySelector('[data-table-cell-text-editor]')).toBeNull()
+  })
+
+  it('opens the inline editor on a double-click', async () => {
+    const { host } = mountEditor(['table-1'])
+
+    cellAt(host, 0, 1).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+    // The emit is synchronous but the editor only appears after Vue re-renders.
+    await nextTick()
+
+    expect(host.querySelector('[data-table-cell-text-editor]')).not.toBeNull()
+  })
+
+  it('still reports the edit intent alongside opening the editor', () => {
+    const { host, events } = mountEditor(['table-1'])
+
+    cellAt(host, 1, 0).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+
+    expect(events.edits).toEqual([{ elementId: 'table-1', point: { row: 1, column: 0 } }])
   })
 })

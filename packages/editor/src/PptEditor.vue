@@ -12,6 +12,7 @@ import { computed, onBeforeUnmount, ref, shallowRef, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ShapePaintToolbar from './ShapePaintToolbar.vue'
 import TableEditorOverlay from './TableEditorOverlay.vue'
+import TableCellTextEditor from './TableCellTextEditor.vue'
 import TableFormattingToolbar from './TableFormattingToolbar.vue'
 import SlideCanvas from './SlideCanvas.vue'
 import SelectionOverlay from './SelectionOverlay.vue'
@@ -65,6 +66,7 @@ const emit = defineEmits<{
   'edit-table-cell': [payload: { elementId: string; point: TableCellPoint }]
   'set-table-cell-fill': [fill: Fill | null]
   'set-table-cell-borders': [borders: TableBorderPatch]
+  'table-cell-text': [payload: { elementId: string; point: TableCellPoint; body: TextBody }]
 }>()
 
 const EMU_TO_CSS_PIXEL = 96 / 914400
@@ -430,9 +432,35 @@ function selectTableCell(selection: TableCellSelection): void {
   if (node) emit('select-table-cell', { elementId: node.id, selection })
 }
 
+const editingCellPoint = ref<TableCellPoint>()
+
+/**
+ * A double-click both reports the intent and opens the inline editor. The editor owns the draft and
+ * hands back a body on commit; the host turns that into `selectTableCell` + `setTableCellText`.
+ */
 function editTableCell(point: TableCellPoint): void {
   const node = selectedTableNode.value
-  if (node) emit('edit-table-cell', { elementId: node.id, point })
+  if (!node) return
+  editingCellPoint.value = { ...point }
+  emit('edit-table-cell', { elementId: node.id, point })
+}
+
+const editingCell = computed(() => {
+  const point = editingCellPoint.value
+  const node = selectedTableNode.value
+  if (!point || !node) return undefined
+  return node.layout.cells.find((entry) => entry.row === point.row && entry.column === point.column)
+})
+
+function commitCellText(body: TextBody): void {
+  const point = editingCellPoint.value
+  const node = selectedTableNode.value
+  editingCellPoint.value = undefined
+  if (point && node) emit('table-cell-text', { elementId: node.id, point, body: cloneBody(body) })
+}
+
+function cancelCellText(): void {
+  editingCellPoint.value = undefined
 }
 
 function overlayBounds(): ScreenBounds | undefined {
@@ -775,6 +803,15 @@ onBeforeUnmount(() => {
           @rotate="rotationMove"
           @rotate-end="rotationEnd"
           @rotate-cancel="rotationCancel"
+        />
+        <TableCellTextEditor
+          v-if="editingCell"
+          active
+          :cell="editingCell"
+          :transform="tableOverlayTransform"
+          v-bind="props.bridgeFactory ? { bridgeFactory: props.bridgeFactory } : {}"
+          @commit="commitCellText"
+          @cancel="cancelCellText"
         />
         <TableEditorOverlay
           v-if="selectedTableNode"

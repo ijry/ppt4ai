@@ -56,6 +56,7 @@ export interface PlaygroundPresentationHost {
   flipSelection(axis: ImageFlipAxis): PlaygroundPresentationSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundPresentationSnapshot
   selectTableCell(elementId: string, row: number, column: number, extend?: boolean): PlaygroundPresentationSnapshot
+  setTableCellText(elementId: string, row: number, column: number, body: TextBody): PlaygroundPresentationSnapshot
   setTableCellFill(fill: Fill | null): PlaygroundPresentationSnapshot
   setTableCellBorders(borders: Partial<Record<'left' | 'right' | 'top' | 'bottom', TableBorder | null>>): PlaygroundPresentationSnapshot
   setSelectedFill(fill: Fill | null): PlaygroundPresentationSnapshot
@@ -489,6 +490,9 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     },
     selectTableCell(elementId, row, column, extend) {
       return forward((host) => host.selectTableCell(elementId, row, column, extend))
+    },
+    setTableCellText(elementId, row, column, body) {
+      return forward((host) => host.setTableCellText(elementId, row, column, body))
     },
     setTableCellFill(fill) {
       return forward((host) => host.setTableCellFill(fill))

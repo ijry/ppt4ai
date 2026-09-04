@@ -1,5 +1,5 @@
 import { EditorEngine, type EngineCommand, type EngineState, type ImageFlipAxis, type SnapOptions } from '@ppt4ai/engine'
-import { createImageAssetController, ImageAssetControllerError } from '@ppt4ai/editor'
+import { createImageAssetController, createTableCellTextEditingController, ImageAssetControllerError } from '@ppt4ai/editor'
 import type { AssetAdapter, AssetMetadata, Color, Element, Fill, ImageElement, Ppt4aiDocument, Rect, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
@@ -34,6 +34,7 @@ export interface PlaygroundAssetHost {
   flipSelection(axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
   selectTableCell(elementId: string, row: number, column: number, extend?: boolean): PlaygroundAssetHostSnapshot
+  setTableCellText(elementId: string, row: number, column: number, body: TextBody): PlaygroundAssetHostSnapshot
   setTableCellFill(fill: Fill | null): PlaygroundAssetHostSnapshot
   setTableCellBorders(borders: Partial<Record<'left' | 'right' | 'top' | 'bottom', TableBorder | null>>): PlaygroundAssetHostSnapshot
   setSelectedFill(fill: Fill | null): PlaygroundAssetHostSnapshot
@@ -352,6 +353,19 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
         status = { kind: 'success', message: 'table-cell-selected' }
       } catch {
         return fail('table-cell-select-failed')
+      }
+      return snapshot()
+    },
+    setTableCellText(elementId, row, column, body) {
+      const element = engine.getState().document.elements[elementId]
+      if (element?.kind !== 'table') return fail('table-target-required')
+      try {
+        // The controller selects the cell and then writes it, which is the order the command pair
+        // requires: `setTableCellText` acts on the current cell selection.
+        createTableCellTextEditingController({ engine, elementId }).commitText({ row, column }, body)
+        status = { kind: 'success', message: 'table-cell-text-updated' }
+      } catch {
+        return fail('table-cell-text-failed')
       }
       return snapshot()
     },

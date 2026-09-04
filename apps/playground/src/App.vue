@@ -94,6 +94,11 @@ const tableCellSelection = computed(() => {
   return selection ? { elementId: selection.elementId, row: selection.row, column: selection.column } : undefined
 })
 
+function setTableCellText(payload: { elementId: string; point: { row: number; column: number }; body: TextBody }): void {
+  const { elementId, point, body } = payload
+  assetSnapshot.value = assetHost.setTableCellText(elementId, point.row, point.column, body)
+}
+
 function setTableCellFill(fill: Fill | null): void {
   assetSnapshot.value = assetHost.setTableCellFill(fill)
 }
@@ -353,6 +358,7 @@ async function uploadFile(event: Event): Promise<void> {
           @select-table-cell="selectTableCell"
           @set-table-cell-fill="setTableCellFill"
           @set-table-cell-borders="setTableCellBorders"
+          @table-cell-text="setTableCellText"
         />
         <nav data-testid="editing-history-toolbar" class="mt-4 flex flex-wrap items-center gap-2" :aria-label="t('playground.history.title')">
           <button data-testid="history-undo" type="button" :disabled="!canUndo" :aria-label="t('playground.history.undo')" :title="t('playground.history.undo')" class="border border-slate-400 px-3 py-1 text-sm hover:border-slate-700 disabled:cursor-not-allowed disabled:opacity-50" @click="undo">
