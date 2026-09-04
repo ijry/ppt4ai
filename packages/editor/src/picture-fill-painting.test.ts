@@ -111,7 +111,10 @@ describe('picture fill painting', () => {
   })
 
   it('leaves a shape with no picture fill exactly as it was', () => {
-    const context = paintShape({ pictureFill: undefined, resolvedFillColor: { rgb: '4472C4', alpha: 100000 } }, image)
+    const node = shapeNode({ resolvedFillColor: { rgb: '4472C4', alpha: 100000 } })
+    delete node.pictureFill
+    const context = new RecordingContext()
+    paintShapeNode(context as unknown as CanvasRenderingContext2D, node, { scale: 1, offsetX: 0, offsetY: 0 }, image)
 
     expect(names(context)).not.toContain('drawImage')
     expect(context.events.find((event) => event[0] === 'fill')).toEqual(['fill', '#4472C4', 1])
