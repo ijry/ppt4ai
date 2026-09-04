@@ -1,6 +1,7 @@
 import type { ResolvedColor, TextMarks } from '@ppt4ai/model'
 import type { SceneTextLayout, SceneTextLayoutLine, SceneTextLayoutMarker, SceneTextLayoutRun, SceneTextNode } from '@ppt4ai/render'
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE } from '@ppt4ai/text'
+import type { DecodedImage } from './image-canvas-renderer'
 import { withRotation } from './rotation-transform'
 import { paintPathFills } from './shape-painting'
 
@@ -181,7 +182,7 @@ export function paintTextLayout(context: TextContext, layout: SceneTextLayout, m
   }
 }
 
-export function paintTextNode(context: TextContext, node: SceneTextNode, mapping: TextPageMapping): void {
+export function paintTextNode(context: TextContext, node: SceneTextNode, mapping: TextPageMapping, picture?: DecodedImage): void {
   const bounds = {
     x: mapping.offsetX + finite(node.bounds.x, 'text bounds x') * mapping.scale,
     y: mapping.offsetY + finite(node.bounds.y, 'text bounds y') * mapping.scale,
@@ -194,6 +195,8 @@ export function paintTextNode(context: TextContext, node: SceneTextNode, mapping
       paintPathFills(context, node.path, mapping, {
         ...(node.resolvedFillColor ? { fill: node.resolvedFillColor } : {}),
         ...(node.resolvedFillGradient ? { fillGradient: node.resolvedFillGradient, fillBounds: node.bounds } : {}),
+        ...(node.pictureFill ? { pictureFill: node.pictureFill, fillBounds: node.bounds } : {}),
+        ...(node.pictureFill && picture ? { picture } : {}),
         ...(node.resolvedStrokeColor ? { stroke: node.resolvedStrokeColor } : {}),
         ...(node.resolvedStrokeGradient ? { strokeGradient: node.resolvedStrokeGradient, strokeBounds: node.bounds } : {}),
         ...(node.strokeWidth === undefined ? {} : { strokeWidth: node.strokeWidth }),

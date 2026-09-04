@@ -45,10 +45,10 @@ function imageIssue(node: SceneImageNode, outcome: Exclude<ImageLoadOutcome, { s
   return { nodeId: node.id, kind: node.kind, code: outcome.code, message: outcome.message }
 }
 
-function drawNode(context: CanvasRenderingContext2D, node: SceneNode, scale: number): void {
+function drawNode(context: CanvasRenderingContext2D, node: SceneNode, scale: number, picture?: DecodedImage): void {
   const mapping = { scale, offsetX: 0, offsetY: 0 }
-  if (node.kind === 'shape') paintShapeNode(context, node, mapping)
-  else if (node.kind === 'text') paintTextNode(context, node, mapping)
+  if (node.kind === 'shape') paintShapeNode(context, node, mapping, picture)
+  else if (node.kind === 'text') paintTextNode(context, node, mapping, picture)
   else if (node.kind === 'table') paintTableNode(context, node, mapping)
   else throw new Error('image nodes require decoded image data')
 }
@@ -143,7 +143,22 @@ export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; deco
             }
             paintImageNode(context, node, outcome.image, mapBounds(node.bounds, scale))
           } else {
-            drawNode(context, node, scale)
+            // A shape's picture fill is only part of what it paints, so a failed load reports the
+            // issue and the node still draws: losing a photo should not take the outline and the
+            // text with it, the way a failed `p:pic` legitimately skips its whole node.
+            let picture: DecodedImage | undefined
+            const pictureFill = node.kind === 'shape' || node.kind === 'text' ? node.pictureFill : undefined
+            if (pictureFill) {
+              const outcome = await imageLoader.load({
+                id: node.id,
+                assetId: pictureFill.assetId,
+                ...(pictureFill.metadata ? { metadata: pictureFill.metadata } : {}),
+              })
+              if (outcome.status === 'failed') {
+                result.issues.push({ nodeId: node.id, kind: node.kind, code: outcome.code, message: outcome.message })
+              } else picture = outcome.image
+            }
+            drawNode(context, node, scale, picture)
           }
           result.drawnNodeIds.push(node.id)
         } catch (error) {

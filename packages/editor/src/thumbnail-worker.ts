@@ -6,7 +6,7 @@ import { paintImageNode } from './image-painting'
 import { paintShapeNode, type ShapePageMapping } from './shape-painting'
 import { paintTableNode } from './table-painting'
 import { paintTextNode } from './text-painting'
-import type { DecodedImage, ImageDecoder } from './image-canvas-renderer'
+import type { DecodedImage, ImageDecoder, ImageLoadRequest } from './image-canvas-renderer'
 import {
   isThumbnailMessage,
   type ThumbnailRenderRequest,
@@ -126,7 +126,7 @@ export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): 
     cache.clear()
   }
 
-  const requestResource = (request: ThumbnailRenderRequest, node: SceneImageNode): Promise<ThumbnailResourceResponse> => {
+  const requestResource = (request: ThumbnailRenderRequest, node: ImageLoadRequest): Promise<ThumbnailResourceResponse> => {
     const id = ++resourceRequestId
     return new Promise<ThumbnailResourceResponse>((resolve, reject) => {
       pendingResources.set(`${request.requestId}:${id}`, {
@@ -147,7 +147,7 @@ export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): 
     })
   }
 
-  const loadAsset = async (request: ThumbnailRenderRequest, node: SceneImageNode): Promise<DecodedImage> => {
+  const loadAsset = async (request: ThumbnailRenderRequest, node: ImageLoadRequest): Promise<DecodedImage> => {
     const existing = cache.get(node.assetId)
     if (existing) return existing.promise
 
@@ -199,10 +199,26 @@ export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): 
         if (isCancelled(request.requestId)) return
         if (node.kind !== 'shape' && node.kind !== 'text' && node.kind !== 'table' && node.kind !== 'image') continue
         try {
-          if (node.kind === 'shape') {
-            paintShapeNode(context, node, mapping)
-          } else if (node.kind === 'text') {
-            paintTextNode(context, node, mapping)
+          if (node.kind === 'shape' || node.kind === 'text') {
+            // Same policy the slide renderer uses: a picture fill that will not load costs the fill,
+            // not the node, so the outline and any text still reach the thumbnail.
+            let picture: DecodedImage | undefined
+            if (node.pictureFill) {
+              try {
+                picture = await loadAsset(request, {
+                  id: node.id,
+                  assetId: node.pictureFill.assetId,
+                  ...(node.pictureFill.metadata ? { metadata: node.pictureFill.metadata } : {}),
+                })
+              } catch (error) {
+                if (isCancelled(request.requestId)) return
+                const code = (error as { thumbnailCode?: string }).thumbnailCode
+                issues.push(issue(node, code === 'missing-asset' || code === 'resource-failed' ? code : 'decode-failed', error))
+              }
+              if (isCancelled(request.requestId)) return
+            }
+            if (node.kind === 'shape') paintShapeNode(context, node, mapping, picture)
+            else paintTextNode(context, node, mapping, picture)
           } else if (node.kind === 'table') {
             paintTableNode(context, node, mapping)
           } else {

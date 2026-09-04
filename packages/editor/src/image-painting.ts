@@ -3,7 +3,8 @@ import type { ImageCrop, ImageEffect, PresetGeometry, Rect } from '@ppt4ai/model
 import type { SceneImageNode } from '@ppt4ai/render'
 import type { DecodedImage } from './image-canvas-renderer'
 
-function cropSource(
+/** Exported because a shape's picture fill trims its source with the same `a:srcRect` semantics. */
+export function cropSource(
   image: DecodedImage,
   crop: ImageCrop | undefined,
 ): [number, number, number, number] | undefined {

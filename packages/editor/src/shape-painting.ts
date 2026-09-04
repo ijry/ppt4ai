@@ -1,7 +1,9 @@
 import type { PathCommand } from '@ppt4ai/geometry'
 import { gradientAxis } from '@ppt4ai/geometry'
 import type { Rect, ResolvedColor, ResolvedGradient, StrokeCap, StrokeJoin, StrokeStyle } from '@ppt4ai/model'
-import type { SceneShapeNode } from '@ppt4ai/render'
+import type { SceneShapeNode, ScenePictureFill } from '@ppt4ai/render'
+import type { DecodedImage } from './image-canvas-renderer'
+import { cropSource } from './image-painting'
 import { withFlipAndRotation } from './rotation-transform'
 
 export interface ShapePageMapping {
@@ -128,8 +130,11 @@ export function paintPathFills(
   colors: {
     fill?: ResolvedColor
     fillGradient?: ResolvedGradient
-    /** Needed only for a gradient: the axis is computed across the mapped box, not the path. */
+    /** Needed for a gradient axis and for a picture's target box: both span the mapped box, not the path. */
     fillBounds?: Rect
+    pictureFill?: ScenePictureFill
+    /** The decoded media for `pictureFill`; absent means it could not be loaded, so no fill paints. */
+    picture?: DecodedImage
     stroke?: ResolvedColor
     strokeGradient?: ResolvedGradient
     strokeBounds?: Rect
@@ -154,6 +159,9 @@ export function paintPathFills(
     context.globalAlpha = gradient ? 1 : fill.alpha
     context.fill()
   }
+  if (colors.pictureFill && colors.picture && colors.fillBounds) {
+    paintPictureFill(context, path, mapping, mapRect(colors.fillBounds, mapping), colors.pictureFill, colors.picture)
+  }
   if (stroke) {
     tracePath(context, path, mapping)
     context.strokeStyle = strokeRamp ?? stroke.style
@@ -169,11 +177,44 @@ export function paintPathFills(
   }
 }
 
+/**
+ * The picture stretched across the shape's box and clipped to its path. Canvas has no "fill a path
+ * with an image" call, so the clip is what makes a rounded rectangle or an ellipse crop the photo
+ * instead of showing its corners. `bounds` is already mapped, like everything else drawn here.
+ *
+ * The clip is undone before returning, or the stroke drawn next would be clipped to half its width.
+ */
+function paintPictureFill(
+  context: ShapeContext,
+  path: readonly PathCommand[],
+  mapping: ShapePageMapping,
+  bounds: Rect,
+  fill: ScenePictureFill,
+  image: DecodedImage,
+): void {
+  context.save()
+  try {
+    tracePath(context, path, mapping)
+    context.clip()
+    context.globalAlpha = 1
+    const source = cropSource(image, fill.sourceCrop)
+    if (source) context.drawImage(image.source, ...source, bounds.x, bounds.y, bounds.w, bounds.h)
+    else context.drawImage(image.source, bounds.x, bounds.y, bounds.w, bounds.h)
+  } finally {
+    context.restore()
+  }
+}
+
 function createPath(context: ShapeContext, node: SceneShapeNode, mapping: ShapePageMapping): void {
   tracePath(context, node.path, mapping)
 }
 
-export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapping: ShapePageMapping): void {
+/**
+ * `picture` is the decoded media for `node.pictureFill`. The caller loads it, because loading is
+ * asynchronous and painting is not; absent means it failed or was never asked for, and then the shape
+ * paints its outline and nothing else rather than disappearing.
+ */
+export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapping: ShapePageMapping, picture?: DecodedImage): void {
   context.save()
   try {
     validateMapping(mapping)
@@ -191,6 +232,9 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
           : fill.style
         context.globalAlpha = node.resolvedFillGradient ? 1 : fill.alpha
         context.fill()
+      }
+      if (node.pictureFill && picture) {
+        paintPictureFill(context, node.path, mapping, bounds, node.pictureFill, picture)
       }
       if (stroke) {
         createPath(context, node, mapping)

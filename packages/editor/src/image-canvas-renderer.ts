@@ -1,4 +1,4 @@
-import type { AssetAdapter, ImageMimeType } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, ImageMimeType } from '@ppt4ai/model'
 import type { SceneGraph, SceneImageNode } from '@ppt4ai/render'
 import { decodeBrowserImage } from './browser-image-decoder'
 import { paintImageNode } from './image-painting'
@@ -62,8 +62,20 @@ interface CacheEntry {
 
 export type ImageLoadOutcome = LoadOutcome
 
+/**
+ * What the loader needs to fetch and decode: an id for the issue it reports, the asset key and the
+ * MIME hint. `SceneImageNode` satisfies it structurally, and so does a shape node paired with its
+ * picture fill — the cache is keyed by `assetId`, so a `p:pic` and a shape sharing one media part
+ * decode once.
+ */
+export interface ImageLoadRequest {
+  id: string
+  assetId: string
+  metadata?: AssetMetadata
+}
+
 export interface ImageNodeLoader {
-  load(node: SceneImageNode): Promise<ImageLoadOutcome>
+  load(node: ImageLoadRequest): Promise<ImageLoadOutcome>
   clearCache(): void
   dispose(): void
 }
@@ -72,7 +84,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function renderIssue(node: SceneImageNode, code: ImageRenderIssue['code'], error: unknown): ImageRenderIssue {
+function renderIssue(node: ImageLoadRequest, code: ImageRenderIssue['code'], error: unknown): ImageRenderIssue {
   return {
     nodeId: node.id,
     assetId: node.assetId,
@@ -93,7 +105,7 @@ export function createImageNodeLoader(options: Pick<ImageCanvasRendererOptions, 
     image.close?.()
   }
 
-  const load = (node: SceneImageNode): CacheEntry => {
+  const load = (node: ImageLoadRequest): CacheEntry => {
     const existing = cache.get(node.assetId)
     if (existing) return existing
 
