@@ -1,6 +1,6 @@
 import { EditorEngine, type EngineCommand, type EngineState, type ImageFlipAxis, type SnapOptions } from '@ppt4ai/engine'
 import { createImageAssetController, ImageAssetControllerError } from '@ppt4ai/editor'
-import type { AssetAdapter, AssetMetadata, Color, Element, Fill, ImageElement, Ppt4aiDocument, Rect, StrokeStyle, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Color, Element, Fill, ImageElement, Ppt4aiDocument, Rect, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
 export interface PlaygroundAssetHostSnapshot {
@@ -34,6 +34,8 @@ export interface PlaygroundAssetHost {
   flipSelection(axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
   selectTableCell(elementId: string, row: number, column: number, extend?: boolean): PlaygroundAssetHostSnapshot
+  setTableCellFill(fill: Fill | null): PlaygroundAssetHostSnapshot
+  setTableCellBorders(borders: Partial<Record<'left' | 'right' | 'top' | 'bottom', TableBorder | null>>): PlaygroundAssetHostSnapshot
   setSelectedFill(fill: Fill | null): PlaygroundAssetHostSnapshot
   setSelectedStroke(stroke: Fill | null): PlaygroundAssetHostSnapshot
   setSelectedStrokeWidth(width: number | null): PlaygroundAssetHostSnapshot
@@ -350,6 +352,26 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
         status = { kind: 'success', message: 'table-cell-selected' }
       } catch {
         return fail('table-cell-select-failed')
+      }
+      return snapshot()
+    },
+    setTableCellFill(fill) {
+      if (!engine.getState().tableCellSelection) return fail('table-cell-required')
+      try {
+        engine.dispatch({ type: 'setTableCellFill', fill })
+        status = { kind: 'success', message: 'table-cell-fill-updated' }
+      } catch {
+        return fail('table-cell-fill-failed')
+      }
+      return snapshot()
+    },
+    setTableCellBorders(borders) {
+      if (!engine.getState().tableCellSelection) return fail('table-cell-required')
+      try {
+        engine.dispatch({ type: 'setTableCellBorders', borders })
+        status = { kind: 'success', message: 'table-cell-borders-updated' }
+      } catch {
+        return fail('table-cell-borders-failed')
       }
       return snapshot()
     },

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Color, Fill, StrokeStyle, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { Color, Fill, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import type { TableCellSelection } from '@ppt4ai/editor'
 import { DEFAULT_THEME_COLORS } from '@ppt4ai/model'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
@@ -87,6 +87,19 @@ function selectTableCell(payload: { elementId: string; selection: TableCellSelec
   const { elementId, selection } = payload
   const extend = selection.anchor.row !== selection.focus.row || selection.anchor.column !== selection.focus.column
   assetSnapshot.value = assetHost.selectTableCell(elementId, selection.focus.row, selection.focus.column, extend)
+}
+
+const tableCellSelection = computed(() => {
+  const selection = activeSlideSnapshot.value.engineState.tableCellSelection
+  return selection ? { elementId: selection.elementId, row: selection.row, column: selection.column } : undefined
+})
+
+function setTableCellFill(fill: Fill | null): void {
+  assetSnapshot.value = assetHost.setTableCellFill(fill)
+}
+
+function setTableCellBorders(borders: Partial<Record<'left' | 'right' | 'top' | 'bottom', TableBorder | null>>): void {
+  assetSnapshot.value = assetHost.setTableCellBorders(borders)
 }
 
 function setShapeFill(fill: Fill | null): void {
@@ -318,6 +331,7 @@ async function uploadFile(event: Event): Promise<void> {
           :snap-options="assetHost.snapOptions"
           :selected-element-id="selectedElementId"
           :selected-element-ids="selectedElementIds"
+          :table-cell-selection="tableCellSelection"
           :text-bodies="textBodies"
           @selection-change="selectElements"
           @group="groupSelected"
@@ -337,6 +351,8 @@ async function uploadFile(event: Event): Promise<void> {
           @set-stroke-width="setShapeStrokeWidth"
           @set-stroke-style="setShapeStrokeStyle"
           @select-table-cell="selectTableCell"
+          @set-table-cell-fill="setTableCellFill"
+          @set-table-cell-borders="setTableCellBorders"
         />
         <nav data-testid="editing-history-toolbar" class="mt-4 flex flex-wrap items-center gap-2" :aria-label="t('playground.history.title')">
           <button data-testid="history-undo" type="button" :disabled="!canUndo" :aria-label="t('playground.history.undo')" :title="t('playground.history.undo')" class="border border-slate-400 px-3 py-1 text-sm hover:border-slate-700 disabled:cursor-not-allowed disabled:opacity-50" @click="undo">

@@ -5,11 +5,14 @@ import type { AssetAdapter, Fill, Rect, StrokeStyle, TextBody } from '@ppt4ai/mo
 import type { SceneGraph, SceneImageNode, SceneTableNode } from '@ppt4ai/render'
 import type { ShapePaintToolbarProps } from './shape-paint-toolbar'
 import type { TableCellPoint, TableCellSelection } from './table-editor-overlay'
+import type { TableBorderPatch } from './table-editor-controller'
+import type { TableFormattingToolbarProps } from './table-formatting-toolbar'
 import type { ImeInputBridge, ImeInputBridgeOptions } from '@ppt4ai/text'
 import { computed, onBeforeUnmount, ref, shallowRef, toRaw, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ShapePaintToolbar from './ShapePaintToolbar.vue'
 import TableEditorOverlay from './TableEditorOverlay.vue'
+import TableFormattingToolbar from './TableFormattingToolbar.vue'
 import SlideCanvas from './SlideCanvas.vue'
 import SelectionOverlay from './SelectionOverlay.vue'
 import TextBoxEditor from './TextBoxEditor.vue'
@@ -27,6 +30,8 @@ const props = withDefaults(defineProps<{
   decoder?: ImageDecoder
   selectedElementId?: string
   selectedElementIds?: string[]
+  /** The engine's authoritative cell selection, so the table toolbar reflects it rather than guessing. */
+  tableCellSelection?: { elementId: string; row: number; column: number }
   snapOptions?: SnapOptions
   textBodies?: Record<string, TextBody>
   bridgeFactory?: (options: ImeInputBridgeOptions) => ImeInputBridge
@@ -58,6 +63,8 @@ const emit = defineEmits<{
   'set-stroke-style': [style: StrokeStyle | null]
   'select-table-cell': [payload: { elementId: string; selection: TableCellSelection }]
   'edit-table-cell': [payload: { elementId: string; point: TableCellPoint }]
+  'set-table-cell-fill': [fill: Fill | null]
+  'set-table-cell-borders': [borders: TableBorderPatch]
 }>()
 
 const EMU_TO_CSS_PIXEL = 96 / 914400
@@ -389,6 +396,33 @@ const selectedTableNode = computed<SceneTableNode | undefined>(() => {
   return node?.kind === 'table' ? node : undefined
 })
 
+/**
+ * Reflects the engine's cell selection, not the overlay's own visual one: the commands act on what
+ * the engine holds. The border row shows whichever side the cell defines first — the toolbar applies
+ * to the sides the user ticks, so there is no single "current" side to display.
+ */
+const tableFormatting = computed<TableFormattingToolbarProps>(() => {
+  const selection = props.tableCellSelection
+  const node = selectedTableNode.value
+  const cell = selection && node && selection.elementId === node.id
+    ? node.layout.cells.find((entry) => entry.row === selection.row && entry.column === selection.column)
+    : undefined
+  if (!cell) {
+    return { active: false, borderWidth: 12700, borderStyle: 'solid', borderSides: [] }
+  }
+  const side = (['left', 'right', 'top', 'bottom'] as const).find((entry) => cell.resolvedStyle.borders[entry])
+  const border = side ? cell.resolvedStyle.borders[side] : undefined
+  const borderColor = side ? cell.resolvedBorderColors?.[side] : undefined
+  return {
+    active: true,
+    ...(cell.resolvedFillColor ? { fillColor: `#${cell.resolvedFillColor.rgb.toUpperCase()}` } : {}),
+    ...(borderColor ? { borderColor: `#${borderColor.rgb.toUpperCase()}` } : {}),
+    borderWidth: border?.width ?? 12700,
+    borderStyle: border?.style === 'dash' || border?.style === 'dot' ? border.style : 'solid',
+    borderSides: [],
+  }
+})
+
 const tableOverlayTransform = computed(() => ({ originX: 0, originY: 0, scale: EMU_TO_CSS_PIXEL * props.zoom }))
 
 function selectTableCell(selection: TableCellSelection): void {
@@ -692,6 +726,12 @@ onBeforeUnmount(() => {
           </button>
         </template>
       </div>
+      <TableFormattingToolbar
+        v-if="selectedTableNode"
+        v-bind="tableFormatting"
+        @set-fill="emit('set-table-cell-fill', $event)"
+        @set-borders="emit('set-table-cell-borders', $event)"
+      />
       <ShapePaintToolbar
         v-bind="shapePaint"
         @set-fill="emit('set-fill', $event)"

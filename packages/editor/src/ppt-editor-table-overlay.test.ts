@@ -55,10 +55,14 @@ const mounted: App[] = []
 interface Events {
   selects: unknown[]
   edits: unknown[]
+  fills: unknown[]
+  borders: unknown[]
 }
 
-function mountEditor(selectedElementIds: string[]) {
-  const events: Events = { selects: [], edits: [] }
+interface CellSelection { elementId: string; row: number; column: number }
+
+function mountEditor(selectedElementIds: string[], tableCellSelection?: CellSelection) {
+  const events: Events = { selects: [], edits: [], fills: [], borders: [] }
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp({
@@ -66,8 +70,11 @@ function mountEditor(selectedElementIds: string[]) {
       scene,
       adapter,
       selectedElementIds,
+      ...(tableCellSelection ? { tableCellSelection } : {}),
       'onSelect-table-cell': (payload: unknown) => { events.selects.push(payload) },
       'onEdit-table-cell': (payload: unknown) => { events.edits.push(payload) },
+      'onSet-table-cell-fill': (payload: unknown) => { events.fills.push(payload) },
+      'onSet-table-cell-borders': (payload: unknown) => { events.borders.push(payload) },
     }),
   })
   app.use(createPpt4aiI18n())
@@ -146,5 +153,63 @@ describe('PptEditor table cell overlay', () => {
     cellAt(host, 0, 1).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
 
     expect(events.edits).toEqual([{ elementId: 'table-1', point: { row: 0, column: 1 } }])
+  })
+})
+
+/**
+ * The toolbar reflects the engine's cell selection rather than the overlay's own visual one, because
+ * the commands act on what the engine holds.
+ */
+describe('PptEditor table formatting toolbar', () => {
+  it('shows the toolbar for a selected table', () => {
+    const { host } = mountEditor(['table-1'])
+
+    expect(host.querySelector('[data-table-formatting-toolbar]')).not.toBeNull()
+  })
+
+  it('hides the toolbar without a table selection', () => {
+    const { host } = mountEditor(['shape-1'])
+
+    expect(host.querySelector('[data-table-formatting-toolbar]')).toBeNull()
+  })
+
+  /** A selected table with no cell selection has nothing to format yet. */
+  it('disables the toolbar until a cell is selected', () => {
+    const { host } = mountEditor(['table-1'])
+    const fill = host.querySelector('[data-table-formatting-toolbar] input[type="color"]') as HTMLInputElement
+
+    expect(fill.disabled).toBe(true)
+  })
+
+  it('enables the toolbar for the engine cell selection', () => {
+    const { host } = mountEditor(['table-1'], { elementId: 'table-1', row: 0, column: 1 })
+    const fill = host.querySelector('[data-table-formatting-toolbar] input[type="color"]') as HTMLInputElement
+
+    expect(fill.disabled).toBe(false)
+  })
+
+  /** A selection pointing at another element must not enable this table's toolbar. */
+  it('ignores a cell selection for a different element', () => {
+    const { host } = mountEditor(['table-1'], { elementId: 'other-table', row: 0, column: 0 })
+    const fill = host.querySelector('[data-table-formatting-toolbar] input[type="color"]') as HTMLInputElement
+
+    expect(fill.disabled).toBe(true)
+  })
+
+  it('forwards a cell fill change', () => {
+    const { host, events } = mountEditor(['table-1'], { elementId: 'table-1', row: 0, column: 0 })
+    const fill = host.querySelector('[data-table-formatting-toolbar] input[type="color"]') as HTMLInputElement
+    fill.value = '#ff0000'
+    fill.dispatchEvent(new Event('change'))
+
+    expect(events.fills).toEqual([{ color: { type: 'srgb', v: 'FF0000' } }])
+  })
+
+  it('forwards a cell fill clear as null', () => {
+    const { host, events } = mountEditor(['table-1'], { elementId: 'table-1', row: 0, column: 0 })
+
+    ;(host.querySelector('[data-table-formatting-toolbar] [data-action="clear-fill"]') as HTMLButtonElement).click()
+
+    expect(events.fills).toEqual([null])
   })
 })

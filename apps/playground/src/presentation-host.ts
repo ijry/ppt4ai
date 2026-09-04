@@ -1,6 +1,6 @@
 import type { EngineState, ImageFlipAxis, SnapOptions } from '@ppt4ai/engine'
 import { documentToSceneGraph, type SceneGraph } from '@ppt4ai/render'
-import type { AssetAdapter, AssetMetadata, Color, Element, Fill, Ppt4aiDocument, Rect, StrokeStyle, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Color, Element, Fill, Ppt4aiDocument, Rect, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import { createPlaygroundAssetHost, type PlaygroundAssetHost, type PlaygroundAssetHostSnapshot } from './asset-host'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
@@ -56,6 +56,8 @@ export interface PlaygroundPresentationHost {
   flipSelection(axis: ImageFlipAxis): PlaygroundPresentationSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundPresentationSnapshot
   selectTableCell(elementId: string, row: number, column: number, extend?: boolean): PlaygroundPresentationSnapshot
+  setTableCellFill(fill: Fill | null): PlaygroundPresentationSnapshot
+  setTableCellBorders(borders: Partial<Record<'left' | 'right' | 'top' | 'bottom', TableBorder | null>>): PlaygroundPresentationSnapshot
   setSelectedFill(fill: Fill | null): PlaygroundPresentationSnapshot
   setSelectedStroke(stroke: Fill | null): PlaygroundPresentationSnapshot
   setSelectedStrokeWidth(width: number | null): PlaygroundPresentationSnapshot
@@ -487,6 +489,12 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     },
     selectTableCell(elementId, row, column, extend) {
       return forward((host) => host.selectTableCell(elementId, row, column, extend))
+    },
+    setTableCellFill(fill) {
+      return forward((host) => host.setTableCellFill(fill))
+    },
+    setTableCellBorders(borders) {
+      return forward((host) => host.setTableCellBorders(borders))
     },
     setSelectedFill(fill) {
       return forward((host) => host.setSelectedFill(fill))
