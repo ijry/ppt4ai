@@ -2022,7 +2022,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       if ('colorMap' in master && master.colorMap !== undefined) validateColorMap(master.colorMap, `${masterPath}.colorMap`, errors)
       if ('defaults' in master && master.defaults !== undefined) validateDefaultRotations(master.defaults, `${masterPath}.defaults`, errors)
       if ('textStyles' in master && master.textStyles !== undefined) validateTextStyles(master.textStyles, `${masterPath}.textStyles`, errors)
-      if ('background' in master && master.background !== undefined) validateSlideBackground(master.background, `${masterPath}.background`, errors)
+      if ('background' in master && master.background !== undefined) validateSlideBackground(master.background, `${masterPath}.background`, errors, value.assets)
     }
   }
 
@@ -2045,7 +2045,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       }
       if ('colorMapOverride' in layout && layout.colorMapOverride !== undefined) validateColorMap(layout.colorMapOverride, `${layoutPath}.colorMapOverride`, errors)
       if ('defaults' in layout && layout.defaults !== undefined) validateDefaultRotations(layout.defaults, `${layoutPath}.defaults`, errors)
-      if ('background' in layout && layout.background !== undefined) validateSlideBackground(layout.background, `${layoutPath}.background`, errors)
+      if ('background' in layout && layout.background !== undefined) validateSlideBackground(layout.background, `${layoutPath}.background`, errors, value.assets)
     }
   }
 

@@ -1,4 +1,4 @@
-import { mergeColorMaps, parseBitmapMetadata, validateDocument, type AssetAdapter, type ColorMap, type Element, type Ppt4aiDocument, type SlideLayout, type SlideMaster, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, parseBitmapMetadata, validateDocument, type AssetAdapter, type ColorMap, type Element, type Ppt4aiDocument, type SlideBackground, type SlideLayout, type SlideMaster, type Theme } from '@ppt4ai/model'
 import { allocateMediaPath, allocateRelationshipId, imageExtension, serializeImageRelationship, serializePictureXml } from './image-writeback.js'
 import { writeStoredZip, type ZipEntry } from './zip.js'
 import {
@@ -133,40 +133,53 @@ function slideAssetReferences(document: Ppt4aiDocument, slideId: string): string
   return [...(background ? [background] : []), ...walk(slideTree(document, slideId))]
 }
 
+/** Master and layout picture backgrounds, sorted by id so the media parts are named deterministically. */
+function inheritedAssetReferences(document: Ppt4aiDocument): string[] {
+  const backgrounds = [
+    ...Object.keys(document.masters ?? {}).sort().map((id) => document.masters?.[id]?.background),
+    ...Object.keys(document.layouts ?? {}).sort().map((id) => document.layouts?.[id]?.background),
+  ]
+  return backgrounds.flatMap((background) => background?.pictureFill ? [background.pictureFill.assetId] : [])
+}
+
 async function materializeAssets(document: Ppt4aiDocument, options: CreatePptxOptions): Promise<{ assets: Map<string, MaterializedAsset>; extensions: Set<string> }> {
   const assets = new Map<string, MaterializedAsset>()
   const extensions = new Set<string>()
   const entryNames = new Set<string>()
+  const materialize = async (assetId: string): Promise<void> => {
+    if (assets.has(assetId)) return
+    const metadata = document.assets?.[assetId]
+    if (!metadata) throw new Error(`PPTX generation asset metadata missing: ${assetId}`)
+    if (!options.assetAdapter) throw new Error(`PPTX generation asset adapter missing: ${assetId}`)
+    let sourceBytes: Uint8Array | undefined
+    try {
+      sourceBytes = await options.assetAdapter.get(assetId)
+    } catch (cause) {
+      throw new Error(`PPTX generation asset read failed: ${assetId}`, { cause })
+    }
+    if (sourceBytes === undefined) throw new Error(`PPTX generation asset bytes missing: ${assetId}`)
+    const bytes = new Uint8Array(sourceBytes)
+    const bitmap = parseBitmapMetadata(bytes)
+    if (!bitmap || bitmap.mimeType !== metadata.mimeType) throw new Error(`PPTX generation asset bytes MIME mismatch: ${assetId}`)
+    let extension: string
+    try {
+      extension = imageExtension(metadata.mimeType)
+    } catch (cause) {
+      throw new Error(`PPTX generation asset MIME unsupported: ${assetId}`, { cause })
+    }
+    const path = allocateMediaPath(entryNames, metadata.mimeType)
+    entryNames.add(path)
+    extensions.add(extension)
+    assets.set(assetId, { path, bytes })
+  }
   for (const slideId of document.slideOrder) {
     const slide = document.slides[slideId]
     if (!slide) throw new Error(`PPTX generation slide missing: ${slideId}`)
-    for (const assetId of slideAssetReferences(document, slideId)) {
-      if (assets.has(assetId)) continue
-      const metadata = document.assets?.[assetId]
-      if (!metadata) throw new Error(`PPTX generation asset metadata missing: ${assetId}`)
-      if (!options.assetAdapter) throw new Error(`PPTX generation asset adapter missing: ${assetId}`)
-      let sourceBytes: Uint8Array | undefined
-      try {
-        sourceBytes = await options.assetAdapter.get(assetId)
-      } catch (cause) {
-        throw new Error(`PPTX generation asset read failed: ${assetId}`, { cause })
-      }
-      if (sourceBytes === undefined) throw new Error(`PPTX generation asset bytes missing: ${assetId}`)
-      const bytes = new Uint8Array(sourceBytes)
-      const bitmap = parseBitmapMetadata(bytes)
-      if (!bitmap || bitmap.mimeType !== metadata.mimeType) throw new Error(`PPTX generation asset bytes MIME mismatch: ${assetId}`)
-      let extension: string
-      try {
-        extension = imageExtension(metadata.mimeType)
-      } catch (cause) {
-        throw new Error(`PPTX generation asset MIME unsupported: ${assetId}`, { cause })
-      }
-      const path = allocateMediaPath(entryNames, metadata.mimeType)
-      entryNames.add(path)
-      extensions.add(extension)
-      assets.set(assetId, { path, bytes })
-    }
+    for (const assetId of slideAssetReferences(document, slideId)) await materialize(assetId)
   }
+  // Masters and layouts come after the slides, so slide media keeps the part names it already had; a
+  // photo they share with a slide is already materialized and only gains a second relationship.
+  for (const assetId of inheritedAssetReferences(document)) await materialize(assetId)
   return { assets, extensions }
 }
 
@@ -310,6 +323,25 @@ function effectiveColorMap(overlays: Array<Partial<ColorMap> | undefined>, state
   return stated && Object.keys(stated).length > 0 ? mergeColorMaps(...overlays, stated) : undefined
 }
 
+/**
+ * The image relationship a master or layout needs for its own background. The media part is shared with
+ * whoever else uses that photo — one part per asset — while each part carries its own relationship to it,
+ * which is what OOXML asks for.
+ */
+function backgroundRelationship(
+  background: SlideBackground | undefined,
+  assets: Map<string, MaterializedAsset>,
+  relationshipId: string,
+): { id?: string; relationships: string[] } {
+  const assetId = background?.pictureFill?.assetId
+  const asset = assetId ? assets.get(assetId) : undefined
+  if (!asset) return { relationships: [] }
+  return {
+    id: relationshipId,
+    relationships: [serializeImageRelationship(relationshipId, `../media/${asset.path.slice('ppt/media/'.length)}`)],
+  }
+}
+
 function skeletonEntries(
   document: Ppt4aiDocument,
   slides: SlideSerialization[],
@@ -335,27 +367,32 @@ function skeletonEntries(
     { name: 'ppt/viewProps.xml', data: encoder.encode(support.viewProps) },
     ...plan.themes.map((theme, index) => ({ name: `ppt/theme/theme${index + 1}.xml`, data: encoder.encode(serializeThemeXml(theme)) })),
     ...(tableStyles ? [{ name: 'ppt/tableStyles.xml', data: encoder.encode(serializeTableStylesXml(tableStyles)) }] : []),
-    ...plan.masters.flatMap((master, index) => [
-      {
-        name: `ppt/slideMasters/slideMaster${index + 1}.xml`,
-        data: encoder.encode(serializeMasterXml(master, mergeColorMaps(master?.colorMap), plan.parts.masterLayouts[index] ?? [], plan.parts.masterCount)),
-      },
-      {
-        name: `ppt/slideMasters/_rels/slideMaster${index + 1}.xml.rels`,
-        data: encoder.encode(serializeMasterRelationshipsXml(plan.parts.masterLayouts[index] ?? [], plan.parts.masterThemes[index] ?? 1)),
-      },
-    ]),
+    ...plan.masters.flatMap((master, index) => {
+      const layoutNumbers = plan.parts.masterLayouts[index] ?? []
+      const background = backgroundRelationship(master?.background, materialized, `rId${layoutNumbers.length + 2}`)
+      return [
+        {
+          name: `ppt/slideMasters/slideMaster${index + 1}.xml`,
+          data: encoder.encode(serializeMasterXml(master, mergeColorMaps(master?.colorMap), layoutNumbers, plan.parts.masterCount, background.id)),
+        },
+        {
+          name: `ppt/slideMasters/_rels/slideMaster${index + 1}.xml.rels`,
+          data: encoder.encode(serializeMasterRelationshipsXml(layoutNumbers, plan.parts.masterThemes[index] ?? 1, background.relationships)),
+        },
+      ]
+    }),
     ...plan.layouts.flatMap((layout, index) => {
       const owner = plan.parts.masterLayouts.findIndex((numbers) => numbers.includes(index + 1))
       const master = plan.masters[owner === -1 ? 0 : owner]
+      const background = backgroundRelationship(layout?.background, materialized, 'rId2')
       return [
         {
           name: `ppt/slideLayouts/slideLayout${index + 1}.xml`,
-          data: encoder.encode(serializeLayoutXml(layout, effectiveColorMap([master?.colorMap], layout?.colorMapOverride))),
+          data: encoder.encode(serializeLayoutXml(layout, effectiveColorMap([master?.colorMap], layout?.colorMapOverride), background.id)),
         },
         {
           name: `ppt/slideLayouts/_rels/slideLayout${index + 1}.xml.rels`,
-          data: encoder.encode(serializeLayoutRelationshipsXml(owner === -1 ? 1 : owner + 1)),
+          data: encoder.encode(serializeLayoutRelationshipsXml(owner === -1 ? 1 : owner + 1, background.relationships)),
         },
       ]
     }),

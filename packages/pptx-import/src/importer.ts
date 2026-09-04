@@ -1539,7 +1539,34 @@ function parseDefaults(shape: XmlNode): [string, ElementDefaults] | undefined {
   return [placeholder, defaults]
 }
 
-function parseMaster(xml: string, id: string, themeId: string | undefined, partPath: string): SlideMaster {
+/**
+ * What a master or layout needs to follow a background `a:blipFill`: its own relationships, the part
+ * bytes, and somewhere to report media this build cannot decode. `p:bg` has the same shape in all three
+ * kinds of part — only the relationship table it resolves against differs — so the slide's parser is
+ * reused rather than copied.
+ */
+interface PartMediaContext {
+  entries: Record<string, Uint8Array>
+  relations: Relationship[]
+  reportUnsupportedMedia?: (partPath: string) => void
+}
+
+type ParsedAsset = { metadata: AssetMetadata; bytes: Uint8Array }
+
+/** The background, plus the asset the caller has to register when it is a picture. */
+function parsePartBackground(root: XmlNode, partPath: string, media: PartMediaContext | undefined): { background?: SlideBackground; asset?: ParsedAsset } {
+  const common = findDescendants(root, 'cSld')[0]
+  const picture = media
+    ? parseBackgroundPictureFill(common, partPath, media.relations, media.entries, media.reportUnsupportedMedia)
+    : undefined
+  if (picture) {
+    return { background: { pictureFill: picture.pictureFill }, asset: { metadata: picture.metadata, bytes: picture.bytes } }
+  }
+  const background = parseBackground(common)
+  return background ? { background } : {}
+}
+
+function parseMaster(xml: string, id: string, themeId: string | undefined, partPath: string, media?: PartMediaContext): { master: SlideMaster; asset?: ParsedAsset } {
   const root = parseXml(xml)
   const defaults: Record<string, ElementDefaults> = {}
   for (const shape of findDescendants(root, 'sp')) {
@@ -1548,11 +1575,14 @@ function parseMaster(xml: string, id: string, themeId: string | undefined, partP
   }
   const colorMap = parseColorMap(findDescendants(root, 'clrMap')[0])
   const textStyles = parseTextStyles(root)
-  const background = parseBackground(findDescendants(root, 'cSld')[0])
-  return { id, defaults, ...(background ? { background } : {}), ...(themeId ? { themeId } : {}), ...(colorMap ? { colorMap } : {}), ...(textStyles ? { textStyles } : {}), source: { partPath } }
+  const { background, asset } = parsePartBackground(root, partPath, media)
+  return {
+    master: { id, defaults, ...(background ? { background } : {}), ...(themeId ? { themeId } : {}), ...(colorMap ? { colorMap } : {}), ...(textStyles ? { textStyles } : {}), source: { partPath } },
+    ...(asset ? { asset } : {}),
+  }
 }
 
-function parseLayout(xml: string, id: string, masterId: string, partPath: string): SlideLayout {
+function parseLayout(xml: string, id: string, masterId: string, partPath: string, media?: PartMediaContext): { layout: SlideLayout; asset?: ParsedAsset } {
   const root = parseXml(xml)
   const defaults: Record<string, ElementDefaults> = {}
   for (const shape of findDescendants(root, 'sp')) {
@@ -1560,8 +1590,11 @@ function parseLayout(xml: string, id: string, masterId: string, partPath: string
     if (parsed) defaults[parsed[0]] = parsed[1]
   }
   const colorMapOverride = parseColorMapOverride(root)
-  const background = parseBackground(findDescendants(root, 'cSld')[0])
-  return { id, masterId, defaults, ...(background ? { background } : {}), ...(colorMapOverride ? { colorMapOverride } : {}), source: { partPath } }
+  const { background, asset } = parsePartBackground(root, partPath, media)
+  return {
+    layout: { id, masterId, defaults, ...(background ? { background } : {}), ...(colorMapOverride ? { colorMapOverride } : {}), source: { partPath } },
+    ...(asset ? { asset } : {}),
+  }
 }
 
 function parsePart(entries: Record<string, Uint8Array>, path: string): ImportedPart | undefined {
@@ -1632,6 +1665,13 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
     if (!slidePart) continue
     const slideId = `sld_${slideIndex + 1}`
     const slideRelations = readRelationships(entries, slidePath)
+    // A master or layout background shares the asset map with the slides: one media part is one asset,
+    // whichever part reached it first.
+    const registerPartAsset = async (asset: ParsedAsset | undefined): Promise<void> => {
+      if (!asset || assets[asset.metadata.id]) return
+      assets[asset.metadata.id] = asset.metadata
+      await options.assetAdapter?.put(asset.metadata.id, new Uint8Array(asset.bytes), asset.metadata)
+    }
     const layoutRelationship = slideRelations.find((value) => value.type === 'slideLayout')
     const layoutPath = relationshipTarget(slidePath, slideRelations, layoutRelationship?.id, 'slideLayout')
     let layoutId: string | undefined
@@ -1673,11 +1713,35 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
                   themeIdsByPath.set(themePath, themeId)
                 }
               }
-              masters[masterId] = parseMaster(new TextDecoder().decode(entries[masterPath]!), masterId, themeId, masterPath)
+              const parsedMaster = parseMaster(new TextDecoder().decode(entries[masterPath]!), masterId, themeId, masterPath, {
+                entries,
+                relations: masterRelations,
+                reportUnsupportedMedia: (partPath) => options.onIssue?.({
+                  code: 'unsupported-media',
+                  slideId,
+                  partPath,
+                  message: `master background skipped because ${partPath} is not a supported bitmap format`,
+                }),
+              })
+              masters[masterId] = parsedMaster.master
+              await registerPartAsset(parsedMaster.asset)
             }
           }
         }
-        if (layoutPart) layouts[layoutId] = parseLayout(new TextDecoder().decode(entries[layoutPath]!), layoutId, masterId ?? '', layoutPath)
+        if (layoutPart) {
+          const parsedLayout = parseLayout(new TextDecoder().decode(entries[layoutPath]!), layoutId, masterId ?? '', layoutPath, {
+            entries,
+            relations: layoutRelations,
+            reportUnsupportedMedia: (partPath) => options.onIssue?.({
+              code: 'unsupported-media',
+              slideId,
+              partPath,
+              message: `layout background skipped because ${partPath} is not a supported bitmap format`,
+            }),
+          })
+          layouts[layoutId] = parsedLayout.layout
+          await registerPartAsset(parsedLayout.asset)
+        }
       }
     }
 

@@ -367,7 +367,13 @@ function serializeSpTreeXml(defaults: Record<string, ElementDefaults> | undefine
  * The one `slideMaster1.xml`, now filled from the model. `p:txStyles` closes `CT_SlideMaster`, after
  * `p:sldLayoutIdLst`; a master with no modeled background writes none rather than inventing white.
  */
-export function serializeMasterXml(master: SlideMaster | undefined, colorMap: ColorMap = DEFAULT_COLOR_MAP, layoutNumbers: readonly number[] = [1], masterCount = 1): string {
+export function serializeMasterXml(
+  master: SlideMaster | undefined,
+  colorMap: ColorMap = DEFAULT_COLOR_MAP,
+  layoutNumbers: readonly number[] = [1],
+  masterCount = 1,
+  backgroundRelationshipId?: string,
+): string {
   // Layout ids sit above the master ids so the two lists cannot collide, and a layout keeps the same id
   // whichever master owns it. A master owning no layout writes no list: `p:sldLayoutIdLst` is optional,
   // and inventing a layout for it would be worse than saying nothing.
@@ -375,13 +381,14 @@ export function serializeMasterXml(master: SlideMaster | undefined, colorMap: Co
     .map((number, index) => `<p:sldLayoutId id="${slideMasterIdBase + masterCount + number}" r:id="rId${1 + index}"/>`)
     .join('')
   return `${xmlHeader}<p:sldMaster xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}">`
-    + `<p:cSld>${serializeBackgroundXml(master?.background)}${serializeSpTreeXml(master?.defaults)}</p:cSld>`
+    + `<p:cSld>${serializeBackgroundXml(master?.background, backgroundRelationshipId)}${serializeSpTreeXml(master?.defaults)}</p:cSld>`
     + `${serializeColorMappingXml('p:clrMap', colorMap)}`
     + `${layoutIds ? `<p:sldLayoutIdLst>${layoutIds}</p:sldLayoutIdLst>` : ''}`
     + `${serializeTextStylesXml(master?.textStyles)}</p:sldMaster>`
 }
 
-export function serializeMasterRelationshipsXml(layoutNumbers: readonly number[] = [1], themeNumber = 1): string {
+/** Image relationships come last, so a background picture never renumbers the layouts or the theme. */
+export function serializeMasterRelationshipsXml(layoutNumbers: readonly number[] = [1], themeNumber = 1, imageRelationships: readonly string[] = []): string {
   const relationships = [
     ...layoutNumbers.map((number, index) => relationship(
       `${officeRelationshipNamespace}/slideLayout`,
@@ -389,6 +396,7 @@ export function serializeMasterRelationshipsXml(layoutNumbers: readonly number[]
       `../slideLayouts/slideLayout${number}.xml`,
     )),
     relationship(`${officeRelationshipNamespace}/theme`, `rId${layoutNumbers.length + 1}`, `../theme/theme${themeNumber}.xml`),
+    ...imageRelationships,
   ]
   return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationships.join('')}</Relationships>`
 }
@@ -398,15 +406,19 @@ export function serializeMasterRelationshipsXml(layoutNumbers: readonly number[]
  * `ST_SlideLayoutType` to name instead, so it says `cust`; one with no placeholders keeps writing
  * `blank`, which is what a document with no masters at all produced before any of this was written.
  */
-export function serializeLayoutXml(layout?: SlideLayout, colorMapOverride?: ColorMap): string {
+export function serializeLayoutXml(layout?: SlideLayout, colorMapOverride?: ColorMap, backgroundRelationshipId?: string): string {
   const type = layout?.defaults && Object.keys(layout.defaults).length > 0 ? 'cust' : 'blank'
-  return `${xmlHeader}<p:sldLayout xmlns:a="${drawingNamespace}" xmlns:p="${presentationNamespace}" type="${type}" preserve="1">`
-    + `<p:cSld name="">${serializeBackgroundXml(layout?.background)}${serializeSpTreeXml(layout?.defaults)}</p:cSld>`
+  return `${xmlHeader}<p:sldLayout xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}" type="${type}" preserve="1">`
+    + `<p:cSld name="">${serializeBackgroundXml(layout?.background, backgroundRelationshipId)}${serializeSpTreeXml(layout?.defaults)}</p:cSld>`
     + `${serializeColorMapOverrideXml(colorMapOverride)}</p:sldLayout>`
 }
 
-export function serializeLayoutRelationshipsXml(masterNumber = 1): string {
-  return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationship(`${officeRelationshipNamespace}/slideMaster`, 'rId1', `../slideMasters/slideMaster${masterNumber}.xml`)}</Relationships>`
+export function serializeLayoutRelationshipsXml(masterNumber = 1, imageRelationships: readonly string[] = []): string {
+  const relationships = [
+    relationship(`${officeRelationshipNamespace}/slideMaster`, 'rId1', `../slideMasters/slideMaster${masterNumber}.xml`),
+    ...imageRelationships,
+  ]
+  return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationships.join('')}</Relationships>`
 }
 
 function serializeTransformContents(bounds: Rect): string {

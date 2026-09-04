@@ -77,4 +77,22 @@ describe('picture fill validation', () => {
 
     expect(validateDocument(document).valid).toBe(true)
   })
+
+  /**
+   * A master's and a layout's background were validated without the asset map, so every picture
+   * background was rejected as a missing reference — which made the field unreachable: nothing could
+   * hold one and pass validation.
+   */
+  it('accepts a picture background on a master and a layout, and still rejects an unknown asset', () => {
+    const document = documentWith(photo)
+    document.masters = { mst_1: { id: 'mst_1', background: { pictureFill: { assetId: 'asset_photo' } } } }
+    document.layouts = { lyt_1: { id: 'lyt_1', masterId: 'mst_1', background: { pictureFill: { assetId: 'asset_photo' } } } }
+
+    expect(validateDocument(document)).toEqual({ valid: true })
+
+    document.masters.mst_1!.background = { pictureFill: { assetId: 'asset_missing' } }
+    const result = validateDocument(document)
+
+    expect(result.valid ? [] : result.errors).toContain('masters.mst_1.background.pictureFill references missing asset: asset_missing')
+  })
 })
