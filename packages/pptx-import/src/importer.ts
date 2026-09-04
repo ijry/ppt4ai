@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type PictureFill, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -859,6 +859,37 @@ function parsePicture(
   }
 }
 
+/**
+ * `a:blipFill` on a shape's `spPr`. `a:tile` is refused rather than painted as one stretched copy:
+ * its six placement attributes decide where the repeats land, and guessing them puts the pattern in
+ * the wrong place. A blip fill with no fill mode at all reads as stretch, which is what `p:pic`
+ * already does with its own blip.
+ */
+function parseShapePictureFill(
+  shape: XmlNode,
+  slidePath: string,
+  slideRelations: Relationship[],
+  entries: Record<string, Uint8Array>,
+  reportUnsupportedMedia?: (partPath: string) => void,
+): { pictureFill: PictureFill; metadata: AssetMetadata; bytes: Uint8Array } | undefined {
+  const properties = shapeProperties(shape)
+  const fill = properties && child(properties, 'blipFill')
+  if (!fill || child(fill, 'tile')) return undefined
+  const blip = child(fill, 'blip')
+  const relationshipId = blip && attribute(blip, 'embed')
+  const mediaPath = relationshipTarget(slidePath, slideRelations, relationshipId, 'image')
+  const bytes = mediaPath && entries[mediaPath]
+  if (!mediaPath || !bytes) return undefined
+  const assetId = stableAssetId(mediaPath)
+  const metadata = parseBitmapMetadata(mediaPath, bytes, assetId)
+  if (!metadata) {
+    reportUnsupportedMedia?.(mediaPath)
+    return undefined
+  }
+  const sourceCrop = parseImageCrop(fill)
+  return { pictureFill: { assetId, ...(sourceCrop ? { sourceCrop } : {}) }, metadata, bytes }
+}
+
 function parsePreset(shape: XmlNode): PresetGeometry {
   const geometry = findDescendants(shape, 'prstGeom')[0]
   const preset = geometry && attribute(geometry, 'prst')
@@ -1402,6 +1433,26 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
       }
       const element = localName(shape.node.name) === 'graphicFrame' ? parseTable(shape.node, id) : parseElement(shape.node, id, true)
       if (!element) continue
+      // A shape's picture fill is resolved here rather than in `parseElement`, because only this loop
+      // has the relationships and part bytes the blip points at — the same reason `parsePicture` takes
+      // them as parameters instead of reading them itself.
+      if (element.kind === 'shape' || element.kind === 'text') {
+        const picture = parseShapePictureFill(shape.node, slidePath, slideRelations, entries, (partPath) => {
+          options.onIssue?.({
+            code: 'unsupported-media',
+            slideId,
+            partPath,
+            message: `picture fill skipped because ${partPath} is not a supported bitmap format`,
+          })
+        })
+        if (picture) {
+          element.pictureFill = picture.pictureFill
+          if (!assets[picture.metadata.id]) {
+            assets[picture.metadata.id] = picture.metadata
+            await options.assetAdapter?.put(picture.metadata.id, new Uint8Array(picture.bytes), picture.metadata)
+          }
+        }
+      }
       elements[id] = element
       registerChild(shape, id)
     }
