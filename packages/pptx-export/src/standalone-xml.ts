@@ -54,26 +54,49 @@ function contentTypeOverride(partName: string, contentType: string): string {
   return `<Override PartName="${partName}" ContentType="${contentType}"/>`
 }
 
-export function serializeContentTypesXml(slideCount: number, imageExtensions: Set<string>, hasTableStyles = false): string {
+/**
+ * `ST_SlideMasterId` and `ST_SlideLayoutId` both start at this value; the skeleton used to write `id="1"`
+ * for each, which the schema does not allow. Slide ids are a different type (`ST_SlideId`, 256 upwards).
+ */
+const slideMasterIdBase = 2147483648
+
+/**
+ * How many parts the package has and how they point at each other. One description, so the content
+ * types, the presentation, its relationships and every master, layout and slide agree on the numbering.
+ */
+export interface PackageParts {
+  slideCount: number
+  masterCount: number
+  layoutCount: number
+  themeCount: number
+  hasTableStyles: boolean
+  /** 1-based layout part number for each slide, in slide order. */
+  slideLayouts: readonly number[]
+  /** 1-based layout part numbers owned by each master part, in master order. */
+  masterLayouts: ReadonlyArray<readonly number[]>
+  /** 1-based theme part number for each master part. */
+  masterThemes: readonly number[]
+}
+
+export function serializeContentTypesXml(parts: PackageParts, imageExtensions: Set<string>): string {
   const defaults = [
     '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
     '<Default Extension="xml" ContentType="application/xml"/>',
     ...[...imageExtensions].sort().map((extension) => `<Default Extension="${extension}" ContentType="image/${extension === 'jpg' ? 'jpeg' : extension}"/>`),
   ]
+  const numbered = (count: number, path: (number: number) => string, contentType: string): string[] =>
+    Array.from({ length: count }, (_, index) => contentTypeOverride(path(index + 1), contentType))
   const overrides = [
     contentTypeOverride('/docProps/core.xml', 'application/vnd.openxmlformats-package.core-properties+xml'),
     contentTypeOverride('/docProps/app.xml', 'application/vnd.openxmlformats-officedocument.extended-properties+xml'),
     contentTypeOverride('/ppt/presentation.xml', 'application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml'),
     contentTypeOverride('/ppt/presProps.xml', 'application/vnd.openxmlformats-officedocument.presentationml.presProps+xml'),
     contentTypeOverride('/ppt/viewProps.xml', 'application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml'),
-    contentTypeOverride('/ppt/theme/theme1.xml', 'application/vnd.openxmlformats-officedocument.theme+xml'),
-    ...(hasTableStyles ? [contentTypeOverride('/ppt/tableStyles.xml', 'application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml')] : []),
-    contentTypeOverride('/ppt/slideMasters/slideMaster1.xml', 'application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml'),
-    contentTypeOverride('/ppt/slideLayouts/slideLayout1.xml', 'application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml'),
-    ...Array.from({ length: slideCount }, (_, index) => contentTypeOverride(
-      `/ppt/slides/slide${index + 1}.xml`,
-      'application/vnd.openxmlformats-officedocument.presentationml.slide+xml',
-    )),
+    ...numbered(parts.themeCount, (number) => `/ppt/theme/theme${number}.xml`, 'application/vnd.openxmlformats-officedocument.theme+xml'),
+    ...(parts.hasTableStyles ? [contentTypeOverride('/ppt/tableStyles.xml', 'application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml')] : []),
+    ...numbered(parts.masterCount, (number) => `/ppt/slideMasters/slideMaster${number}.xml`, 'application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml'),
+    ...numbered(parts.layoutCount, (number) => `/ppt/slideLayouts/slideLayout${number}.xml`, 'application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml'),
+    ...numbered(parts.slideCount, (number) => `/ppt/slides/slide${number}.xml`, 'application/vnd.openxmlformats-officedocument.presentationml.slide+xml'),
   ]
   return `${xmlHeader}<Types xmlns="${contentTypeNamespace}">${defaults.join('')}${overrides.join('')}</Types>`
 }
@@ -82,25 +105,36 @@ export function serializeRootRelationshipsXml(): string {
   return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationship(`${officeRelationshipNamespace}/officeDocument`, 'rId1', 'ppt/presentation.xml')}</Relationships>`
 }
 
-export function serializePresentationXml(page: Pick<Rect, 'w' | 'h'>, slideCount: number): string {
-  const slides = Array.from({ length: slideCount }, (_, index) => `<p:sldId id="${256 + index}" r:id="rId${3 + index}"/>`).join('')
-  return `${xmlHeader}<p:presentation xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}"><p:sldMasterIdLst><p:sldMasterId id="1" r:id="rId1"/></p:sldMasterIdLst><p:sldIdLst>${slides}</p:sldIdLst><p:sldSz cx="${page.w}" cy="${page.h}"/><p:notesSz cx="6858000" cy="9144000"/><p:defaultTextStyle><a:defPPr/><a:lvl1pPr><a:defRPr/></a:lvl1pPr></p:defaultTextStyle></p:presentation>`
+/** The masters take `rId1..N`, so a slide's relationship id starts after them and after the theme. */
+function slideRelationshipId(parts: PackageParts, index: number): string {
+  return `rId${parts.masterCount + 2 + index}`
+}
+
+export function serializePresentationXml(page: Pick<Rect, 'w' | 'h'>, parts: PackageParts): string {
+  const masters = Array.from({ length: parts.masterCount }, (_, index) => `<p:sldMasterId id="${slideMasterIdBase + index}" r:id="rId${1 + index}"/>`).join('')
+  const slides = Array.from({ length: parts.slideCount }, (_, index) => `<p:sldId id="${256 + index}" r:id="${slideRelationshipId(parts, index)}"/>`).join('')
+  return `${xmlHeader}<p:presentation xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}"><p:sldMasterIdLst>${masters}</p:sldMasterIdLst><p:sldIdLst>${slides}</p:sldIdLst><p:sldSz cx="${page.w}" cy="${page.h}"/><p:notesSz cx="6858000" cy="9144000"/><p:defaultTextStyle><a:defPPr/><a:lvl1pPr><a:defRPr/></a:lvl1pPr></p:defaultTextStyle></p:presentation>`
 }
 
 /**
- * The table styles relationship comes after the slides, so adding one never renumbers the `r:id`s
- * `p:sldIdLst` already points at.
+ * Masters first, then the presentation's own theme, then the slides, then the table styles. The order is
+ * what keeps a single-master package numbered exactly as it was before several became possible: adding
+ * a master shifts the slides, which is why `p:sldIdLst` asks this function's helper for the id.
  */
-export function serializePresentationRelationshipsXml(slideCount: number, hasTableStyles = false): string {
+export function serializePresentationRelationshipsXml(parts: PackageParts): string {
   const relationships = [
-    relationship(`${officeRelationshipNamespace}/slideMaster`, 'rId1', 'slideMasters/slideMaster1.xml'),
-    relationship(`${officeRelationshipNamespace}/theme`, 'rId2', 'theme/theme1.xml'),
-    ...Array.from({ length: slideCount }, (_, index) => relationship(
+    ...Array.from({ length: parts.masterCount }, (_, index) => relationship(
+      `${officeRelationshipNamespace}/slideMaster`,
+      `rId${1 + index}`,
+      `slideMasters/slideMaster${index + 1}.xml`,
+    )),
+    relationship(`${officeRelationshipNamespace}/theme`, `rId${parts.masterCount + 1}`, 'theme/theme1.xml'),
+    ...Array.from({ length: parts.slideCount }, (_, index) => relationship(
       `${officeRelationshipNamespace}/slide`,
-      `rId${3 + index}`,
+      slideRelationshipId(parts, index),
       `slides/slide${index + 1}.xml`,
     )),
-    ...(hasTableStyles ? [relationship(`${officeRelationshipNamespace}/tableStyles`, `rId${3 + slideCount}`, 'tableStyles.xml')] : []),
+    ...(parts.hasTableStyles ? [relationship(`${officeRelationshipNamespace}/tableStyles`, slideRelationshipId(parts, parts.slideCount), 'tableStyles.xml')] : []),
   ]
   return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationships.join('')}</Relationships>`
 }
@@ -333,18 +367,28 @@ function serializeSpTreeXml(defaults: Record<string, ElementDefaults> | undefine
  * The one `slideMaster1.xml`, now filled from the model. `p:txStyles` closes `CT_SlideMaster`, after
  * `p:sldLayoutIdLst`; a master with no modeled background writes none rather than inventing white.
  */
-export function serializeMasterXml(master?: SlideMaster, colorMap: ColorMap = DEFAULT_COLOR_MAP): string {
+export function serializeMasterXml(master: SlideMaster | undefined, colorMap: ColorMap = DEFAULT_COLOR_MAP, layoutNumbers: readonly number[] = [1], masterCount = 1): string {
+  // Layout ids sit above the master ids so the two lists cannot collide, and a layout keeps the same id
+  // whichever master owns it. A master owning no layout writes no list: `p:sldLayoutIdLst` is optional,
+  // and inventing a layout for it would be worse than saying nothing.
+  const layoutIds = layoutNumbers
+    .map((number, index) => `<p:sldLayoutId id="${slideMasterIdBase + masterCount + number}" r:id="rId${1 + index}"/>`)
+    .join('')
   return `${xmlHeader}<p:sldMaster xmlns:a="${drawingNamespace}" xmlns:r="${officeRelationshipNamespace}" xmlns:p="${presentationNamespace}">`
     + `<p:cSld>${serializeBackgroundXml(master?.background)}${serializeSpTreeXml(master?.defaults)}</p:cSld>`
     + `${serializeColorMappingXml('p:clrMap', colorMap)}`
-    + '<p:sldLayoutIdLst><p:sldLayoutId id="1" r:id="rId1"/></p:sldLayoutIdLst>'
+    + `${layoutIds ? `<p:sldLayoutIdLst>${layoutIds}</p:sldLayoutIdLst>` : ''}`
     + `${serializeTextStylesXml(master?.textStyles)}</p:sldMaster>`
 }
 
-export function serializeMasterRelationshipsXml(): string {
+export function serializeMasterRelationshipsXml(layoutNumbers: readonly number[] = [1], themeNumber = 1): string {
   const relationships = [
-    relationship(`${officeRelationshipNamespace}/slideLayout`, 'rId1', '../slideLayouts/slideLayout1.xml'),
-    relationship(`${officeRelationshipNamespace}/theme`, 'rId2', '../theme/theme1.xml'),
+    ...layoutNumbers.map((number, index) => relationship(
+      `${officeRelationshipNamespace}/slideLayout`,
+      `rId${1 + index}`,
+      `../slideLayouts/slideLayout${number}.xml`,
+    )),
+    relationship(`${officeRelationshipNamespace}/theme`, `rId${layoutNumbers.length + 1}`, `../theme/theme${themeNumber}.xml`),
   ]
   return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationships.join('')}</Relationships>`
 }
@@ -361,8 +405,8 @@ export function serializeLayoutXml(layout?: SlideLayout, colorMapOverride?: Colo
     + `${serializeColorMapOverrideXml(colorMapOverride)}</p:sldLayout>`
 }
 
-export function serializeLayoutRelationshipsXml(): string {
-  return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationship(`${officeRelationshipNamespace}/slideMaster`, 'rId1', '../slideMasters/slideMaster1.xml')}</Relationships>`
+export function serializeLayoutRelationshipsXml(masterNumber = 1): string {
+  return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationship(`${officeRelationshipNamespace}/slideMaster`, 'rId1', `../slideMasters/slideMaster${masterNumber}.xml`)}</Relationships>`
 }
 
 function serializeTransformContents(bounds: Rect): string {
@@ -574,6 +618,6 @@ export function serializeLayoutSlideRelationshipsXml(): string {
   return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationship(`${officeRelationshipNamespace}/slideLayout`, 'rId1', '../slideLayouts/slideLayout1.xml')}</Relationships>`
 }
 
-export function serializeSlideRelationshipsXml(imageRelationships: string[]): string {
-  return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationship(`${officeRelationshipNamespace}/slideLayout`, 'rId1', '../slideLayouts/slideLayout1.xml')}${imageRelationships.join('')}</Relationships>`
+export function serializeSlideRelationshipsXml(imageRelationships: string[], layoutNumber = 1): string {
+  return `${xmlHeader}<Relationships xmlns="${packageRelationshipNamespace}">${relationship(`${officeRelationshipNamespace}/slideLayout`, 'rId1', `../slideLayouts/slideLayout${layoutNumber}.xml`)}${imageRelationships.join('')}</Relationships>`
 }

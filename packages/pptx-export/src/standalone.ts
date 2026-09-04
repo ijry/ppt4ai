@@ -20,6 +20,7 @@ import {
   serializeTableFrameXml,
   serializeTableStylesXml,
   serializeThemeXml,
+  type PackageParts,
 } from './standalone-xml.js'
 
 export interface CreatePptxOptions {
@@ -173,7 +174,7 @@ function serializeSlideElements(
   document: Ppt4aiDocument,
   slideId: string,
   assets: Map<string, MaterializedAsset>,
-  inheritance: { master?: SlideMaster; layout?: SlideLayout },
+  plan: { layoutNumber: number; layout?: SlideLayout; master?: SlideMaster },
 ): SlideSerialization {
   const slide = document.slides[slideId]
   if (!slide) throw new Error(`PPTX generation slide missing: ${slideId}`)
@@ -210,21 +211,16 @@ function serializeSlideElements(
   }
   const serializedElements = slideTree(document, slideId).map(serializeNode)
   const backgroundAsset = slide.background?.pictureFill?.assetId
-  // A slide's own master and layout when it names them, else the pair the package writes. Because an
-  // override is written complete, naming the slide's own pair keeps its colours right even in a
-  // document whose several masters still collapse onto one part.
-  const layout = (slide.layoutId ? document.layouts?.[slide.layoutId] : undefined) ?? inheritance.layout
-  const master = (slide.masterId ? document.masters?.[slide.masterId] : undefined)
-    ?? (layout?.masterId ? document.masters?.[layout.masterId] : undefined)
-    ?? inheritance.master
+  // Because an override is written complete, resolving against the master and layout this slide names
+  // keeps its colours right even when that pair is not the one its layout part descends from.
   return {
     xml: serializeSlideXml(
       serializedElements,
       slide.background,
       backgroundAsset ? relationshipFor(backgroundAsset) : undefined,
-      effectiveColorMap([master?.colorMap, layout?.colorMapOverride], slide.colorMapOverride),
+      effectiveColorMap([plan.master?.colorMap, plan.layout?.colorMapOverride], slide.colorMapOverride),
     ),
-    relationships: serializeSlideRelationshipsXml(imageRelationships),
+    relationships: serializeSlideRelationshipsXml(imageRelationships, plan.layoutNumber),
   }
 }
 
@@ -241,19 +237,68 @@ function effectiveTheme(document: Ppt4aiDocument): Theme | undefined {
 }
 
 /**
- * The package has one master part and one layout part, so one pair of the model's is written: the
- * sorted-first master, and the sorted-first layout belonging to it. That is the rule `effectiveTheme`
- * already uses for the single `theme1.xml`. A document with several masters still collapses onto one —
- * unchanged from before this wrote anything at all, and its own slice to fix.
+ * The parts the package will hold, and which of them each slide, master and layout points at. Numbering
+ * follows the model ids in sorted order so two structurally equal documents export equal bytes, and a
+ * document with one master keeps the numbering it had before several were possible.
+ *
+ * A model with no masters or no layouts still gets one of each: a layout has to belong to a master, and
+ * a package has to have both.
  */
-function effectiveInheritance(document: Ppt4aiDocument): { master?: SlideMaster; layout?: SlideLayout } {
-  const master = Object.keys(document.masters ?? {}).sort()
-    .map((id) => document.masters?.[id])
-    .find((candidate): candidate is SlideMaster => candidate !== undefined)
-  const layouts = Object.keys(document.layouts ?? {}).sort().map((id) => document.layouts?.[id])
-  const layout = layouts.find((candidate): candidate is SlideLayout => candidate?.masterId === master?.id)
-    ?? layouts.find((candidate): candidate is SlideLayout => candidate !== undefined)
-  return { ...(master ? { master } : {}), ...(layout ? { layout } : {}) }
+interface InheritancePlan {
+  masters: ReadonlyArray<SlideMaster | undefined>
+  layouts: ReadonlyArray<SlideLayout | undefined>
+  themes: ReadonlyArray<Theme | undefined>
+  /** Per slide, in slide order: its layout part number and the pair its colours resolve against. */
+  slides: ReadonlyArray<{ layoutNumber: number; layout?: SlideLayout; master?: SlideMaster }>
+  parts: PackageParts
+}
+
+function planInheritance(document: Ppt4aiDocument, hasTableStyles: boolean): InheritancePlan {
+  const modeled = <T>(map: Record<string, T> | undefined): Array<T | undefined> => Object.keys(map ?? {}).sort().map((id) => map?.[id])
+  const masters = modeled(document.masters)
+  const layouts = modeled(document.layouts)
+  const masterList = masters.length > 0 ? masters : [undefined]
+  const layoutList = layouts.length > 0 ? layouts : [undefined]
+  // One theme part per distinct theme a master names, so each master's colours and fonts travel with it.
+  const themeIds: string[] = []
+  for (const master of masterList) {
+    const themeId = master?.themeId
+    if (themeId && document.themes?.[themeId] && !themeIds.includes(themeId)) themeIds.push(themeId)
+  }
+  const themes = themeIds.length > 0 ? themeIds.map((id) => document.themes?.[id]) : [effectiveTheme(document)]
+  const masterNumbers = new Map(masterList.map((master, index) => [master?.id ?? '', index + 1]))
+  const layoutNumbers = new Map(layoutList.map((layout, index) => [layout?.id ?? '', index + 1]))
+  // A layout whose master the model does not hold belongs to the first master rather than to nothing.
+  const ownerOf = (layout: SlideLayout | undefined): number => masterNumbers.get(layout?.masterId ?? '') ?? 1
+  const masterLayouts = masterList.map((_, index) => layoutList.flatMap((layout, layoutIndex) => ownerOf(layout) === index + 1 ? [layoutIndex + 1] : []))
+  const slides = document.slideOrder.map((slideId) => {
+    const slide = document.slides[slideId]
+    const named = slide?.layoutId ? layoutNumbers.get(slide.layoutId) : undefined
+    const masterNumber = slide?.masterId ? masterNumbers.get(slide.masterId) : undefined
+    const layoutNumber = named ?? (masterNumber ? masterLayouts[masterNumber - 1]?.[0] : undefined) ?? 1
+    const layout = layoutList[layoutNumber - 1]
+    const master = (masterNumber ? masterList[masterNumber - 1] : undefined) ?? masterList[ownerOf(layout) - 1]
+    return { layoutNumber, ...(layout ? { layout } : {}), ...(master ? { master } : {}) }
+  })
+  return {
+    masters: masterList,
+    layouts: layoutList,
+    themes,
+    slides,
+    parts: {
+      slideCount: document.slideOrder.length,
+      masterCount: masterList.length,
+      layoutCount: layoutList.length,
+      themeCount: themes.length,
+      hasTableStyles,
+      slideLayouts: slides.map((slide) => slide.layoutNumber),
+      masterLayouts,
+      masterThemes: masterList.map((master) => {
+        const index = master?.themeId ? themeIds.indexOf(master.themeId) : -1
+        return index >= 0 ? index + 1 : 1
+      }),
+    },
+  }
 }
 
 /**
@@ -270,8 +315,7 @@ function skeletonEntries(
   slides: SlideSerialization[],
   materialized: Map<string, MaterializedAsset>,
   imageExtensions: Set<string>,
-  theme: Theme | undefined,
-  inheritance: { master?: SlideMaster; layout?: SlideLayout },
+  plan: InheritancePlan,
 ): ZipEntry[] {
   const slideCount = document.slideOrder.length
   const support = serializePresentationSupportXml()
@@ -281,20 +325,40 @@ function skeletonEntries(
   // built-in styles from its own gallery, so a reference this package cannot answer is still valid.
   const tableStyles = document.tableStyles && Object.keys(document.tableStyles).length > 0 ? document.tableStyles : undefined
   const entries: ZipEntry[] = [
-    { name: '[Content_Types].xml', data: encoder.encode(serializeContentTypesXml(slideCount, imageExtensions, tableStyles !== undefined)) },
+    { name: '[Content_Types].xml', data: encoder.encode(serializeContentTypesXml(plan.parts, imageExtensions)) },
     { name: '_rels/.rels', data: encoder.encode(serializeRootRelationshipsXml()) },
     { name: 'docProps/core.xml', data: encoder.encode(serializeCorePropertiesXml()) },
     { name: 'docProps/app.xml', data: encoder.encode(serializeAppPropertiesXml()) },
-    { name: 'ppt/presentation.xml', data: encoder.encode(serializePresentationXml(document.page, slideCount)) },
-    { name: 'ppt/_rels/presentation.xml.rels', data: encoder.encode(serializePresentationRelationshipsXml(slideCount, tableStyles !== undefined)) },
+    { name: 'ppt/presentation.xml', data: encoder.encode(serializePresentationXml(document.page, plan.parts)) },
+    { name: 'ppt/_rels/presentation.xml.rels', data: encoder.encode(serializePresentationRelationshipsXml(plan.parts)) },
     { name: 'ppt/presProps.xml', data: encoder.encode(support.presProps) },
     { name: 'ppt/viewProps.xml', data: encoder.encode(support.viewProps) },
-    { name: 'ppt/theme/theme1.xml', data: encoder.encode(serializeThemeXml(theme)) },
+    ...plan.themes.map((theme, index) => ({ name: `ppt/theme/theme${index + 1}.xml`, data: encoder.encode(serializeThemeXml(theme)) })),
     ...(tableStyles ? [{ name: 'ppt/tableStyles.xml', data: encoder.encode(serializeTableStylesXml(tableStyles)) }] : []),
-    { name: 'ppt/slideMasters/slideMaster1.xml', data: encoder.encode(serializeMasterXml(inheritance.master, mergeColorMaps(inheritance.master?.colorMap))) },
-    { name: 'ppt/slideMasters/_rels/slideMaster1.xml.rels', data: encoder.encode(serializeMasterRelationshipsXml()) },
-    { name: 'ppt/slideLayouts/slideLayout1.xml', data: encoder.encode(serializeLayoutXml(inheritance.layout, effectiveColorMap([inheritance.master?.colorMap], inheritance.layout?.colorMapOverride))) },
-    { name: 'ppt/slideLayouts/_rels/slideLayout1.xml.rels', data: encoder.encode(serializeLayoutRelationshipsXml()) },
+    ...plan.masters.flatMap((master, index) => [
+      {
+        name: `ppt/slideMasters/slideMaster${index + 1}.xml`,
+        data: encoder.encode(serializeMasterXml(master, mergeColorMaps(master?.colorMap), plan.parts.masterLayouts[index] ?? [], plan.parts.masterCount)),
+      },
+      {
+        name: `ppt/slideMasters/_rels/slideMaster${index + 1}.xml.rels`,
+        data: encoder.encode(serializeMasterRelationshipsXml(plan.parts.masterLayouts[index] ?? [], plan.parts.masterThemes[index] ?? 1)),
+      },
+    ]),
+    ...plan.layouts.flatMap((layout, index) => {
+      const owner = plan.parts.masterLayouts.findIndex((numbers) => numbers.includes(index + 1))
+      const master = plan.masters[owner === -1 ? 0 : owner]
+      return [
+        {
+          name: `ppt/slideLayouts/slideLayout${index + 1}.xml`,
+          data: encoder.encode(serializeLayoutXml(layout, effectiveColorMap([master?.colorMap], layout?.colorMapOverride))),
+        },
+        {
+          name: `ppt/slideLayouts/_rels/slideLayout${index + 1}.xml.rels`,
+          data: encoder.encode(serializeLayoutRelationshipsXml(owner === -1 ? 1 : owner + 1)),
+        },
+      ]
+    }),
   ]
   for (let index = 0; index < slideCount; index += 1) {
     const slide = slides[index]
@@ -313,7 +377,8 @@ export async function createPptx(document: Ppt4aiDocument, options: CreatePptxOp
   if (error) throw error
   validateElementKinds(document)
   const materialized = await materializeAssets(document, options)
-  const inheritance = effectiveInheritance(document)
-  const slides = document.slideOrder.map((slideId) => serializeSlideElements(document, slideId, materialized.assets, inheritance))
-  return writeStoredZip(skeletonEntries(document, slides, materialized.assets, materialized.extensions, effectiveTheme(document), inheritance))
+  const hasTableStyles = Object.keys(document.tableStyles ?? {}).length > 0
+  const plan = planInheritance(document, hasTableStyles)
+  const slides = document.slideOrder.map((slideId, index) => serializeSlideElements(document, slideId, materialized.assets, plan.slides[index] ?? { layoutNumber: 1 }))
+  return writeStoredZip(skeletonEntries(document, slides, materialized.assets, materialized.extensions, plan))
 }
