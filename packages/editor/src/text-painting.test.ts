@@ -73,7 +73,7 @@ function node(overrides: Partial<SceneTextNode> = {}): SceneTextNode {
             fontSize: 20,
             bold: true,
             italic: true,
-            underline: 'single',
+            underline: 'sng',
           },
           resolvedColor: { rgb: '336699', alpha: 50000 },
         }],

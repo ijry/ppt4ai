@@ -89,7 +89,8 @@ describe('text formatting transactions', () => {
     expect(() => setTextMarks(state, { fontFamily: '   ' })).toThrow()
     expect(() => setTextMarks(state, { fontSize: 0 })).toThrow()
     expect(() => setTextMarks(state, { fontSize: Number.NaN })).toThrow()
-    expect(() => setTextMarks(state, { underline: 'double' as 'single' })).toThrow()
+    // `double` is a legal token shape now; only a word that is not a token at all is refused.
+    expect(() => setTextMarks(state, { underline: 'not a token!' })).toThrow()
     expect(() => setTextMarks(state, { color: { color: { type: 'srgb', v: '' } } })).toThrow()
     expect(getTextEditorSnapshot(state)).toEqual(before)
   })
@@ -129,7 +130,7 @@ describe('text formatting transactions', () => {
 
   it('reports uniform, mixed, and collapsed formatting state', () => {
     const uniform = setTextEditorSelection(createTextEditorState({
-      paragraphs: [{ runs: [{ text: 'AB', marks: { bold: true, italic: true, underline: 'single', fontFamily: 'Arial', fontSize: 18, color: { color: { type: 'srgb', v: 'ff0000' } } } }] }],
+      paragraphs: [{ runs: [{ text: 'AB', marks: { bold: true, italic: true, underline: 'sng', fontFamily: 'Arial', fontSize: 18, color: { color: { type: 'srgb', v: 'ff0000' } } } }] }],
     }), { anchor: 1, head: 3 })
     expect(getTextFormattingState(uniform)).toEqual({
       bold: true,

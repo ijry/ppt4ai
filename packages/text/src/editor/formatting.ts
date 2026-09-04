@@ -9,6 +9,14 @@ export type TextMarksPatch = {
 
 export type TextMarkName = 'bold' | 'italic' | 'underline'
 
+/**
+ * Any `@u` word other than an explicit `none` is an underline. Asking for `=== 'single'` reported a
+ * `dbl` run as not underlined, the same lie a `<select>` tells when its value matches no option.
+ */
+function isUnderlined(value: string | undefined): boolean {
+  return value !== undefined && value !== 'none'
+}
+
 export type TextToggleState = boolean | 'mixed'
 
 export interface TextFormattingState {
@@ -63,7 +71,10 @@ export function setTextMarks(state: EditorState, patch: TextMarksPatch): EditorS
 
 export function toggleTextMark(state: EditorState, name: TextMarkName): EditorState {
   const current = getToggleValue(state, name)
-  const value = name === 'underline' ? (current ? 'none' : 'single') : !current
+  // Turning it on writes `sng`, OOXML's own word for a single underline — the model's vocabulary is the
+  // file's, so writing an internal `single` here would serialize a `u="single"` no reader knows. Off
+  // writes an explicit `none`, which is what overrides an inherited underline.
+  const value = name === 'underline' ? (current ? 'none' : 'sng') : !current
   return setTextMarks(state, { [name]: value } as TextMarksPatch)
 }
 
@@ -119,7 +130,7 @@ export function getTextFormattingState(state: EditorState): TextFormattingState 
   } = {
     bold: reduceBoolean(marks?.map((value) => value?.bold === true) ?? [false]),
     italic: reduceBoolean(marks?.map((value) => value?.italic === true) ?? [false]),
-    underline: reduceBoolean(marks?.map((value) => value?.underline === 'single') ?? [false]),
+    underline: reduceBoolean(marks?.map((value) => isUnderlined(value?.underline)) ?? [false]),
   }
   const fontFamily = reduceScalar(marks?.map((value) => value?.fontFamily) ?? [undefined])
   const fontSize = reduceScalar(marks?.map((value) => value?.fontSize) ?? [undefined])
@@ -141,7 +152,7 @@ function validatePatch(patch: TextMarksPatch): void {
     if (key === 'fontFamily' && (typeof value !== 'string' || value.trim().length === 0)) throw new TypeError('fontFamily must be non-empty')
     if (key === 'fontSize' && (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)) throw new TypeError('fontSize must be positive')
     if ((key === 'bold' || key === 'italic') && typeof value !== 'boolean') throw new TypeError(`${key} must be boolean`)
-    if (key === 'underline' && value !== 'none' && value !== 'single') throw new TypeError('underline must be none or single')
+    if (key === 'underline' && (typeof value !== 'string' || !/^[A-Za-z][A-Za-z0-9]*$/u.test(value))) throw new TypeError('underline must be an underline token')
     if (key === 'baseline' && (typeof value !== 'number' || !Number.isFinite(value))) throw new TypeError('baseline must be finite')
     if (key === 'color' && !isFill(value)) throw new TypeError('color must be a valid fill')
   }
@@ -229,12 +240,12 @@ function getToggleValue(state: EditorState, name: TextMarkName): boolean {
   const values: boolean[] = []
   if (state.selection.empty) {
     const marks = getMarksAtCursor(state)
-    return name === 'underline' ? marks?.underline === 'single' : marks?.[name] === true
+    return name === 'underline' ? isUnderlined(marks?.underline) : marks?.[name] === true
   }
   state.doc.nodesBetween(state.selection.from, state.selection.to, (node) => {
     if (!node.isText || !node.text) return
     const marks = marksFromProseMirror(node.marks)
-    values.push(name === 'underline' ? marks?.underline === 'single' : marks?.[name] === true)
+    values.push(name === 'underline' ? isUnderlined(marks?.underline) : marks?.[name] === true)
   })
   return values.length > 0 && values.every(Boolean)
 }

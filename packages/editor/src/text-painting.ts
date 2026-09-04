@@ -103,6 +103,22 @@ function applyTextStyle(context: TextContext, style: TextPaintStyle): void {
   context.globalAlpha = style.alpha
 }
 
+/**
+ * `a:rPr/@u`'s word decides whether there is a line and what structure it has. The dotted and dashed
+ * families reuse the dash lengths the outline painter already ships, so no new magnitudes appear here;
+ * `dbl`, `heavy`, `wavy` and `words` draw the one solid line they drew before the word was preserved,
+ * because a second line's spacing, a heavier weight and a wave's amplitude would all be invented.
+ */
+function underlinePattern(underline: string | undefined, fontPixels: number): { dash: number[] } | undefined {
+  if (underline === undefined || underline === 'none') return undefined
+  const width = Math.max(1, fontPixels * 0.05)
+  if (underline.startsWith('dotted')) return { dash: [width, 2 * width] }
+  if (underline.startsWith('dash') || underline.startsWith('dotDash') || underline.startsWith('dotDotDash')) {
+    return { dash: [4 * width, 3 * width] }
+  }
+  return { dash: [] }
+}
+
 function paintHorizontalItem(
   context: TextContext,
   item: TextItem,
@@ -115,14 +131,17 @@ function paintHorizontalItem(
   const x = mapping.offsetX + item.x * mapping.scale
   const y = mapping.offsetY + line.y * mapping.scale
   context.fillText(item.text, x, y)
-  if (item.marks?.underline !== 'single') return
+  const underline = underlinePattern(item.marks?.underline, style.fontPixels)
+  if (!underline) return
   context.beginPath()
   context.moveTo(x, mapping.offsetY + (line.y + line.height * 0.9) * mapping.scale)
   context.lineTo(mapping.offsetX + (item.x + item.width) * mapping.scale, mapping.offsetY + (line.y + line.height * 0.9) * mapping.scale)
   context.strokeStyle = style.color
   context.globalAlpha = style.alpha
   context.lineWidth = Math.max(1, style.fontPixels * 0.05)
+  context.setLineDash(underline.dash)
   context.stroke()
+  context.setLineDash([])
 }
 
 function paintVerticalItem(

@@ -58,7 +58,7 @@ describe('formatted text survives a writeback edit', () => {
       attrs: { align: 'center' },
       runs: [{
         text: 'Edited',
-        marks: { fontFamily: 'Georgia', fontSize: 32, bold: true, underline: 'single', color: { color: { type: 'srgb', v: 'FF0000' } } },
+        marks: { fontFamily: 'Georgia', fontSize: 32, bold: true, underline: 'sng', color: { color: { type: 'srgb', v: 'FF0000' } } },
       }],
     })
   })

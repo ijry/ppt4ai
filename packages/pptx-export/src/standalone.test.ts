@@ -70,7 +70,7 @@ const text: TextElement = {
               fontSize: 18,
               bold: true,
               italic: true,
-              underline: 'single',
+              underline: 'sng',
               baseline: 25000,
               color: { color: { type: 'srgb', v: 'FF0000' } },
             },

@@ -53,9 +53,8 @@ function sourceRunMarks(runProperties: XmlElement | undefined): TextMarks | unde
   if (bold !== undefined) marks.bold = bold
   const italic = booleanAttributeValue(runProperties.attributes.i)
   if (italic !== undefined) marks.italic = italic
-  const underline = runProperties.attributes.u
-  if (underline === 'none') marks.underline = 'none'
-  else if (underline !== undefined && underline !== '') marks.underline = 'single'
+  const underline = runProperties.attributes.u?.trim()
+  if (underline && /^[A-Za-z][A-Za-z0-9]*$/u.test(underline)) marks.underline = underline
   const color = sourceColor(directChildOf(runProperties, 'solidFill'))
   if (color) marks.color = { color }
   const baseline = numberAttribute(runProperties, 'baseline')

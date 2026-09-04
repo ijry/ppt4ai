@@ -68,7 +68,7 @@ describe('level defaults', () => {
     const layoutTitleDefaults = document.layouts!.lyt_1!.defaults!.title
     expect(layoutTitleDefaults).toBeDefined()
     expect(layoutTitleDefaults?.listStyle).toHaveLength(1)
-    expect(layoutTitleDefaults?.listStyle![0]).toMatchObject({ level: 0, marks: { fontSize: 36, underline: 'single' } })
+    expect(layoutTitleDefaults?.listStyle![0]).toMatchObject({ level: 0, marks: { fontSize: 36, underline: 'sng' } })
 
     // Paragraph defRPr
     const bodyElement = document.elements.el_2

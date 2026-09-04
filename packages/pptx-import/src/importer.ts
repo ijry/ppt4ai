@@ -1046,9 +1046,10 @@ function parseRunMarks(runProperties: XmlNode | undefined): TextMarks | undefine
   if (bold !== undefined) marks.bold = bold
   const italic = parseBoolean(attribute(runProperties, 'i'))
   if (italic !== undefined) marks.italic = italic
-  const underline = attribute(runProperties, 'u')
-  if (underline === 'none') marks.underline = 'none'
-  else if (underline !== undefined && underline !== '') marks.underline = 'single'
+  // The word itself: `dbl`, `wavy` and the rest used to collapse onto `single`, which both export paths
+  // then wrote back as `sng`.
+  const underline = attribute(runProperties, 'u')?.trim()
+  if (underline && isOoxmlToken(underline)) marks.underline = underline
   const color = parseColor(child(runProperties, 'solidFill'))
   if (color) marks.color = { color }
   const baseline = parseNumber(attribute(runProperties, 'baseline'))

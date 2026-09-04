@@ -24,7 +24,7 @@ const table: TableElement = {
               attrs: { align: 'center' },
               runs: [{
                 text: 'A < & "',
-                marks: { fontFamily: 'Aptos', fontSize: 18, bold: true, italic: true, underline: 'single', color: { color: srgb('FF0000') } },
+                marks: { fontFamily: 'Aptos', fontSize: 18, bold: true, italic: true, underline: 'sng', color: { color: srgb('FF0000') } },
               }],
             }],
           },

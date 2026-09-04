@@ -125,7 +125,7 @@ function serializeMarks(marks: TextMarks | undefined): string {
     ['sz', marks.fontSize === undefined ? undefined : Math.round(marks.fontSize * 100)],
     ['b', booleanAttribute(marks.bold)],
     ['i', booleanAttribute(marks.italic)],
-    ['u', marks.underline === undefined ? undefined : marks.underline === 'single' ? 'sng' : 'none'],
+    ['u', marks.underline],
     ['baseline', marks.baseline],
   ])}>${serializeFillXml(marks.color)}${serializeTypefaces(marks)}</a:rPr>`
 }

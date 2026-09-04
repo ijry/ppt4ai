@@ -304,7 +304,12 @@ export interface TextMarks {
   fontSize?: number
   bold?: boolean
   italic?: boolean
-  underline?: 'none' | 'single'
+  /**
+   * `a:rPr/@u` verbatim. `none` is an explicit value — it overrides an inherited underline — and every
+   * other word (`sng`, `dbl`, `dotted`, `wavy`, …) is the file's own; painting draws three structures
+   * from them (see `text-painting`), which is what keeps `dbl` from being rewritten as `sng`.
+   */
+  underline?: string
   color?: Fill
   baseline?: number
 }
@@ -1139,7 +1144,6 @@ const textAlignments = new Set(['left', 'center', 'right'])
 const verticalAlignments = new Set(['top', 'middle', 'bottom'])
 const writingModes = new Set(['horizontal', 'vertical'])
 const wraps = new Set(['square', 'none'])
-const underlines = new Set(['none', 'single'])
 const tableStyleRegions = new Set<TableStyleRegionName>(['wholeTable', 'band1H', 'band2H', 'band1V', 'band2V', 'firstRow', 'lastRow', 'firstCol', 'lastCol'])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
 const strokeStyles = new Set<StrokeStyle>(['solid', 'dot', 'sysDot', 'dash', 'lgDash', 'sysDash', 'dashDot', 'lgDashDot', 'sysDashDot', 'lgDashDotDot', 'sysDashDotDot'])
@@ -1426,7 +1430,7 @@ function validateTextMarks(value: unknown, path: string, errors: string[]): void
   for (const key of ['bold', 'italic']) {
     if (key in marks && typeof marks[key] !== 'boolean') errors.push(`${path}.${key} must be boolean`)
   }
-  if ('underline' in marks && (typeof marks.underline !== 'string' || !underlines.has(marks.underline))) errors.push(`${path}.underline must be none or single`)
+  if ('underline' in marks && !isOoxmlToken(marks.underline)) errors.push(`${path}.underline must be an underline token`)
   if ('baseline' in marks) validateFiniteNumber(marks.baseline, `${path}.baseline`, errors, () => true, 'must be finite')
 }
 

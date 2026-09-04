@@ -106,10 +106,10 @@ describe('table cell text goes through the shared serializer', () => {
 
   it('round-trips run marks on a cell', async () => {
     const { body } = await roundTrip({
-      paragraphs: [{ runs: [{ text: 'A', marks: { fontFamily: 'Georgia', fontSize: 24, bold: true, underline: 'single' } }] }],
+      paragraphs: [{ runs: [{ text: 'A', marks: { fontFamily: 'Georgia', fontSize: 24, bold: true, underline: 'sng' } }] }],
     })
 
-    expect(body.paragraphs[0]?.runs[0]?.marks).toEqual({ fontFamily: 'Georgia', fontSize: 24, bold: true, underline: 'single' })
+    expect(body.paragraphs[0]?.runs[0]?.marks).toEqual({ fontFamily: 'Georgia', fontSize: 24, bold: true, underline: 'sng' })
   })
 
   it('emits the same body as the shape path, apart from the outer tag prefix', () => {

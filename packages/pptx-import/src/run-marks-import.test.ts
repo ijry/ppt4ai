@@ -34,7 +34,7 @@ describe('run marks on import', () => {
         fontSize: 32,
         bold: true,
         italic: true,
-        underline: 'single',
+        underline: 'sng',
         color: { color: { type: 'srgb', v: 'FF0000' } },
         baseline: 30000,
       },
