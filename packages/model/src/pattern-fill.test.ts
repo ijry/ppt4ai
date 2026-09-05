@@ -70,11 +70,12 @@ describe('pattern fill validation', () => {
     expect(errorsFor([valid])).toContain('slides.sld_1.background.fill.pattern must be an object')
   })
 
-  /** The line-shaped families paint as geometry; percentage and decorative words stay flat. */
-  it('lists the presets that paint as real geometry', () => {
+  /** The line and percentage families paint; the decorative words stay flat. */
+  it('lists the presets that paint as something other than a flat colour', () => {
     expect(PAINTED_PRESET_PATTERNS).toContain('ltHorz')
     expect(PAINTED_PRESET_PATTERNS).toContain('diagCross')
-    expect(PAINTED_PRESET_PATTERNS).not.toContain('pct50')
+    expect(PAINTED_PRESET_PATTERNS).toContain('pct50')
     expect(PAINTED_PRESET_PATTERNS).not.toContain('zigZag')
+    expect(PAINTED_PRESET_PATTERNS).not.toContain('weave')
   })
 })

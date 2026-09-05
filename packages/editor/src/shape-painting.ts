@@ -1,5 +1,5 @@
 import type { PathCommand } from '@ppt4ai/geometry'
-import { gradientAxis, gradientFocus, patternGeometry, rotationRadians } from '@ppt4ai/geometry'
+import { gradientAxis, gradientFocus, patternCoverage, patternGeometry, rotationRadians } from '@ppt4ai/geometry'
 import type { DashSegment, Rect, ResolvedColor, ResolvedGradient, ResolvedPattern, ResolvedShadow, StrokeCap, StrokeJoin, StrokeStyle } from '@ppt4ai/model'
 import type { SceneShapeNode, ScenePictureFill } from '@ppt4ai/render'
 import type { DecodedImage } from './image-canvas-renderer'
@@ -383,9 +383,14 @@ function createPath(context: ShapeContext, node: SceneShapeNode, mapping: ShapeP
 }
 
 /**
- * An `a:pattFill` drawn as its background colour plus a set of foreground lines, clipped to the
- * shape's own path. Returns false when the preset is one `patternGeometry` does not draw, and the
- * caller then paints the flat foreground colour it painted before any pattern had geometry.
+ * An `a:pattFill` drawn over its own background colour, clipped to the shape's path. Two forms:
+ *
+ * A line-shaped preset strokes a set of foreground lines. A `pctNN` preset fills the foreground at that
+ * coverage instead, because the dither Office draws would be thousands of dots on a full-page shape
+ * while the blend costs one `fillRect` and matches the average colour at any zoom.
+ *
+ * Returns false for a preset that is neither, and the caller then paints the flat foreground colour it
+ * painted before any pattern had geometry.
  *
  * Lines are drawn rather than tiled through `createPattern` so the same code runs in the worker and in
  * the tests, neither of which has a canvas to rasterize a tile into.
@@ -397,8 +402,10 @@ export function paintPatternFill(
   mapping: ShapePageMapping,
   bounds: Rect,
 ): boolean {
+  if (!(bounds.w > 0) || !(bounds.h > 0)) return false
   const geometry = patternGeometry(pattern.preset, bounds)
-  if (!geometry) return false
+  const coverage = geometry ? undefined : patternCoverage(pattern.preset)
+  if (!geometry && coverage === undefined) return false
   const background = colorStyle(pattern.background)
   const foreground = colorStyle(pattern.foreground)
   context.save()
@@ -408,18 +415,25 @@ export function paintPatternFill(
     context.globalAlpha = background.alpha
     context.fillStyle = background.style
     context.fillRect(bounds.x, bounds.y, bounds.w, bounds.h)
-    // One shadow per shape, as everywhere else: the background has just cast it, so the lines must not.
+    // One shadow per shape, as everywhere else: the background has just cast it, so the rest must not.
     clearShadow(context)
-    context.globalAlpha = foreground.alpha
-    context.strokeStyle = foreground.style
-    context.lineWidth = geometry.lineWidth
-    context.setLineDash([])
-    context.beginPath()
-    for (const line of geometry.lines) {
-      context.moveTo(line.from.x, line.from.y)
-      context.lineTo(line.to.x, line.to.y)
+    if (geometry) {
+      context.globalAlpha = foreground.alpha
+      context.strokeStyle = foreground.style
+      context.lineWidth = geometry.lineWidth
+      context.setLineDash([])
+      context.beginPath()
+      for (const line of geometry.lines) {
+        context.moveTo(line.from.x, line.from.y)
+        context.lineTo(line.to.x, line.to.y)
+      }
+      context.stroke()
+    } else {
+      // The word's own percentage, scaled by whatever transparency the foreground colour itself carries.
+      context.globalAlpha = foreground.alpha * (coverage ?? 1)
+      context.fillStyle = foreground.style
+      context.fillRect(bounds.x, bounds.y, bounds.w, bounds.h)
     }
-    context.stroke()
   } finally {
     context.restore()
   }

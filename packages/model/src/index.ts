@@ -345,13 +345,16 @@ export interface PatternFill {
 export type PresetPattern = string
 
 /**
- * The `prst` words that paint as real geometry rather than as their foreground colour. These are the
- * line-shaped families, where the word itself states the direction and the density tier; the exact
- * spacing and weight are this project's own approximation (see `patternGeometry`).
+ * The `prst` words that paint as something other than a flat foreground colour. Two families:
  *
- * The percentage families (`pct5`…`pct90`) and the decorative words (`zigZag`, `weave`, `sphere`, …)
- * are deliberately absent: the first is a dot-density problem, and the second has a shape the name
- * does not describe. Both keep painting as the foreground colour.
+ * The line-shaped words, where the name states a direction and a density tier; the exact spacing and
+ * weight are this project's own approximation (see `patternGeometry`).
+ *
+ * The `pctNN` words, painted as the foreground at that coverage rather than as the dither Office draws
+ * (see `patternCoverage`) — the average colour matches, the dot structure is not drawn.
+ *
+ * The decorative words (`zigZag`, `weave`, `sphere`, `shingle`, …) are deliberately absent: their shape
+ * is not something the name describes, so they keep painting as the foreground colour.
  */
 export const PAINTED_PRESET_PATTERNS: readonly string[] = [
   'ltHorz', 'horz', 'dkHorz', 'narHorz',
@@ -359,6 +362,8 @@ export const PAINTED_PRESET_PATTERNS: readonly string[] = [
   'ltUpDiag', 'dkUpDiag', 'wdUpDiag',
   'ltDnDiag', 'dkDnDiag', 'wdDnDiag',
   'smGrid', 'lgGrid', 'cross', 'diagCross',
+  'pct5', 'pct10', 'pct20', 'pct25', 'pct30', 'pct40',
+  'pct50', 'pct60', 'pct70', 'pct75', 'pct80', 'pct90',
 ]
 
 /** A pattern with both colours already resolved through the theme and colour map. */

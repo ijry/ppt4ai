@@ -119,6 +119,22 @@ function patternLines(direction: PatternDirection, bounds: GeometryBounds, spaci
   return lines
 }
 
+/**
+ * The foreground coverage a `pctNN` word states, as a 0..1 fraction — `pct50` is half foreground. The
+ * painter uses it as an alpha rather than drawing the dither, so the average colour matches at any
+ * zoom without the operation count a dot grid would cost.
+ *
+ * Parsed from the word rather than matched against a list of the twelve: the exact percentage subset in
+ * `ST_PresetPatternVal` is not verifiable here, and a regex cannot omit a word by misremembering it.
+ */
+export function patternCoverage(preset: string): number | undefined {
+  const match = /^pct(\d+)$/.exec(preset)
+  if (!match) return undefined
+  const percentage = Number(match[1])
+  if (!Number.isFinite(percentage) || percentage <= 0 || percentage > 100) return undefined
+  return percentage / 100
+}
+
 const quarterTurn = Math.PI / 2
 
 /** OOXML states rotation in 60000ths of a degree; positive turns clockwise in a y-down space. */

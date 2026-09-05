@@ -23,7 +23,7 @@ function fakeContext() {
     closePath(): void {},
     clip(): void { events.push(['clip']) },
     fill(): void { events.push(['fill']) },
-    fillRect(x: number, y: number, w: number, h: number): void { events.push(['fillRect', x, y, w, h]) },
+    fillRect(x: number, y: number, w: number, h: number): void { events.push(['fillRect', x, y, w, h, this.globalAlpha]) },
     stroke(): void { events.push(['stroke']) },
     setLineDash(): void {},
   }
@@ -64,7 +64,7 @@ describe('pattern fill painting', () => {
   it('paints the background over the whole mapped box', () => {
     const { events } = paint('ltHorz')
 
-    expect(events.find((event) => event[0] === 'fillRect')).toEqual(['fillRect', 0, 0, 100, 100])
+    expect(events.find((event) => event[0] === 'fillRect')?.slice(0, 5)).toEqual(['fillRect', 0, 0, 100, 100])
   })
 
   it('draws one line segment per geometry line', () => {
@@ -99,12 +99,52 @@ describe('pattern fill painting', () => {
 
   /** The caller paints the flat foreground colour instead, which is what every pattern used to do. */
   it('reports false and paints nothing for a preset it cannot draw', () => {
-    for (const preset of ['pct50', 'zigZag', 'someFuturePattern']) {
+    for (const preset of ['zigZag', 'weave', 'someFuturePattern']) {
       const { painted, events } = paint(preset)
 
       expect(painted, preset).toBe(false)
       expect(events, preset).toEqual([])
     }
+  })
+
+  describe('percentage presets', () => {
+    /** Painted as the foreground at the stated coverage: one fillRect, no dither, no lines. */
+    it('fills the foreground over the background instead of stroking lines', () => {
+      const { painted, events } = paint('pct50')
+      const names = events.map((event) => event[0])
+
+      expect(painted).toBe(true)
+      expect(names.filter((name) => name === 'fillRect').length).toBe(2)
+      expect(names).not.toContain('stroke')
+      expect(names.indexOf('clip')).toBeLessThan(names.indexOf('fillRect'))
+    })
+
+    it('uses the percentage the word states as the foreground alpha', () => {
+      const foregroundFill = paint('pct50').events.filter((event) => event[0] === 'fillRect')[1]
+
+      expect(foregroundFill?.[5]).toBe(0.5)
+    })
+
+    /** The bug this slice fixes: all twelve words painted identically, at full foreground. */
+    it('paints a higher percentage more heavily than a lower one', () => {
+      const alphaOf = (preset: string) => paint(preset).events.filter((event) => event[0] === 'fillRect')[1]?.[5] as number
+
+      expect(alphaOf('pct90')).toBeGreaterThan(alphaOf('pct50'))
+      expect(alphaOf('pct50')).toBeGreaterThan(alphaOf('pct5'))
+    })
+
+    it('multiplies the coverage by a translucent foreground colour', () => {
+      const context = fakeContext()
+      const translucent: ResolvedPattern = {
+        preset: 'pct50',
+        foreground: { rgb: 'FF0000', alpha: 50000 },
+        background: { rgb: '00FF00', alpha: 100000 },
+      }
+      paintPatternFill(context as never, translucent, path, mapping, bounds)
+      const foregroundFill = context.events.filter((event) => event[0] === 'fillRect')[1]
+
+      expect(foregroundFill?.[5]).toBeCloseTo(0.25)
+    })
   })
 
   it('reports false for a box with no area', () => {

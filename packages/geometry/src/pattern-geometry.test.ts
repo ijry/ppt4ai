@@ -86,9 +86,13 @@ describe('pattern geometry', () => {
     expect(patternGeometry('ltHorz', { x: 0, y: 0, w: 100, h: -5 })).toBeUndefined()
   })
 
-  /** The model's list and this module must not drift apart in either direction. */
-  it('draws every word the model says it draws', () => {
-    for (const preset of PAINTED_PRESET_PATTERNS) {
+  /**
+   * The model's list and this module must not drift apart. Percentage words are painted by
+   * `patternCoverage` instead, so they are excluded here — `pattern-coverage.test.ts` covers the
+   * constant as a whole and pins that the two families stay disjoint.
+   */
+  it('draws every line-shaped word the model says it draws', () => {
+    for (const preset of PAINTED_PRESET_PATTERNS.filter((word) => !word.startsWith('pct'))) {
       expect(patternGeometry(preset, box), preset).toBeDefined()
     }
   })

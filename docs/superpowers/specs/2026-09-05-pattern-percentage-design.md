@@ -1,6 +1,6 @@
 # 百分比图案（`a:pattFill` 第三刀）
 
-> 状态：待实现
+> 状态：已实现
 > 日期：2026-09-05
 
 ## 1. 目标
@@ -85,3 +85,11 @@ export function patternCoverage(preset: string): number | undefined
 **不画点阵结构**：高缩放下与真实阅读器可见差异，平均颜色一致。列入阅读器核对清单 2.4（与线条族的磁量并列）。
 
 **装饰族仍画前景纯色**：`zigZag`/`weave`/`sphere`/`shingle`/`plaid`/`divot`/`trellis`/`horzBrick` 等词的形状不在名字里，猜不出来，继续回退。这是 `a:pattFill` 最后一块未画的部分。
+
+## 7. 实现记录（2026-09-05）
+
+实现提交 `待填`。按设计执行，一处补充：
+
+**`paintPatternFill` 的空盒判断上移**。原先由 `patternGeometry` 负责（零面积返回 `undefined`），但覆盖率分支不经过它，于是零宽高的百分比图案会去 `fillRect` 一个空矩形。判断移到函数开头，两条路共用。
+
+上一刀的 `PAINTED_PRESET_PATTERNS` 一致性测试原来断言「常量里每个词都有线条几何」，现在按族拆成两条：geometry 那份过滤掉 `pct` 前缀，coverage 那份断言整份常量被两条路之一覆盖，另加一条断言两族**互斥**（同一个词不能既有线条又有覆盖率）。互斥这条是新的——它防的是后来有人给某个 `pct` 词加线条配方，导致行为取决于代码里的判断顺序。
