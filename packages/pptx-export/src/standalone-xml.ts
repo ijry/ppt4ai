@@ -516,7 +516,7 @@ function serializeGeometry(preset: ShapeElement['preset'], adjustValues?: readon
  * parser does not read either. The adjust values of a *preset* geometry are written — see
  * `serializeGeometry`.
  */
-function serializeCustomGeometry(geometry: NonNullable<ShapeElement['customGeometry']>): string {
+export function serializeCustomGeometry(geometry: NonNullable<ShapeElement['customGeometry']>): string {
   const paths = geometry.paths.map((path) => {
     const commands = path.commands.map((command) => {
       switch (command.type) {

@@ -1,6 +1,6 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type AdjustValue, type ColorTransformType, type DashSegment, type Fill, type GroupElement, type ImageElement, type OuterShadow, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeElement, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type AdjustValue, type ColorTransformType, type CustomGeometry, type DashSegment, type Fill, type GroupElement, type ImageElement, type OuterShadow, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeElement, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
-import { serializeColorXml, serializeFillXml, serializeShadowXml, serializeTextBodyXml } from './standalone-xml.js'
+import { serializeColorXml, serializeCustomGeometry, serializeFillXml, serializeShadowXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
 import {
   allocateMediaPath,
@@ -16,6 +16,7 @@ import { decodeXml, descendants, replaceRanges, scanXml, tagEnd, type Replacemen
 import { rewriteThemeXml } from './theme-writeback.js'
 import { rewriteLayoutXml, rewriteMasterXml, rewriteSlideColorMapXml } from './master-layout-writeback.js'
 import { sourceColor, sourceFill, sourceOuterShadow } from './color-source.js'
+import { sourceCustomGeometry } from './geometry-source.js'
 import { sourceTextBody } from './text-source.js'
 
 interface SlideRelationship {
@@ -743,11 +744,18 @@ function adjustValuesEqual(left: readonly AdjustValue[], right: readonly AdjustV
  * source's value back over an edit — and an edit to a shape's adjust handles is exactly what a program
  * driving this model would make.
  */
+/** Deep equality over the modeled path list; anything the model does not express is not compared. */
+function customGeometriesEqual(left: CustomGeometry | undefined, right: CustomGeometry | undefined): boolean {
+  if (!left || !right) return !left && !right
+  return JSON.stringify(left.paths) === JSON.stringify(right.paths)
+}
+
 function geometryReplacements(
   xml: string,
   sourceElement: XmlElement,
   preset: PresetGeometry,
   adjustValues?: readonly AdjustValue[],
+  customGeometry?: CustomGeometry,
 ): Replacement[] {
   const properties = sourceShapeProperties(sourceElement)
   if (!properties) return []
@@ -755,6 +763,18 @@ function geometryReplacements(
   const previous = geometry?.localName === 'prstGeom' ? importedPreset(geometry.attributes.prst) : 'rect'
   const sameAdjust = geometry?.localName !== 'prstGeom'
     || adjustValuesEqual(sourceAdjustValues(geometry), adjustValues ?? [])
+  // A custom path lives in the same node, so its comparison belongs to the same owner: changing the
+  // preset replaces the whole `a:custGeom`, and a second patch inside it would fight over that range.
+  if (geometry?.localName === 'custGeom' && customGeometry) {
+    const pathList = geometry.children.find((child) => child.localName === 'pathLst')
+    if (pathList && !customGeometriesEqual(sourceCustomGeometry(geometry), customGeometry)) {
+      const serialized = serializeCustomGeometry(customGeometry)
+      // Only `a:pathLst` is replaced: `a:avLst`, `a:gdLst` and `a:rect` are siblings the model does not
+      // express, and taking them out with the path is the damage the shadow slice showed how to avoid.
+      const inner = serialized.slice(serialized.indexOf('<a:pathLst'), serialized.lastIndexOf('</a:custGeom>'))
+      return [{ start: pathList.start, end: pathList.end, value: inner }]
+    }
+  }
   if (previous === preset && sameAdjust) return []
   if (geometry?.localName === 'prstGeom' && geometry.attributes.prst !== undefined) {
     const list = geometry.children.find((child) => child.localName === 'avLst')
@@ -1393,7 +1413,7 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
         replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin, element.strokeCompound, element.strokeAlign, element.strokeMiterLimit))
         replacements.push(...shadowReplacements(xml, sourceElement, element.shadow))
-        replacements.push(...geometryReplacements(xml, sourceElement, element.preset, element.adjustValues))
+        replacements.push(...geometryReplacements(xml, sourceElement, element.preset, element.adjustValues, element.customGeometry))
       } else {
         throw new Error(`PPTX export shape source mismatch for element ${element.id}`)
       }
