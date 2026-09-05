@@ -75,7 +75,7 @@
 
 ## 8. 实现记录（2026-09-05）
 
-实现提交 `待填`。按设计执行。
+实现提交 `3e2b3f3`。按设计执行。
 
 **两条既有测试的预期本来固定着这个损失**：
 - `gradient-writeback.test.ts` 的 `rewrites the gradient when a stop colour changes` 断言 `rotWithShape` **不存在**——它记录的正是「改停靠点会丢属性」。改名为 `replaces only the stop list…` 并改成断言属性与 `a:lin` 都在。
