@@ -373,6 +373,53 @@ function trianglePath({ x, y, w, h }: GeometryBounds): PathCommand[] {
   ]
 }
 
+/** The four edge midpoints — the only diamond that fits a box. */
+function diamondPath({ x, y, w, h }: GeometryBounds): PathCommand[] {
+  return [
+    { type: 'move', x: x + w / 2, y },
+    { type: 'line', x: x + w, y: y + h / 2 },
+    { type: 'line', x: x + w / 2, y: y + h },
+    { type: 'line', x, y: y + h / 2 },
+    { type: 'close' },
+  ]
+}
+
+/** Three of the box's own corners, the right angle at the bottom left. */
+function rightTrianglePath({ x, y, w, h }: GeometryBounds): PathCommand[] {
+  return [
+    { type: 'move', x, y },
+    { type: 'line', x: x + w, y: y + h },
+    { type: 'line', x, y: y + h },
+    { type: 'close' },
+  ]
+}
+
+/**
+ * The regular polygon with `sides` vertices inscribed in the box, first vertex at twelve o'clock.
+ *
+ * Half the width and half the height are used as the two radii rather than one shared radius, so the
+ * shape fills a non-square box the way `ellipsePath` does and the way OOXML preset geometry does.
+ *
+ * `sides` comes from the word (`hexagon` is six), so no magnitude is invented here. What is approximate
+ * is that Office's `hexagon` carries an `adj` value whose default is not in the name, so its default
+ * outline is not the regular hexagon — this is topologically right and proportionally close, where the
+ * bounding rectangle it used to paint was neither.
+ */
+function regularPolygonPath(sides: number, { x, y, w, h }: GeometryBounds): PathCommand[] {
+  const rx = w / 2
+  const ry = h / 2
+  const cx = x + rx
+  const cy = y + ry
+  const commands: PathCommand[] = []
+  for (let index = 0; index < sides; index += 1) {
+    const angle = -quarterTurn + (Math.PI * 2 * index) / sides
+    const point = { x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) }
+    commands.push({ type: index === 0 ? 'move' : 'line', ...point })
+  }
+  commands.push({ type: 'close' })
+  return commands
+}
+
 /**
  * `a:custGeom`'s path list mapped into the shape's box. Each `a:path` declares the coordinate space its
  * numbers live in (`@w`/`@h`), so the mapping is a plain scale; a path with no space of its own is
@@ -432,8 +479,17 @@ export function createPresetPath(preset: PresetGeometry, bounds: GeometryBounds)
     case 'roundRect': return roundRectanglePath(bounds)
     case 'ellipse': return ellipsePath(bounds)
     case 'triangle': return trianglePath(bounds)
-    // Every other `prst` word — 183 of them — has an outline this project cannot verify, so it paints
-    // as its bounding rectangle. That is what they painted before the word reached the model too.
+    case 'diamond': return diamondPath(bounds)
+    case 'rightTriangle': return rightTrianglePath(bounds)
+    case 'pentagon': return regularPolygonPath(5, bounds)
+    case 'hexagon': return regularPolygonPath(6, bounds)
+    case 'heptagon': return regularPolygonPath(7, bounds)
+    case 'octagon': return regularPolygonPath(8, bounds)
+    case 'decagon': return regularPolygonPath(10, bounds)
+    case 'dodecagon': return regularPolygonPath(12, bounds)
+    // Every other `prst` word — 175 of them — has an outline the name does not determine: Office defines
+    // it with formulas and adjust values that are not verifiable here. Those paint as their bounding
+    // rectangle, which is what every word painted before any of them had a path.
     default: return rectanglePath(bounds)
   }
 }

@@ -34,8 +34,19 @@ export interface CustomGeometry {
   paths: CustomGeometryPath[]
 }
 
-/** The four `prst` words `createPresetPath` has a real outline for. */
-export const PAINTED_PRESET_GEOMETRIES: readonly string[] = ['rect', 'roundRect', 'ellipse', 'triangle']
+/**
+ * The `prst` words `createPresetPath` has a real outline for: the four it always had, plus the ones
+ * whose outline the name itself determines — a diamond in a box, a right triangle on the box's corners,
+ * and the regular polygons, where the vertex count is in the word.
+ *
+ * Every other word paints as its bounding rectangle. Office defines those with formula tables and
+ * adjust values that are not verifiable here, so guessing them would invent a shape.
+ */
+export const PAINTED_PRESET_GEOMETRIES: readonly string[] = [
+  'rect', 'roundRect', 'ellipse', 'triangle',
+  'diamond', 'rightTriangle',
+  'pentagon', 'hexagon', 'heptagon', 'octagon', 'decagon', 'dodecagon',
+]
 
 /**
  * The shape of an OOXML enumeration word (`prst`, `buAutoNum/@type`, …). These are enumerations in the
