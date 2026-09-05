@@ -33,10 +33,19 @@ export function gradientsEqual(left: Fill['gradient'], right: Fill['gradient']):
   if (left.stops.length !== right.stops.length) return false
   if ((left.angle ?? 0) !== (right.angle ?? 0)) return false
   if ((left.scaled ?? false) !== (right.scaled ?? false)) return false
+  // The radial form is part of the comparison now that the mirror reads it; without these two an edit
+  // from one path word to another, or to the rect it converges to, would be swallowed as "unchanged".
+  if (left.path !== right.path) return false
+  if (!fillToRectsEqual(left.fillToRect, right.fillToRect)) return false
   return left.stops.every((stop, index) => {
     const other = right.stops[index]
     return other?.pos === stop.pos && colorsEqual(stop.color, other.color)
   })
+}
+
+/** Each inset absent and zero are the same thing, the way `a:fillToRect` omits the sides it does not move. */
+function fillToRectsEqual(left: NonNullable<Fill['gradient']>['fillToRect'], right: NonNullable<Fill['gradient']>['fillToRect']): boolean {
+  return (['left', 'top', 'right', 'bottom'] as const).every((side) => (left?.[side] ?? 0) === (right?.[side] ?? 0))
 }
 
 /** Both absent counts as equal; otherwise the preset and both colours have to match. */
@@ -164,7 +173,7 @@ export function sameKindFillPatches(xml: string, fillNode: XmlElement, existing:
   const wantsPath = gradient.path !== undefined
   const formChanged = (before?.path !== undefined) !== wantsPath
     || (!wantsPath && ((before?.angle ?? 0) !== (gradient.angle ?? 0) || (before?.scaled ?? false) !== (gradient.scaled ?? false)))
-    || (wantsPath && before?.path !== gradient.path)
+    || (wantsPath && (before?.path !== gradient.path || !fillToRectsEqual(before?.fillToRect, gradient.fillToRect)))
   if (formChanged) {
     const serialized = serializeFillXml(fill)
     const form = serialized.slice(

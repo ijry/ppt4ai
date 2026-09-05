@@ -38,7 +38,8 @@ export function sourceColor(element: XmlElement | undefined): Color | undefined 
 /**
  * The source fill as the model would have imported it, so the writeback comparison can tell an
  * untouched gradient from an edited one. Mirrors the importer's `parseDirectFill`: `solidFill` is a
- * plain colour, a linear `gradFill` carries its stops, and anything else stays unexpressed.
+ * plain colour, a `gradFill` carries its stops plus whichever of `a:lin`/`a:path` the file used, and
+ * anything else stays unexpressed.
  *
  * Without this a `gradFill` source compared as "no fill", so the moment the importer started reading
  * gradients every edited deck had them overwritten with a flat first stop.
@@ -52,26 +53,63 @@ export function sourceFill(fillNode: XmlElement | undefined): Fill | undefined {
   if (fillNode.localName === 'pattFill') return sourcePatternFill(fillNode)
   if (fillNode.localName !== 'gradFill') return undefined
   const linear = fillNode.children.find((child) => child.localName === 'lin')
-  if (!linear) return undefined
+  const pathNode = fillNode.children.find((child) => child.localName === 'path')
+  if (!linear && !pathNode) return undefined
   const list = fillNode.children.find((child) => child.localName === 'gsLst')
   const stops = (list?.children ?? []).flatMap((node) => {
     if (node.localName !== 'gs') return []
-    const pos = Number(node.attributes.pos)
+    const pos = sourceInteger(node.attributes.pos)
     const color = sourceColor(node)
-    return Number.isInteger(pos) && pos >= 0 && pos <= 100000 && color ? [{ pos, color }] : []
+    return pos !== undefined && pos >= 0 && pos <= 100000 && color ? [{ pos, color }] : []
   })
   const first = stops[0]
   if (!first) return undefined
   if (stops.length < 2) return { color: first.color }
-  const angle = Number(linear.attributes.ang)
-  const scaled = linear.attributes.scaled
+  // `a:path` wins over `a:lin` when a file writes both, the precedence the importer and painting use.
+  if (pathNode) return { color: first.color, gradient: { stops, ...sourceGradientPath(pathNode) } }
+  const angle = sourceInteger(linear!.attributes.ang)
+  const scaled = linear!.attributes.scaled
   return {
     color: first.color,
     gradient: {
       stops,
-      ...(Number.isInteger(angle) ? { angle } : {}),
+      ...(angle === undefined ? {} : { angle }),
       ...(scaled === undefined ? {} : { scaled: scaled === '1' || scaled === 'true' }),
     },
+  }
+}
+
+function sourceInteger(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === '') return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && Number.isInteger(parsed) ? parsed : undefined
+}
+
+/**
+ * The radial form's `@path` and `a:fillToRect`, on the importer's terms: only the three words it keeps,
+ * and only the insets inside their range. Reading `a:lin` but not `a:path` is what made every export
+ * rewrite a radial fill node — the comparison called an untouched one changed.
+ */
+function sourceGradientPath(pathNode: XmlElement): Pick<NonNullable<Fill['gradient']>, 'path' | 'fillToRect'> {
+  const path = pathNode.attributes.path
+  const rect = pathNode.children.find((child) => child.localName === 'fillToRect')
+  const inset = (name: string): number | undefined => {
+    const value = sourceInteger(rect?.attributes[name])
+    return value !== undefined && value >= 0 && value <= 100000 ? value : undefined
+  }
+  const left = inset('l')
+  const top = inset('t')
+  const right = inset('r')
+  const bottom = inset('b')
+  const insets = {
+    ...(left === undefined ? {} : { left }),
+    ...(top === undefined ? {} : { top }),
+    ...(right === undefined ? {} : { right }),
+    ...(bottom === undefined ? {} : { bottom }),
+  }
+  return {
+    ...(path === 'circle' || path === 'rect' || path === 'shape' ? { path } : {}),
+    ...(Object.keys(insets).length > 0 ? { fillToRect: insets } : {}),
   }
 }
 

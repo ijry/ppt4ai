@@ -83,6 +83,18 @@ describe('the writeback mirrors agree with the importer', () => {
     expect(sourceFill(node('gradFill'))).toEqual(element.fill)
   })
 
+  /** The form the mirror used to skip: no `a:lin`, so an untouched radial fill compared as "no fill". */
+  it('reads a radial gradient the same way', async () => {
+    const { element, node } = await bothReadings(slideXml(
+      '<a:gradFill><a:gsLst>'
+      + '<a:gs pos="0"><a:srgbClr val="4472C4"/></a:gs>'
+      + '<a:gs pos="100000"><a:srgbClr val="203864"/></a:gs>'
+      + '</a:gsLst><a:path path="circle"><a:fillToRect l="50000" t="20000"/></a:path></a:gradFill>',
+    ))
+
+    expect(sourceFill(node('gradFill'))).toEqual(element.fill)
+  })
+
   it('reads a pattern fill the same way', async () => {
     const { element, node } = await bothReadings(slideXml(
       '<a:pattFill prst="dkUpDiag">'

@@ -412,14 +412,10 @@ function parseGradientStops(gradient: XmlNode): GradientStop[] {
 }
 
 /**
- * A linear `a:gradFill` node. `a:path` gradients stay unmodeled, so this returns `undefined` for
- * them exactly as the solid-only parser did. Two usable stops are the minimum for a gradient; one
- * stop is the flat colour PowerPoint also paints, and none is no fill at all.
- */
-/**
  * `a:lin` and `a:path` are a choice in `CT_GradientFill`. Before `a:path` was modeled an unrecognised
  * form threw the stops away and left the shape with no fill at all, which is worse than a flat colour;
- * now the form the file used reaches the model and painting picks the circle.
+ * now the form the file used reaches the model and painting picks the circle. Two usable stops are the
+ * minimum for a gradient; one stop is the flat colour PowerPoint also paints, and none is no fill at all.
  */
 function parseGradientNode(gradient: XmlNode): Fill | undefined {
   const linear = child(gradient, 'lin')

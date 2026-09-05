@@ -11,6 +11,11 @@ const sourceGradient = '<a:gradFill rotWithShape="1"><a:gsLst>'
   + '<a:gs pos="100000"><a:srgbClr val="203864"><a:alpha val="60000"/></a:srgbClr></a:gs>'
   + '</a:gsLst><a:lin ang="5400000" scaled="0"/></a:gradFill>'
 
+const sourcePathGradient = '<a:gradFill rotWithShape="1"><a:gsLst>'
+  + '<a:gs pos="0"><a:srgbClr val="4472C4"/></a:gs>'
+  + '<a:gs pos="100000"><a:srgbClr val="203864"/></a:gs>'
+  + '</a:gsLst><a:path path="circle"><a:fillToRect l="50000" t="20000"/></a:path><a:tileRect l="10000"/></a:gradFill>'
+
 function sourcePackage(fill = sourceGradient): Uint8Array {
   const slide = '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree>'
     + '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Graded"/><p:nvPr/></p:nvSpPr>'
@@ -92,7 +97,6 @@ describe('gradient fill survives writeback', () => {
     expect(outputSlide).not.toContain('val="112233"')
   })
 
-  /** A stop colour edit is a real change, so the gradient is rewritten from the model. */
   /**
    * `rotWithShape` used to disappear here, because a stop edit rewrote the whole `a:gradFill`. Only the
    * `a:gsLst` is replaced now, so the attributes and children the model cannot express stay put.
@@ -109,5 +113,38 @@ describe('gradient fill survives writeback', () => {
     expect(outputSlide).toContain('<a:gs pos="100000"><a:srgbClr val="00FF00"/></a:gs>')
     expect(outputSlide).toContain('<a:gradFill rotWithShape="1">')
     expect(outputSlide).toContain('<a:lin ang="5400000" scaled="0"/>')
+  })
+
+  /**
+   * The radial form reached the model before the writeback's mirror learned to read it, so an untouched
+   * `a:path` fill compared as "no fill" and every export rewrote the node — `a:tileRect` and all.
+   */
+  it('keeps a radial source gradient verbatim when only the text changes', async () => {
+    const source = sourcePackage(sourcePathGradient)
+    const document = await importPptx(source)
+    const element = document.elements.el_1
+    if (element?.kind !== 'text') throw new Error('fixture did not import as text')
+    element.body = { paragraphs: [{ runs: [{ text: 'Edited' }] }] }
+
+    const outputSlide = await slideXmlOf(await exportPptx(document, source))
+
+    expect(outputSlide).toContain(sourcePathGradient)
+    expect(outputSlide).toContain('Edited')
+  })
+
+  it('replaces only the path form when the convergence rect changes', async () => {
+    const source = sourcePackage(sourcePathGradient)
+    const document = await importPptx(source)
+    const element = document.elements.el_1
+    if (element?.kind !== 'text' || !element.fill?.gradient) throw new Error('fixture did not import a gradient')
+    element.fill.gradient.fillToRect = { left: 25000 }
+
+    const outputSlide = await slideXmlOf(await exportPptx(document, source))
+
+    expect(outputSlide).toContain('<a:path path="circle"><a:fillToRect l="25000"/></a:path>')
+    expect(outputSlide).toContain('<a:gradFill rotWithShape="1">')
+    expect(outputSlide).toContain('<a:gs pos="0"><a:srgbClr val="4472C4"/></a:gs>')
+    expect(outputSlide).toContain('<a:tileRect l="10000"/>')
+    expect(outputSlide).not.toContain('<a:lin')
   })
 })
