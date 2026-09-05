@@ -1,4 +1,4 @@
-import { colorTransformValueIsValid, isOoxmlToken, type Color, type Fill } from '@ppt4ai/model'
+import { colorTransformValueIsValid, isOoxmlToken, type Color, type Fill, type OuterShadow } from '@ppt4ai/model'
 import type { XmlElement } from './xml-range.js'
 
 
@@ -86,4 +86,31 @@ function sourcePatternFill(fillNode: XmlElement): Fill | undefined {
   const background = sourceColor(fillNode.children.find((child) => child.localName === 'bgClr'))
   if (!preset || !foreground || !background) return undefined
   return { color: foreground, pattern: { preset, foreground, background } }
+}
+
+/**
+ * The source's `a:outerShdw` as the model would have imported it, mirroring `parseOuterShadow` for the
+ * same reason `sourceFill` mirrors `parseDirectFill`: the comparison has to see what the model sees, or
+ * an edit is silently dropped and an untouched node is needlessly rewritten.
+ */
+export function sourceOuterShadow(effectList: XmlElement | undefined): OuterShadow | undefined {
+  const outer = effectList?.children.find((child) => child.localName === 'outerShdw')
+  if (!outer) return undefined
+  const color = sourceColor(outer)
+  if (!color) return undefined
+  const integer = (name: string): number | undefined => {
+    const raw = outer.attributes[name]
+    if (raw === undefined || raw.trim() === '') return undefined
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) && Number.isInteger(parsed) ? parsed : undefined
+  }
+  const blurRadius = integer('blurRad')
+  const distance = integer('dist')
+  const direction = integer('dir')
+  return {
+    color,
+    ...(blurRadius !== undefined && blurRadius >= 0 ? { blurRadius } : {}),
+    ...(distance !== undefined && distance >= 0 ? { distance } : {}),
+    ...(direction === undefined ? {} : { direction }),
+  }
 }

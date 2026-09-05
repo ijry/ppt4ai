@@ -568,7 +568,7 @@ function serializeShapeStyleXml(styleRef: ShapeStyleReference | undefined): stri
  * Only the four modeled values are emitted; a source file's `sx`/`kx`/`algn` never reach the model, so
  * this is the whole shadow as far as the model is concerned.
  */
-function serializeShadowXml(shadow: OuterShadow | undefined): string {
+export function serializeShadowXml(shadow: OuterShadow | undefined): string {
   if (!shadow) return ''
   const attributes = attrs([['blurRad', shadow.blurRadius], ['dist', shadow.distance], ['dir', shadow.direction]])
   return `<a:effectLst><a:outerShdw${attributes}>${serializeColorXml(shadow.color)}</a:outerShdw></a:effectLst>`

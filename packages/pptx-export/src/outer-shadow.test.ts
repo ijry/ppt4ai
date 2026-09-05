@@ -99,7 +99,12 @@ describe('outer shadow source writeback', () => {
     expect(xml).toContain('<a:off x="3000000" y="1000000"/>')
   })
 
-  it('leaves the effect list alone even when the model shadow is dropped', async () => {
+  /**
+   * Dropping the model shadow used to do nothing at all; it now removes the node. What must survive is
+   * everything the model cannot express — the `a:glow` here, and the list itself — because rewriting the
+   * whole `a:effectLst` is the damage this exporter has had to undo twice.
+   */
+  it('removes only the shadow node when the model shadow is dropped', async () => {
     const source = sourcePackage()
     const document = await importPptx(source)
     const shape = document.elements.el_1
@@ -107,6 +112,40 @@ describe('outer shadow source writeback', () => {
     delete shape.shadow
     shape.bounds = { ...shape.bounds, y: 2000000 }
 
-    expect(await slideOf(await exportPptx(document, source))).toContain(sourceEffects)
+    const xml = await slideOf(await exportPptx(document, source))
+
+    expect(xml).toContain('<a:effectLst data-keep="yes"><a:glow rad="63500"><a:srgbClr val="FF0000"/></a:glow></a:effectLst>')
+    expect(xml).not.toContain('outerShdw')
+  })
+
+  it('replaces only the shadow node when the model shadow changes', async () => {
+    const source = sourcePackage()
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    if (shape?.kind !== 'shape') throw new Error('fixture did not import as a shape')
+    shape.shadow = { color: { type: 'srgb', v: 'FF0000' }, blurRadius: 12700 }
+
+    const xml = await slideOf(await exportPptx(document, source))
+
+    expect(xml).toContain('<a:outerShdw blurRad="12700"><a:srgbClr val="FF0000"/></a:outerShdw>')
+    expect(xml).toContain('<a:glow rad="63500">')
+    expect(xml).toContain('data-keep="yes"')
+  })
+
+  /**
+   * The cost the design records: `sx`/`algn`/`rotWithShape` are not modeled, so replacing the node loses
+   * them. Untouched shadows keep everything, which the byte-identity test above covers.
+   */
+  it('loses the shadow attributes the model cannot express when it replaces the node', async () => {
+    const source = sourcePackage()
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    if (shape?.kind !== 'shape') throw new Error('fixture did not import as a shape')
+    shape.shadow = { color: { type: 'srgb', v: 'FF0000' }, blurRadius: 12700 }
+
+    const xml = await slideOf(await exportPptx(document, source))
+
+    expect(xml).not.toContain('sx="90000"')
+    expect(xml).not.toContain('rotWithShape')
   })
 })

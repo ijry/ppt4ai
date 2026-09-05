@@ -1,6 +1,6 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type AdjustValue, type ColorTransformType, type DashSegment, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeElement, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type AdjustValue, type ColorTransformType, type DashSegment, type Fill, type GroupElement, type ImageElement, type OuterShadow, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeElement, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
-import { serializeColorXml, serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
+import { serializeColorXml, serializeFillXml, serializeShadowXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
 import {
   allocateMediaPath,
@@ -15,7 +15,7 @@ import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } 
 import { decodeXml, descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 import { rewriteThemeXml } from './theme-writeback.js'
 import { rewriteLayoutXml, rewriteMasterXml, rewriteSlideColorMapXml } from './master-layout-writeback.js'
-import { sourceColor, sourceFill } from './color-source.js'
+import { sourceColor, sourceFill, sourceOuterShadow } from './color-source.js'
 import { sourceTextBody } from './text-source.js'
 
 interface SlideRelationship {
@@ -598,6 +598,48 @@ function lineJoinReplacements(
   const fillNode = line.children.find((child) => fillNodeNames.has(child.localName))
   if (fillNode) return [{ start: fillNode.end, end: fillNode.end, value }]
   return lineReplacements(xml, line, value)
+}
+
+/**
+ * `a:effectLst/a:outerShdw`. Only that node is touched: the list can also hold effects the model cannot
+ * express — `a:glow`, `a:reflection`, `a:softEdge` — and rewriting or deleting the list would take them
+ * with it, which is the "the comparison could not see it so the whole node was replaced" damage this
+ * exporter has had to fix twice already.
+ */
+function shadowReplacements(xml: string, sourceElement: XmlElement, shadow: OuterShadow | undefined): Replacement[] {
+  const properties = sourceShapeProperties(sourceElement)
+  if (!properties) return []
+  const effectList = properties.children.find((child) => child.localName === 'effectLst')
+  const existing = sourceOuterShadow(effectList)
+  if (shadowsEqual(existing, shadow)) return []
+  const outer = effectList?.children.find((child) => child.localName === 'outerShdw')
+  if (!shadow) return outer ? [{ start: outer.start, end: outer.end, value: '' }] : []
+  const serialized = serializeShadowXml(shadow)
+  // `serializeShadowXml` wraps the shadow in its own `a:effectLst`; only the inner node is wanted when a
+  // list is already there.
+  const inner = serialized.slice(serialized.indexOf('<a:outerShdw'), serialized.lastIndexOf('</a:effectLst>'))
+  if (outer) return [{ start: outer.start, end: outer.end, value: inner }]
+  if (effectList) {
+    const openingEnd = tagEnd(xml, effectList.start + 1)
+    const opening = xml.slice(effectList.start, openingEnd)
+    if (opening.endsWith('/>')) {
+      return [{ start: effectList.start, end: openingEnd, value: `${opening.slice(0, -2)}>${inner}</${effectList.name}>` }]
+    }
+    return [{ start: openingEnd, end: openingEnd, value: inner }]
+  }
+  // `CT_ShapeProperties` puts the effect list after `a:ln`, so it follows the outline when there is one.
+  const line = properties.children.find((child) => child.localName === 'ln')
+  const insertion = line?.end ?? xml.lastIndexOf('</', properties.end)
+  if (insertion < properties.start) throw new Error('PPTX export source shape properties malformed')
+  return [{ start: insertion, end: insertion, value: serialized }]
+}
+
+function shadowsEqual(left: OuterShadow | undefined, right: OuterShadow | undefined): boolean {
+  if (!left || !right) return !left && !right
+  return colorsEqual(left.color, right.color)
+    && (left.blurRadius ?? 0) === (right.blurRadius ?? 0)
+    && (left.distance ?? 0) === (right.distance ?? 0)
+    && (left.direction ?? 0) === (right.direction ?? 0)
 }
 
 function strokeReplacements(
@@ -1336,6 +1378,7 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
         }
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
         replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin, element.strokeCompound, element.strokeAlign, element.strokeMiterLimit))
+        replacements.push(...shadowReplacements(xml, sourceElement, element.shadow))
       } else if (element.kind === 'text') {
         throw new Error(`PPTX export text source mismatch for element ${element.id}`)
       } else if (element.kind === 'shape') {
@@ -1349,6 +1392,7 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
         }
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
         replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin, element.strokeCompound, element.strokeAlign, element.strokeMiterLimit))
+        replacements.push(...shadowReplacements(xml, sourceElement, element.shadow))
         replacements.push(...geometryReplacements(xml, sourceElement, element.preset, element.adjustValues))
       } else {
         throw new Error(`PPTX export shape source mismatch for element ${element.id}`)
