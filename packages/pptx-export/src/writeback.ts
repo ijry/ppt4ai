@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideBackground, type StrokeCap, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type DashSegment, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideBackground, type StrokeCap, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { serializeColorXml, serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
@@ -403,29 +403,70 @@ function lineWidthReplacements(xml: string, line: XmlElement, width: number | un
 }
 
 /**
- * `a:ln/a:prstDash`. `solid` never reaches the model, so a model with no style means "back to the
- * default" and the node is removed rather than written as `val="solid"`.
+ * `a:ln`'s dash, which is `a:prstDash` or `a:custDash` — a choice in `EG_LineDashProperties`, so at
+ * most one may survive. `solid` never reaches the model, so a model with no style means "back to the
+ * default" and whichever node is there is removed rather than written as `val="solid"`.
  *
- * The comparison is verbatim now that the model holds all eleven tokens. It used to run the source
- * token through the importer's three-way collapse, because a source `lgDashDot` could only be held as
- * `dash` and comparing raw would have rewritten it on any unrelated edit. With the tokens modeled that
- * collapse would do the opposite damage: `dash` → `lgDash` would compare equal and never be written.
+ * The preset comparison is verbatim now that the model holds all eleven tokens. It used to run the
+ * source token through the importer's three-way collapse, because a source `lgDashDot` could only be
+ * held as `dash` and comparing raw would have rewritten it on any unrelated edit. With the tokens
+ * modeled that collapse would do the opposite damage: `dash` → `lgDash` would compare equal and never
+ * be written.
+ *
+ * Before `a:custDash` was modeled this function only looked for `prstDash`, so a source custom dash
+ * was invisible to it: setting a preset style inserted `prstDash` and left `custDash` in place, which
+ * is two halves of a choice in one `a:ln`. Both nodes are found now, and the unwanted one is deleted.
  */
-function lineDashReplacements(xml: string, line: XmlElement, style: StrokeStyle | undefined): Replacement[] {
-  const dashNode = line.children.find((child) => child.localName === 'prstDash')
-  const sourceToken = dashNode?.attributes.val
-  const sourceStyle = !sourceToken || sourceToken === 'solid' ? undefined : sourceToken
+function lineDashReplacements(xml: string, line: XmlElement, style: StrokeStyle | { custom: DashSegment[] } | undefined): Replacement[] {
+  const presetNode = line.children.find((child) => child.localName === 'prstDash')
+  const customNode = line.children.find((child) => child.localName === 'custDash')
   const wanted = style === 'solid' ? undefined : style
-  if (wanted === sourceStyle) return []
-  if (wanted === undefined) {
-    return dashNode ? [{ start: dashNode.start, end: dashNode.end, value: '' }] : []
+  const removals: Replacement[] = []
+  const remove = (node: XmlElement | undefined) => {
+    if (node) removals.push({ start: node.start, end: node.end, value: '' })
   }
-  const value = `<${qualifiedName(line.name, 'prstDash')} val="${wanted}"/>`
-  if (dashNode) return [{ start: dashNode.start, end: dashNode.end, value }]
-  // ECMA-376 puts `prstDash` after the fill, so it follows the fill node when there is one.
+
+  if (wanted === undefined) {
+    remove(presetNode)
+    remove(customNode)
+    return removals
+  }
+
+  if (typeof wanted === 'string') {
+    const sourceToken = presetNode?.attributes.val
+    const sourceStyle = !sourceToken || sourceToken === 'solid' ? undefined : sourceToken
+    // A stale `custDash` has to go even when the preset itself is unchanged, or the choice stays violated.
+    remove(customNode)
+    if (wanted === sourceStyle) return removals
+    const value = `<${qualifiedName(line.name, 'prstDash')} val="${wanted}"/>`
+    if (presetNode) return [...removals, { start: presetNode.start, end: presetNode.end, value }]
+    return [...removals, ...dashInsertion(xml, line, value)]
+  }
+
+  remove(presetNode)
+  if (customNode && customDashEqual(customNode, wanted.custom)) return removals
+  const segments = wanted.custom
+    .map((segment) => `<${qualifiedName(line.name, 'ds')} d="${segment.dash}" sp="${segment.space}"/>`)
+    .join('')
+  const value = `<${qualifiedName(line.name, 'custDash')}>${segments}</${qualifiedName(line.name, 'custDash')}>`
+  if (customNode) return [...removals, { start: customNode.start, end: customNode.end, value }]
+  return [...removals, ...dashInsertion(xml, line, value)]
+}
+
+/** ECMA-376 puts the dash after the fill, so it follows the fill node when there is one. */
+function dashInsertion(xml: string, line: XmlElement, value: string): Replacement[] {
   const fillNode = line.children.find((child) => fillNodeNames.has(child.localName))
   if (fillNode) return [{ start: fillNode.end, end: fillNode.end, value }]
   return lineReplacements(xml, line, value)
+}
+
+function customDashEqual(node: XmlElement, segments: readonly DashSegment[]): boolean {
+  const source = node.children.filter((child) => child.localName === 'ds')
+  if (source.length !== segments.length) return false
+  return segments.every((segment, index) => {
+    const child = source[index]
+    return child?.attributes.d === String(segment.dash) && child?.attributes.sp === String(segment.space)
+  })
 }
 
 /** `a:ln/@cap`; absent means the OOXML default, so a model without one removes the attribute. */
@@ -469,7 +510,7 @@ function strokeReplacements(
   sourceElement: XmlElement,
   stroke: Fill | undefined,
   strokeWidth?: number,
-  strokeStyle?: StrokeStyle,
+  strokeStyle?: StrokeStyle | { custom: DashSegment[] },
   strokeCap?: StrokeCap,
   strokeJoin?: StrokeJoin,
 ): Replacement[] {

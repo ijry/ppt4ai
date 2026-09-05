@@ -7,6 +7,7 @@ import {
   DEFAULT_THEME_STYLE_FILL,
   type Color,
   type ColorMap,
+  type DashSegment,
   type ElementDefaults,
   type Fill,
   type GroupElement,
@@ -20,6 +21,7 @@ import {
   type SlideBackground,
   type SlideLayout,
   type SlideMaster,
+  type StrokeStyle,
   type TableElement,
   type TableStyle,
   type TableStyleRegionName,
@@ -232,10 +234,21 @@ function themeStyleFillXml(entry: ThemeStyleEntry): string {
  * shape pointing at it. Only the padded entries carry a default width, and they are invented whole.
  */
 function themeLineStyleXml(entry: ThemeLineStyleEntry): string {
-  const dash = entry?.style && entry.style !== 'solid' ? `<a:prstDash val="${entry.style}"/>` : ''
+  const dash = serializeDashXml(entry?.style)
   const cap = entry?.cap ? ` cap="${entry.cap}"` : ''
   const join = entry?.join ? `<a:${entry.join}/>` : ''
   return `<a:ln${attrs([['w', entry?.width]])}${cap}>${themeStyleFillXml(entry)}${dash}${join}</a:ln>`
+}
+
+/**
+ * `EG_LineDashProperties`: a preset token or a custom segment list, never both. `solid` is the OOXML
+ * default, so it writes nothing — the same rule the writeback comparison uses.
+ */
+function serializeDashXml(style: StrokeStyle | { custom: DashSegment[] } | undefined): string {
+  if (!style || style === 'solid') return ''
+  if (typeof style === 'string') return `<a:prstDash val="${style}"/>`
+  const segments = style.custom.map((segment) => `<a:ds${attrs([['d', segment.dash], ['sp', segment.space]])}/>`).join('')
+  return segments === '' ? '' : `<a:custDash>${segments}</a:custDash>`
 }
 
 /**
@@ -561,12 +574,12 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   const placeholder = serializePlaceholder(element.placeholder)
   const nonVisualProperties = `<p:nvSpPr><p:cNvPr id="${shapeId}" name="${escapeXml(element.id)}"/><p:cNvSpPr${isText ? ' txBox="1"' : ''}/><p:nvPr>${placeholder}</p:nvPr></p:nvSpPr>`
   // `a:prstDash` is a child of `a:ln` and follows the fill in the ECMA-376 sequence, not an attribute.
-  // `dash` and `dot` are both valid `val` tokens, so the narrowed model values write out verbatim.
-  const prstDash = element.strokeStyle && element.strokeStyle !== 'solid' ? `<a:prstDash val="${element.strokeStyle}"/>` : ''
-  // The corner follows `prstDash` in the ECMA-376 sequence, and its element name is the model value.
+  // `a:custDash` is the other half of that choice, so exactly one of the two is written.
+  const dash = serializeDashXml(element.strokeStyle)
+  // The corner follows the dash in the ECMA-376 sequence, and its element name is the model value.
   const join = element.strokeJoin ? `<a:${element.strokeJoin}/>` : ''
   const line = element.stroke
-    ? `<a:ln${attrs([['w', element.strokeWidth], ['cap', element.strokeCap]])}>${serializeFillXml(element.stroke)}${prstDash}${join}</a:ln>`
+    ? `<a:ln${attrs([['w', element.strokeWidth], ['cap', element.strokeCap]])}>${serializeFillXml(element.stroke)}${dash}${join}</a:ln>`
     : ''
   // One fill node per shape: the picture replaces the colour, the way the scene and the command do.
   const pictureFill = serializePictureFillXml(element, pictureRelationshipId)

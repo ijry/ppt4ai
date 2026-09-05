@@ -91,8 +91,13 @@ const borderStyles = new Set<string>([
   'dashDot', 'lgDashDot', 'sysDashDot', 'lgDashDotDot', 'sysDashDotDot', 'none',
 ])
 
+/**
+ * A custom dash carries its own lengths, so there is no token to check — it goes straight through to
+ * `dashPattern`. Only the preset words are policed, as before.
+ */
 function borderStyle(border: TableBorder): NonNullable<TableBorder['style']> {
   const style = border.style ?? 'solid'
+  if (typeof style === 'object') return style
   if (!borderStyles.has(style)) throw new Error(`unsupported table border style: ${String(style)}`)
   return style
 }

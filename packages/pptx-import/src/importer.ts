@@ -1,4 +1,4 @@
-import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type DashSegment, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -318,10 +318,40 @@ const presetDashTokens = new Set<StrokeStyle>([
   'dashDot', 'lgDashDot', 'sysDashDot', 'lgDashDotDot', 'sysDashDotDot',
 ])
 
-function parseDashStyle(line: XmlNode | undefined): StrokeStyle {
-  const dash = line && child(line, 'prstDash')
-  const value = dash && attribute(dash, 'val')
-  return value && presetDashTokens.has(value as StrokeStyle) ? value as StrokeStyle : 'solid'
+/**
+ * `a:prstDash/@val` or, failing that, `a:custDash`. Falls back to `'solid'` so table borders keep the
+ * shape they have always had; the element paths drop `'solid'` themselves, as they always did.
+ *
+ * The two forms are a choice in `EG_LineDashProperties`. A file stating both is malformed, so the
+ * preset wins rather than the parser throwing — the same tolerance `parseDirectFill` shows.
+ */
+function parseDashStyle(line: XmlNode | undefined): StrokeStyle | { custom: DashSegment[] } {
+  const prstDash = line && child(line, 'prstDash')
+  const value = prstDash && attribute(prstDash, 'val')
+  if (value && presetDashTokens.has(value as StrokeStyle)) return value as StrokeStyle
+  return parseCustomDash(line) ?? 'solid'
+}
+
+/**
+ * `a:custDash`'s `a:ds` list. A segment missing either percentage drops out.
+ *
+ * No upper bound is imposed: `ST_PositivePercentage` is unbounded above, and these percentages are
+ * relative to the line width, so values over 100000 are ordinary — the preset `dash` this replaces is
+ * itself four times the width. An earlier draft clamped at 100000 and dropped exactly the segments
+ * real files carry.
+ */
+function parseCustomDash(line: XmlNode | undefined): { custom: DashSegment[] } | undefined {
+  const custDash = line && child(line, 'custDash')
+  if (!custDash) return undefined
+  const segments: DashSegment[] = []
+  for (const ds of custDash.children) {
+    if (localName(ds.name) !== 'ds') continue
+    const dash = parsePositiveInteger(attribute(ds, 'd'))
+    const space = parsePositiveInteger(attribute(ds, 'sp'))
+    if (dash === undefined || space === undefined) continue
+    segments.push({ dash, space })
+  }
+  return segments.length > 0 ? { custom: segments } : undefined
 }
 
 function parseTableBorder(line: XmlNode | undefined): TableBorder | undefined {
@@ -1558,7 +1588,7 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     if (textStrokeWidth !== undefined) element.strokeWidth = textStrokeWidth
     const line = child(shapeProperties(shape) ?? shape, 'ln')
     const textStrokeStyle = stroke ? parseDashStyle(line) : undefined
-    if (textStrokeStyle && textStrokeStyle !== 'solid') element.strokeStyle = textStrokeStyle
+    if (textStrokeStyle !== undefined && textStrokeStyle !== 'solid') element.strokeStyle = textStrokeStyle
     const textCap = parseStrokeCap(line)
     if (textCap) element.strokeCap = textCap
     const textJoin = parseStrokeJoin(line)
@@ -1589,7 +1619,7 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   if (shapeStrokeWidth !== undefined) element.strokeWidth = shapeStrokeWidth
   const shapeLine = child(shapeProperties(shape) ?? shape, 'ln')
   const shapeStrokeStyle = stroke ? parseDashStyle(shapeLine) : undefined
-  if (shapeStrokeStyle && shapeStrokeStyle !== 'solid') element.strokeStyle = shapeStrokeStyle
+  if (shapeStrokeStyle !== undefined && shapeStrokeStyle !== 'solid') element.strokeStyle = shapeStrokeStyle
   const shapeCap = parseStrokeCap(shapeLine)
   if (shapeCap) element.strokeCap = shapeCap
   const shapeJoin = parseStrokeJoin(shapeLine)

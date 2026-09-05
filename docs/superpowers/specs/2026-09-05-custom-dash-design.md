@@ -1,6 +1,6 @@
 # 自定义虚线（a:custDash）
 
-> 状态：待实现（2026-09-05）
+> 状态：已实现（2026-09-05）
 > 日期：2026-09-05
 
 ## 现状
@@ -45,92 +45,53 @@
 
 让自定义虚线进入模型、影响画布、写回文件，且源包写回时**两种虚线形式互斥保留**。
 
-### @ppt4ai/model
+### 决策修正：兄弟联合类型，不重命名字段
+
+设计初稿要把 `strokeStyle?: StrokeStyle` 改名成 `strokeDash?: StrokeDash`。**实现时推翻了这个决定**——改名要动模型两处字段、校验、`ThemeLineStyle.style`、导入五处调用、场景两个节点类型与 `shapeStroke`、绘制四条路径、导出两条路径、engine 命令、工具栏 props，以及每一份引用旧名的测试。而它买到的东西，一个联合类型就能给：
 
 ```ts
-export interface DashSegment {
-  /** `a:ds/@d`：段长度，百分比（100000 = 100%）。 */
-  dash: number
-  /** `a:ds/@sp`：间距长度，百分比。 */
-  space: number
-}
-
-export type StrokeDash = StrokeStyle | { custom: DashSegment[] }
+strokeStyle?: StrokeStyle | { custom: DashSegment[] }
 ```
 
-`ShapeElement` 与 `TextElement` 的 `strokeStyle?: StrokeStyle` 改为 `strokeDash?: StrokeDash`——向后兼容（字符串仍是合法值），且自定义段列表有容身之处。
+判据是「退化值是否有意义」。`Fill` 用 `color` 承载渐变第一停靠点、图案前景色，因为那些退化值本身是对的。同理，一个自定义虚线**就是**虚线，只读 `strokeStyle` 而不认对象形态的消费者本来就该当它是虚线——`dashPattern` 早就把十一个词收敛成四种结构，近似是这条路上既有的做法。互斥逻辑无论哪种建模都得在写回里显式处理，联合类型不比改名少写一行。
 
-`validateShapeElement` / `validateTextElement`：
+因此字段名一律不动，只把类型放宽。
 
-- `strokeDash` 是字符串时，必须是 `strokeStyles` 集合的成员
-- `strokeDash` 是对象时，`custom` 必须是数组，每个段的 `dash`/`space` 必须是非负数且 ≤ 100000
+### @ppt4ai/model
 
-`ThemeLineStyle` 同步改为 `dash?: StrokeDash`——主题线条样式条目也能承载自定义虚线（虽然实测很少见）。
+`DashSegment` 接口（`dash`/`space`，均为正整数）。
+
+`ShapeElement.strokeStyle`、`TextElement.strokeStyle`、`ThemeLineStyle.style`、`TableBorder.style` 四处类型放宽为 `StrokeStyle | { custom: DashSegment[] }`（表格边框另含 `'none'`）。
+
+`resolveStyleLineStroke` 返回类型同步放宽。
+
+校验：字符串走既有 `strokeStyles` 集合；对象形态要求 `custom` 是数组，每段 `dash`/`space` 是**正整数**。
+
+**没有上界**。初稿写的 `0..100000` 是臆造的——`ST_PositivePercentage` 上界开放，而这两个值是**相对线宽的百分比**，`d="400000"` 就是四倍线宽（预设 `dash` 本身就是 `4 * width`）。第一版实现按 100000 截断，写出的测试立刻把真实文件里的段全丢了，这才发现。
 
 ### @ppt4ai/pptx-import
 
-`parseDashStyle` 改名为 `parseDash`，返回 `StrokeDash | undefined`：
+`parseDashStyle` 先读 `a:prstDash`，读不到再读 `a:custDash`，两者都无时**仍返回 `'solid'`**——表格边框一直依赖这个回退值，改成 `undefined` 会连带改掉表格的写回比较，那是本刀范围外的行为变更（8 个既有测试立刻标红，已按此判断回滚）。元素路径各自过滤 `'solid'`，与之前逐字相同。
 
-- 有 `a:prstDash` 时返回其 `val` 属性（现有逻辑）
-- 有 `a:custDash` 时返回 `{ custom: [...] }`，每个 `a:ds` 节点映射成 `{ dash: parsePercentage(d), space: parsePercentage(sp) }`
-- 两者都无时返回 `undefined`
-- 两者**都有**时取 `prstDash`（ECMA 互斥规则下这是非法输入，但导入端不该崩溃——取第一个声明的，与填充的 `parseDirectFill` 一致）
-
-`parseLineStyle` / `parseThemeStyleEntries` 调用处从 `style` 改为 `dash`。
+`parseCustomDash` 逐个读 `a:ds`，缺任一百分比或非数字的段丢弃。
 
 ### @ppt4ai/render
 
-`shapeStroke` / `textStroke` 返回值从 `{ style?: StrokeStyle, ... }` 改为 `{ dash?: StrokeDash, ... }`，逻辑不变（元素值 ?? 主题值）。
-
-`SceneShapeNode` / `SceneTextNode` 的 `strokeStyle` 改为 `strokeDash`。
+`SceneShapeNode.strokeStyle`、`SceneTextNode.strokeStyle`、`shapeStroke` 的参数与返回类型放宽。逻辑一行未改——`element.strokeStyle ?? themeLine?.style` 对两种形态都成立。
 
 ### @ppt4ai/editor
 
-`dashPattern(dash: StrokeDash, width: number): number[]`：
+`dashPattern` 新增对象分支：`custom.flatMap(seg => [seg.dash * width / 100000, seg.space * width / 100000])`。零宽度返回空数组（canvas 对 `[NaN]` 抛错，而全零数组本就画成实线）。
 
-- 输入是字符串时，现有逻辑（四组 switch 分支）
-- 输入是 `{ custom }` 时，`custom.flatMap(seg => [seg.dash * width / 100000, seg.space * width / 100000])`
+`borderStyle`（表格）遇对象形态直接放行，不查预设词表。
 
-`shape-painting.ts` / `slide-canvas-renderer.ts` / `thumbnail-worker.ts` / `table-painting.ts` 调用 `dashPattern` 的四处从 `node.strokeStyle` 改为 `node.strokeDash`。
+`PptEditor.vue` 只在 `typeof node.strokeStyle === 'string'` 时把它传给工具栏——下拉框只列预设词，自定义虚线让它保持未选中而不是冒充某个预设。
 
 ### @ppt4ai/pptx-export
 
-#### standalone
+`serializeDashXml` 一处生成两种形态，`themeLineStyleXml` 与形状序列化共用；`table.ts` 的 `serializeBorder` 同样加分支。
 
-`serializeStrokeXml` 新增一个分支：
-
-```ts
-const dash = stroke.dash
-  ? typeof stroke.dash === 'string'
-    ? `<a:prstDash val="${stroke.dash}"/>`
-    : `<a:custDash>${stroke.dash.custom.map(seg =>
-        `<a:ds d="${seg.dash}" sp="${seg.space}"/>`).join('')}</a:custDash>`
-  : ''
-```
-
-现有的 `strokeStyle` 条件分支删除（已被 `dash` 分支覆盖）。
-
-#### writeback
-
-`lineDashReplacements` 函数重写，承载两个节点的互斥逻辑：
-
-1. 从源 `<a:ln>` 读出 `prstNode` 与 `custNode`（`line.children.find`）
-2. 判定模型想要哪一种：`wanted` 是字符串 → `'preset'`，是对象 → `'custom'`，是 `undefined` → `'none'`
-3. 判定源包有哪一种：`source` 是 `'preset'`（有 `prstNode`）/ `'custom'`（有 `custNode`）/ `'none'`（都无）/ `'both'`（非法输入）
-4. 四路表：
-
-| source ↓ wanted → | `'none'` | `'preset'` | `'custom'` |
-|---|---|---|---|
-| `'none'` | 无操作 | 插入 `prstDash` | 插入 `custDash` |
-| `'preset'` | 删除 `prstDash` | 替换 `prstDash` | 删除 `prstDash` + 插入 `custDash` |
-| `'custom'` | 删除 `custDash` | 插入 `prstDash` + 删除 `custDash` | 替换 `custDash` |
-| `'both'` | 删除两者 | 保留 `prstDash` + 删除 `custDash` | 删除 `prstDash` + 保留 `custDash` |
-
-"替换"指比较内容，不同时生成 `Replacement`；"插入"指在填充节点后或 `<a:ln>` 开标签后插入。
-
-现有的 `lineDashReplacements` 逻辑（只认 `prstDash`、比较 `sourceStyle` 与 `wanted`）全部作废。
-
-**注**：描边没有 `sourceFill` 那样的"源侧重建模型值"函数——`lineDashReplacements` 自己从 `XmlElement` 读源值并比较。因此自定义虚线的源侧读取写在这个函数内部（读出 `custNode` 的 `a:ds` 段列表再与模型比较），不需要新的导出函数。这与填充路径的结构不同，是既有代码的分工，本刀不改。
+`lineDashReplacements` 重写。**这是本刀真正修掉的 bug**：它原先只找 `prstDash`，源包的 `custDash` 对它不可见，于是设置预设线型时插入 `prstDash` 却把 `custDash` 留在原地——同一个 `a:ln` 里出现了 `EG_LineDashProperties` 的两半，非法 XML。现在两个节点都找，不要的那个删掉。
 
 ### 测试
 

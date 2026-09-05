@@ -125,7 +125,9 @@ const shapePaint = computed<ShapePaintToolbarProps>(() => {
     strokeColor: node.resolvedStrokeColor ? `#${node.resolvedStrokeColor.rgb.toUpperCase()}` : '#000000',
     strokeIsGradient: node.resolvedStrokeGradient !== undefined,
     ...(node.strokeWidth === undefined ? {} : { strokeWidth: node.strokeWidth }),
-    ...(node.strokeStyle === undefined ? {} : { strokeStyle: node.strokeStyle }),
+    // The dropdown lists preset words only, so a custom dash leaves it unset rather than claiming to be
+    // one of them. Picking a preset then replaces the custom dash, which is what the writeback does too.
+    ...(typeof node.strokeStyle === 'string' ? { strokeStyle: node.strokeStyle } : {}),
   }
 })
 

@@ -1,6 +1,6 @@
 import type { PathCommand } from '@ppt4ai/geometry'
 import { gradientAxis, gradientFocus, rotationRadians } from '@ppt4ai/geometry'
-import type { Rect, ResolvedColor, ResolvedGradient, ResolvedShadow, StrokeCap, StrokeJoin, StrokeStyle } from '@ppt4ai/model'
+import type { DashSegment, Rect, ResolvedColor, ResolvedGradient, ResolvedShadow, StrokeCap, StrokeJoin, StrokeStyle } from '@ppt4ai/model'
 import type { SceneShapeNode, ScenePictureFill } from '@ppt4ai/render'
 import type { DecodedImage } from './image-canvas-renderer'
 import { applyEffects, cropSource } from './image-painting'
@@ -55,7 +55,13 @@ export function canvasLineJoin(join: StrokeJoin | undefined): CanvasLineJoin {
  * families do get their own pattern — appending the existing dot to the existing dash needs no new
  * number, and before this they painted identically to a plain dash.
  */
-export function dashPattern(style: StrokeStyle, width: number): number[] {
+export function dashPattern(style: StrokeStyle | { custom: DashSegment[] }, width: number): number[] {
+  // `a:custDash` states its own lengths, so there is nothing to approximate: each `a:ds` is a percentage
+  // of the line width. A zero-width line yields an all-zero array, which canvas treats as solid.
+  if (typeof style === 'object') {
+    if (width <= 0) return []
+    return style.custom.flatMap((segment) => [segment.dash * width / 100000, segment.space * width / 100000])
+  }
   const dash = [4 * width, 3 * width]
   const dot = [width, 2 * width]
   switch (style) {
@@ -228,7 +234,7 @@ export function paintPathFills(
     strokeGradient?: ResolvedGradient
     strokeBounds?: Rect
     strokeWidth?: number
-    strokeStyle?: StrokeStyle
+    strokeStyle?: StrokeStyle | { custom: DashSegment[] }
     strokeCap?: StrokeCap
     strokeJoin?: StrokeJoin
   },

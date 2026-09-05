@@ -1,5 +1,5 @@
 import { importPptx } from '@ppt4ai/pptx-import'
-import type { Ppt4aiDocument, ShapeElement, StrokeStyle } from '@ppt4ai/model'
+import type { DashSegment, Ppt4aiDocument, ShapeElement, StrokeStyle } from '@ppt4ai/model'
 import { describe, expect, it } from 'vitest'
 import { createPptx, exportPptx } from './index.js'
 import { readZipEntries, writeStoredZip } from './zip.js'
@@ -53,7 +53,7 @@ function documentWith(style: StrokeStyle): Ppt4aiDocument {
   }
 }
 
-async function reimportedStyle(bytes: Uint8Array): Promise<StrokeStyle | undefined> {
+async function reimportedStyle(bytes: Uint8Array): Promise<StrokeStyle | { custom: DashSegment[] } | undefined> {
   const document = await importPptx(bytes)
   const shape = document.elements[document.slides.sld_1?.elementIds[0] ?? '']
   if (shape?.kind !== 'shape') throw new Error('the generated shape did not import as a shape')

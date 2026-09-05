@@ -144,8 +144,8 @@ export type ThemeStyleEntry = Fill | null
 export interface ThemeLineStyle extends Fill {
   /** `a:ln/@w` in EMU. */
   width?: number
-  /** `a:ln/a:prstDash`, narrowed the same way element strokes are. */
-  style?: StrokeStyle
+  /** `a:ln` dash: `a:prstDash/@val` or `a:custDash` segment list. */
+  style?: StrokeStyle | { custom: DashSegment[] }
   /** `a:ln/@cap`, the same three words an element stroke carries. */
   cap?: StrokeCap
   /** The `a:round`/`a:bevel`/`a:miter` child, as on an element stroke. */
@@ -253,6 +253,20 @@ export type StrokeStyle =
   | 'sysDashDot'
   | 'lgDashDotDot'
   | 'sysDashDotDot'
+
+/**
+ * One `a:ds` of `a:custDash`: a dash segment's length and the gap after it, both in thousandths of a
+ * percent of the line width (100000 = 100%).
+ *
+ * `ST_PositivePercentage` has no upper bound and these are relative to the width, so values well over
+ * 100000 are ordinary — the preset `dash` is itself four times the width.
+ */
+export interface DashSegment {
+  /** `a:ds/@d`, a positive integer. */
+  dash: number
+  /** `a:ds/@sp`, a positive integer. */
+  space: number
+}
 
 /** `a:ln/@cap` verbatim, so the exporter writes the model value without a mapping table. */
 export type StrokeCap = 'flat' | 'rnd' | 'sq'
@@ -511,8 +525,8 @@ export interface ShapeElement {
   shadow?: OuterShadow
   /** `a:ln/@w` in EMU. Absent means the source said nothing, so painting keeps its hairline default. */
   strokeWidth?: number
-  /** `a:ln/a:prstDash`, narrowed to what painting can express. */
-  strokeStyle?: StrokeStyle
+  /** `a:ln` dash: `a:prstDash/@val` or `a:custDash` segment list. */
+  strokeStyle?: StrokeStyle | { custom: DashSegment[] }
   strokeCap?: StrokeCap
   strokeJoin?: StrokeJoin
   styleRef?: ShapeStyleReference
@@ -553,7 +567,7 @@ export interface TextElement {
   pictureFill?: PictureFill
   shadow?: OuterShadow
   strokeWidth?: number
-  strokeStyle?: StrokeStyle
+  strokeStyle?: StrokeStyle | { custom: DashSegment[] }
   strokeCap?: StrokeCap
   strokeJoin?: StrokeJoin
   styleRef?: ShapeStyleReference
@@ -563,8 +577,8 @@ export interface TextElement {
 export interface TableBorder {
   color: Color
   width?: number
-  /** The same `a:prstDash` vocabulary element outlines use, plus `none` for an explicit `a:noFill`. */
-  style?: StrokeStyle | 'none'
+  /** `a:prstDash` or `a:custDash`, the same vocabulary element outlines use, plus `none` for explicit `a:noFill`. */
+  style?: StrokeStyle | { custom: DashSegment[] } | 'none'
 }
 
 export interface TableCellBorders {
@@ -1097,7 +1111,7 @@ export function resolveStyleEffect(
 export function resolveStyleLineStroke(
   reference: StyleReference | undefined,
   theme?: Theme,
-): { width?: number; style?: StrokeStyle; cap?: StrokeCap; join?: StrokeJoin } | undefined {
+): { width?: number; style?: StrokeStyle | { custom: DashSegment[] }; cap?: StrokeCap; join?: StrokeJoin } | undefined {
   const entry = styleEntryAt(reference, theme?.formatScheme?.lineStyles)
   if (!entry) return undefined
   const stroke = {
@@ -1511,8 +1525,30 @@ function validateThemeLineStyleEntries(value: unknown, path: string, errors: str
     if (line.width !== undefined) {
       validateFiniteNumber(line.width, `${entryPath}.width`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')
     }
-    if (line.style !== undefined && !strokeStyles.has(line.style as StrokeStyle)) {
-      errors.push(`${entryPath}.style must be a supported preset dash token`)
+    if (line.style !== undefined) {
+      if (typeof line.style === 'string') {
+        if (!strokeStyles.has(line.style as StrokeStyle)) {
+          errors.push(`${entryPath}.style must be a supported preset dash token`)
+        }
+      } else if (typeof line.style === 'object' && !Array.isArray(line.style)) {
+        const style = line.style as Record<string, unknown>
+        if (!Array.isArray(style.custom)) {
+          errors.push(`${entryPath}.style.custom must be an array`)
+        } else {
+          style.custom.forEach((seg: unknown, i: number) => {
+            if (!seg || typeof seg !== 'object') return
+            const s = seg as Record<string, unknown>
+            if (typeof s.dash !== 'number' || !Number.isInteger(s.dash) || s.dash <= 0) {
+              errors.push(`${entryPath}.style.custom[${i}].dash must be a positive integer`)
+            }
+            if (typeof s.space !== 'number' || !Number.isInteger(s.space) || s.space <= 0) {
+              errors.push(`${entryPath}.style.custom[${i}].space must be a positive integer`)
+            }
+          })
+        }
+      } else {
+        errors.push(`${entryPath}.style must be a string or { custom: DashSegment[] }`)
+      }
     }
     if (line.cap !== undefined && !strokeCaps.has(line.cap as StrokeCap)) {
       errors.push(`${entryPath}.cap must be a supported cap token`)
@@ -2296,8 +2332,27 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     if ((element.kind === 'shape' || element.kind === 'text') && element.styleRef !== undefined) {
       validateShapeStyleReference(element.styleRef, `elements.${elementId}.styleRef`, errors)
     }
-    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeStyle !== undefined && !strokeStyles.has(element.strokeStyle)) {
-      errors.push(`elements.${elementId}.strokeStyle must be a supported preset dash token`)
+    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeStyle !== undefined) {
+      if (typeof element.strokeStyle === 'string') {
+        if (!strokeStyles.has(element.strokeStyle)) {
+          errors.push(`elements.${elementId}.strokeStyle must be a supported preset dash token`)
+        }
+      } else if (typeof element.strokeStyle === 'object' && !Array.isArray(element.strokeStyle)) {
+        if (!Array.isArray(element.strokeStyle.custom)) {
+          errors.push(`elements.${elementId}.strokeStyle.custom must be an array`)
+        } else {
+          element.strokeStyle.custom.forEach((seg, i) => {
+            if (typeof seg?.dash !== 'number' || !Number.isInteger(seg.dash) || seg.dash <= 0) {
+              errors.push(`elements.${elementId}.strokeStyle.custom[${i}].dash must be a positive integer`)
+            }
+            if (typeof seg?.space !== 'number' || !Number.isInteger(seg.space) || seg.space <= 0) {
+              errors.push(`elements.${elementId}.strokeStyle.custom[${i}].space must be a positive integer`)
+            }
+          })
+        }
+      } else {
+        errors.push(`elements.${elementId}.strokeStyle must be a string or { custom: DashSegment[] }`)
+      }
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.strokeCap !== undefined && !strokeCaps.has(element.strokeCap)) {
       errors.push(`elements.${elementId}.strokeCap must be flat, rnd, or sq`)

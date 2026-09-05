@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createCustomPath, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFillPattern, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureStretch, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedPattern, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFillPattern, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type DashSegment, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureStretch, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedPattern, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -51,7 +51,7 @@ export interface SceneShapeNode {
   resolvedStrokeGradient?: ResolvedGradient
   /** `a:ln/@w` in EMU, carried through so paint can set a real line width. */
   strokeWidth?: number
-  strokeStyle?: StrokeStyle
+  strokeStyle?: StrokeStyle | { custom: DashSegment[] }
   strokeCap?: StrokeCap
   strokeJoin?: StrokeJoin
   transform?: ElementTransform
@@ -94,7 +94,7 @@ export interface SceneTextNode {
   resolvedStrokeColor?: ResolvedColor
   resolvedStrokeGradient?: ResolvedGradient
   strokeWidth?: number
-  strokeStyle?: StrokeStyle
+  strokeStyle?: StrokeStyle | { custom: DashSegment[] }
   strokeCap?: StrokeCap
   strokeJoin?: StrokeJoin
   transform?: ElementTransform
@@ -377,9 +377,9 @@ function shapeStrokeGradient(element: { stroke?: Fill }, context: SceneThemeCont
  * theme's. Falling back whole would knock every such outline back to a hairline.
  */
 function shapeStroke(
-  element: { strokeWidth?: number; strokeStyle?: StrokeStyle; strokeCap?: StrokeCap; strokeJoin?: StrokeJoin; styleRef?: ShapeStyleReference },
+  element: { strokeWidth?: number; strokeStyle?: StrokeStyle | { custom: DashSegment[] }; strokeCap?: StrokeCap; strokeJoin?: StrokeJoin; styleRef?: ShapeStyleReference },
   context: SceneThemeContext,
-): { width?: number; style?: StrokeStyle; cap?: StrokeCap; join?: StrokeJoin } {
+): { width?: number; style?: StrokeStyle | { custom: DashSegment[] }; cap?: StrokeCap; join?: StrokeJoin } {
   const themeLine = resolveStyleLineStroke(element.styleRef?.line, context.theme)
   const width = element.strokeWidth ?? themeLine?.width
   const style = element.strokeStyle ?? themeLine?.style
