@@ -125,17 +125,47 @@ describe('the line and fill vocabulary survives source writeback together', () =
   })
 
   /**
-   * Two gaps recorded as intentional rather than fixed, pinned here so a future slice sees them fail
-   * instead of reading a prose claim. Neither has a UI that can produce the edit today.
-   *
-   * A miter limit only reaches the file when the corner type itself changes, because that is the only
-   * thing `lineJoinReplacements` rewrites. Adjust values have no writeback comparison at all.
+   * Both of these were gaps when this file was written: the corner element was only rewritten when the
+   * corner word changed, and the adjust list had no comparison at all. A program driving the model is
+   * the caller that makes these edits, which is this project's whole use case, so they are written now.
    */
-  it('cannot yet write a miter limit or adjust values back to a source package', async () => {
-    const limitOnly = await edited((shape) => { shape.strokeMiterLimit = 200000 })
-    expect(limitOnly).toContain('<a:miter lim="800000"/>')
+  it('writes a changed miter limit while the corner word stays', async () => {
+    const slide = await edited((shape) => { shape.strokeMiterLimit = 200000 })
 
-    const adjustOnly = await edited((shape) => { shape.adjustValues = [{ name: 'adj', formula: 'val 40000' }] })
-    expect(adjustOnly).toContain('<a:gd name="adj" fmla="val 25000"/>')
+    expect(slide).toContain('<a:miter lim="200000"/>')
+    expect(slide).not.toContain('800000')
+  })
+
+  it('drops the limit when the model no longer carries one', async () => {
+    const slide = await edited((shape) => { delete shape.strokeMiterLimit })
+
+    expect(slide).toContain('<a:miter/>')
+    expect(slide).not.toContain('lim=')
+  })
+
+  it('writes a changed adjust value without touching the preset word', async () => {
+    const slide = await edited((shape) => { shape.adjustValues = [{ name: 'adj', formula: 'val 40000' }] })
+
+    expect(slide).toContain('<a:prstGeom prst="roundRect">')
+    expect(slide).toContain('<a:gd name="adj" fmla="val 40000"/>')
+    expect(slide).not.toContain('val 25000')
+  })
+
+  it('empties the adjust list when the model no longer carries one', async () => {
+    const slide = await edited((shape) => { delete shape.adjustValues })
+
+    expect(slide).toContain('<a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>')
+  })
+
+  /** Changing both at once must not have the two replacements fight over the same range. */
+  it('writes a new preset word and new adjust values together', async () => {
+    const slide = await edited((shape) => {
+      shape.preset = 'hexagon'
+      shape.adjustValues = [{ name: 'adj1', formula: 'val 10000' }]
+    })
+
+    expect(slide).toContain('prst="hexagon"')
+    expect(slide).toContain('<a:gd name="adj1" fmla="val 10000"/>')
+    expect(slide).not.toContain('val 25000')
   })
 })

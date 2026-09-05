@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type DashSegment, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type AdjustValue, type ColorTransformType, type DashSegment, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { serializeColorXml, serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
@@ -510,11 +510,30 @@ function lineAttributeReplacements(xml: string, line: XmlElement, name: string, 
 const joinNames = new Set(['round', 'bevel', 'miter'])
 
 /** The corner is a child element, so changing it replaces one element with another. */
-function lineJoinReplacements(xml: string, line: XmlElement, join: StrokeJoin | undefined): Replacement[] {
+/**
+ * The corner element and, when it is `a:miter`, its `@lim`. One function owns the whole element because
+ * two replacements over the same range would conflict: changing the corner word rewrites the element,
+ * and changing only the limit patches an attribute inside the element the other one just replaced.
+ *
+ * The comparison is on the values rather than on the serialized element, so a source that spells the
+ * same limit differently is left alone.
+ */
+function lineJoinReplacements(
+  xml: string,
+  line: XmlElement,
+  join: StrokeJoin | undefined,
+  miterLimit?: number,
+): Replacement[] {
   const node = line.children.find((child) => joinNames.has(child.localName))
-  if (join === node?.localName) return []
+  const sourceLimit = node?.localName === 'miter' ? Number(node.attributes.lim) : undefined
+  const wantedLimit = join === 'miter' ? miterLimit : undefined
+  const sameLimit = wantedLimit === undefined
+    ? sourceLimit === undefined || !Number.isFinite(sourceLimit)
+    : sourceLimit === wantedLimit
+  if (join === node?.localName && sameLimit) return []
   if (join === undefined) return node ? [{ start: node.start, end: node.end, value: '' }] : []
-  const value = `<${qualifiedName(line.name, join)}/>`
+  const attribute = join === 'miter' && wantedLimit !== undefined ? ` lim="${wantedLimit}"` : ''
+  const value = `<${qualifiedName(line.name, join)}${attribute}/>`
   if (node) return [{ start: node.start, end: node.end, value }]
   const dash = line.children.find((child) => child.localName === 'prstDash')
   if (dash) return [{ start: dash.end, end: dash.end, value }]
@@ -533,6 +552,7 @@ function strokeReplacements(
   strokeJoin?: StrokeJoin,
   strokeCompound?: StrokeCompound,
   strokeAlign?: StrokeAlign,
+  strokeMiterLimit?: number,
 ): Replacement[] {
   const properties = sourceShapeProperties(sourceElement)
   if (!properties) return []
@@ -564,7 +584,7 @@ function strokeReplacements(
     replacements.push(...lineWidthReplacements(xml, line, strokeWidth))
     replacements.push(...lineDashReplacements(xml, line, strokeStyle))
     replacements.push(...lineCapReplacements(xml, line, strokeCap))
-    replacements.push(...lineJoinReplacements(xml, line, strokeJoin))
+    replacements.push(...lineJoinReplacements(xml, line, strokeJoin, strokeMiterLimit))
     replacements.push(...lineCompoundReplacements(xml, line, strokeCompound))
     replacements.push(...lineAlignReplacements(xml, line, strokeAlign))
   }
@@ -586,23 +606,74 @@ function qualifiedName(sourceName: string, localName: string): string {
   return separator >= 0 ? `${sourceName.slice(0, separator + 1)}${localName}` : localName
 }
 
-function serializePresetGeometry(sourceName: string | undefined, preset: PresetGeometry): string {
-  const name = qualifiedName(sourceName ?? 'a:prstGeom', 'prstGeom')
+function serializeAdjustList(sourceName: string | undefined, adjustValues: readonly AdjustValue[] | undefined): string {
   const avList = qualifiedName(sourceName ?? 'a:prstGeom', 'avLst')
-  return `<${name} prst="${escapeXml(preset)}"><${avList}/></${name}>`
+  const guide = qualifiedName(sourceName ?? 'a:prstGeom', 'gd')
+  const guides = (adjustValues ?? [])
+    .map((adjust) => `<${guide} name="${escapeXml(adjust.name)}" fmla="${escapeXml(adjust.formula)}"/>`)
+    .join('')
+  return guides === '' ? `<${avList}/>` : `<${avList}>${guides}</${avList}>`
 }
 
-function geometryReplacements(xml: string, sourceElement: XmlElement, preset: PresetGeometry): Replacement[] {
+function serializePresetGeometry(sourceName: string | undefined, preset: PresetGeometry, adjustValues: readonly AdjustValue[] | undefined): string {
+  const name = qualifiedName(sourceName ?? 'a:prstGeom', 'prstGeom')
+  return `<${name} prst="${escapeXml(preset)}">${serializeAdjustList(sourceName, adjustValues)}</${name}>`
+}
+
+/** The source's own `a:gd` entries, as the importer would have read them. */
+function sourceAdjustValues(geometry: XmlElement | undefined): AdjustValue[] {
+  const list = geometry?.children.find((child) => child.localName === 'avLst')
+  if (!list) return []
+  return list.children.flatMap((node) => {
+    if (node.localName !== 'gd') return []
+    const name = node.attributes.name?.trim()
+    const formula = node.attributes.fmla?.trim()
+    return name && formula ? [{ name, formula }] : []
+  })
+}
+
+function adjustValuesEqual(left: readonly AdjustValue[], right: readonly AdjustValue[]): boolean {
+  return left.length === right.length
+    && left.every((adjust, index) => adjust.name === right[index]?.name && adjust.formula === right[index]?.formula)
+}
+
+/**
+ * The `prst` word and the `a:avLst` beside it. The list needs its own comparison for the reason every
+ * other field in this file does: once the model holds it, a comparison that ignores it writes the
+ * source's value back over an edit — and an edit to a shape's adjust handles is exactly what a program
+ * driving this model would make.
+ */
+function geometryReplacements(
+  xml: string,
+  sourceElement: XmlElement,
+  preset: PresetGeometry,
+  adjustValues?: readonly AdjustValue[],
+): Replacement[] {
   const properties = sourceShapeProperties(sourceElement)
   if (!properties) return []
   const geometry = properties.children.find((child) => child.localName === 'prstGeom' || child.localName === 'custGeom')
   const previous = geometry?.localName === 'prstGeom' ? importedPreset(geometry.attributes.prst) : 'rect'
-  if (previous === preset) return []
+  const sameAdjust = geometry?.localName !== 'prstGeom'
+    || adjustValuesEqual(sourceAdjustValues(geometry), adjustValues ?? [])
+  if (previous === preset && sameAdjust) return []
   if (geometry?.localName === 'prstGeom' && geometry.attributes.prst !== undefined) {
-    const value = xml.slice(geometry.start, geometry.end)
-    return [{ start: geometry.start, end: geometry.end, value: replaceXmlAttribute(value, 'prst', preset) }]
+    const list = geometry.children.find((child) => child.localName === 'avLst')
+    const replacements: Replacement[] = []
+    if (previous !== preset) {
+      const open = xml.slice(geometry.start, xml.indexOf('>', geometry.start) + 1)
+      replacements.push({ start: geometry.start, end: geometry.start + open.length, value: replaceXmlAttribute(open, 'prst', preset) })
+    }
+    if (!sameAdjust) {
+      const value = serializeAdjustList(geometry.name, adjustValues)
+      if (list) replacements.push({ start: list.start, end: list.end, value })
+      else {
+        const insertion = xml.indexOf('>', geometry.start) + 1
+        replacements.push({ start: insertion, end: insertion, value })
+      }
+    }
+    return replacements
   }
-  const value = serializePresetGeometry(geometry?.name, preset)
+  const value = serializePresetGeometry(geometry?.name, preset, adjustValues)
   if (geometry) return [{ start: geometry.start, end: geometry.end, value }]
   const fill = properties.children.find((child) => fillNodeNames.has(child.localName))
   const line = properties.children.find((child) => child.localName === 'ln')
@@ -1193,15 +1264,15 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
         replacements.push(...transformReplacements(xml, sourceElement, element))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
-        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin, element.strokeCompound, element.strokeAlign))
+        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin, element.strokeCompound, element.strokeAlign, element.strokeMiterLimit))
       } else if (element.kind === 'text') {
         throw new Error(`PPTX export text source mismatch for element ${element.id}`)
       } else if (element.kind === 'shape') {
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
         replacements.push(...transformReplacements(xml, sourceElement, element))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
-        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin, element.strokeCompound, element.strokeAlign))
-        replacements.push(...geometryReplacements(xml, sourceElement, element.preset))
+        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin, element.strokeCompound, element.strokeAlign, element.strokeMiterLimit))
+        replacements.push(...geometryReplacements(xml, sourceElement, element.preset, element.adjustValues))
       } else {
         throw new Error(`PPTX export shape source mismatch for element ${element.id}`)
       }
