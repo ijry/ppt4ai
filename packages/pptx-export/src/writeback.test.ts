@@ -873,7 +873,7 @@ describe('exportPptx', () => {
     const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
     const imported = await importPptx(output)
 
-    expect(outputSlide).toContain('<a:ln w="12700" cap="rnd" cmpd="sng" data-line="keep"><a:solidFill><a:srgbClr val="00FF00"/></a:solidFill><a:prstDash val="dash"/><a:customLine keep="yes"/></a:ln>')
+    expect(outputSlide).toContain('<a:ln w="12700" cap="rnd" cmpd="sng" data-line="keep"><a:solidFill data-stroke-fill="keep"><a:srgbClr val="00FF00"/></a:solidFill><a:prstDash val="dash"/><a:customLine keep="yes"/></a:ln>')
     expect(outputSlide).toContain('<a:ln w="25400" data-text-line="keep"><a:solidFill><a:schemeClr val="accent2"/></a:solidFill><a:customTextLine keep="yes"/></a:ln>')
     expect(outputSlide).toContain('<a:customStyle keep="yes"/>')
     expect(imported.elements.el_1).toMatchObject({ stroke: { color: { type: 'srgb', v: '00FF00' } } })

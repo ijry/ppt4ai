@@ -425,10 +425,15 @@ function sameKindFillPatches(xml: string, fillNode: XmlElement, existing: Fill, 
   const named = (name: string): XmlElement | undefined => fillNode.children.find((child) => child.localName === name)
   const colorChild = (): XmlElement | undefined => fillNode.children.find((child) => colorNodeNames.has(child.localName))
   const kind = fillKind(fill)
+  // A stroke's fill sits inside `a:ln`, which may carry a different prefix, so every emitted fragment
+  // takes the node's own — the reason `serializeFillForLine` exists for the whole-node path.
+  const prefix = namespacePrefix(fillNode.name) || 'a:'
+  const reprefix = (value: string): string =>
+    prefix === 'a:' ? value : value.replaceAll('<a:', `<${prefix}`).replaceAll('</a:', `</${prefix}`)
 
   if (kind === 'solid') {
     if (colorsEqual(existing.color, fill.color)) return []
-    return [childReplacement(xml, fillNode, colorChild(), serializeColorXml(fill.color))]
+    return [childReplacement(xml, fillNode, colorChild(), serializeColorXml(fill.color, prefix))]
   }
 
   if (kind === 'pattern') {
@@ -444,7 +449,7 @@ function sameKindFillPatches(xml: string, fillNode: XmlElement, existing: Fill, 
     ] as const) {
       if (colorsEqual(previous, next)) continue
       const slot = named(name)
-      const value = `<${namespacePrefix(fillNode.name)}${name}>${serializeColorXml(next)}</${namespacePrefix(fillNode.name)}${name}>`
+      const value = `<${prefix}${name}>${serializeColorXml(next, prefix)}</${prefix}${name}>`
       replacements.push(childReplacement(xml, fillNode, slot, value))
     }
     return replacements
@@ -459,7 +464,7 @@ function sameKindFillPatches(xml: string, fillNode: XmlElement, existing: Fill, 
   if (stopsChanged) {
     const serialized = serializeFillXml(fill)
     const list = serialized.slice(serialized.indexOf('<a:gsLst'), serialized.indexOf('</a:gsLst>') + 10)
-    replacements.push(childReplacement(xml, fillNode, named('gsLst'), list))
+    replacements.push(childReplacement(xml, fillNode, named('gsLst'), reprefix(list)))
   }
   // `a:lin` and `a:path` are a choice, so a change of form replaces whichever one is there.
   const wantsPath = gradient.path !== undefined
@@ -472,7 +477,7 @@ function sameKindFillPatches(xml: string, fillNode: XmlElement, existing: Fill, 
       wantsPath ? serialized.indexOf('<a:path') : serialized.indexOf('<a:lin'),
       serialized.lastIndexOf('</a:gradFill>'),
     )
-    replacements.push(childReplacement(xml, fillNode, named('lin') ?? named('path'), form))
+    replacements.push(childReplacement(xml, fillNode, named('lin') ?? named('path'), reprefix(form)))
   }
   return replacements
 }
@@ -798,8 +803,14 @@ function strokeReplacements(
         const value = `<a:ln${widthAttribute}${capAttribute}>${serializeFillXml(stroke)}${dash}${join}</a:ln>`
         return shapePropertyInsertion(xml, properties, value)
       }
-      const value = serializeFillForLine(stroke, line.name)
-      replacements.push(...(fillNode ? [{ start: fillNode.start, end: fillNode.end, value }] : lineReplacements(xml, line, value)))
+      // Same rule as the shape's own fill: patch when the kind matches so the stroke's unmodeled
+      // attributes and children survive, swap the node only when the kind changes.
+      if (fillNode && existing && fillKind(existing) === fillKind(stroke) && fillNode.localName === modelFillNodeName(stroke)) {
+        replacements.push(...sameKindFillPatches(xml, fillNode, existing, stroke))
+      } else {
+        const value = serializeFillForLine(stroke, line.name)
+        replacements.push(...(fillNode ? [{ start: fillNode.start, end: fillNode.end, value }] : lineReplacements(xml, line, value)))
+      }
     } else if (line && fillNode && existing) {
       replacements.push({ start: fillNode.start, end: fillNode.end, value: serializeNoFill(line.name) })
     }

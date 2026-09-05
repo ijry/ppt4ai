@@ -145,3 +145,42 @@ describe('changing the kind of fill still swaps the node', () => {
     }
   })
 })
+
+/** A stroke's fill sits inside `a:ln`, and it used to be replaced whole exactly as the shape's was. */
+describe("a stroke's fill is patched rather than replaced", () => {
+  const strokedSource = (): Uint8Array => {
+    const slide = '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree>'
+      + '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Stroked"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>'
+      + '<p:spPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="2000000" cy="1000000"/></a:xfrm>'
+      + '<a:prstGeom prst="rect"/>'
+      + '<a:ln w="76200" cap="sq"><a:solidFill data-keep="yes"><a:srgbClr val="203864"/></a:solidFill>'
+      + '<a:prstDash val="dash"/></a:ln></p:spPr>'
+      + '</p:sp></p:spTree></p:cSld></p:sld>'
+    const encode = (value: string) => new TextEncoder().encode(value)
+    return writeStoredZip([
+      { name: 'ppt/presentation.xml', data: encode(presentation) },
+      { name: 'ppt/_rels/presentation.xml.rels', data: encode(presentationRels) },
+      { name: 'ppt/slides/slide1.xml', data: encode(slide) },
+    ])
+  }
+
+  it('keeps the fill node attributes when the stroke colour changes', async () => {
+    const source = strokedSource()
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    if (shape?.kind !== 'shape') throw new Error('fixture did not import as a shape')
+    shape.stroke = { color: { type: 'srgb', v: 'FF0000' } }
+
+    const slide = await slideXmlOf(await exportPptx(document, source))
+
+    expect(slide).toContain('<a:solidFill data-keep="yes"><a:srgbClr val="FF0000"/></a:solidFill>')
+    expect(slide).toContain('cap="sq"')
+    expect(slide).toContain('<a:prstDash val="dash"/>')
+  })
+
+  it('leaves the stroke alone when nothing is edited', async () => {
+    const source = strokedSource()
+
+    expect(await exportPptx(await importPptx(source), source)).toEqual(source)
+  })
+})
