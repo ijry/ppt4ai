@@ -370,8 +370,28 @@ function serializePlaceholderShapeXml(placeholder: string, defaults: ElementDefa
   const transform = defaults.bounds
     ? `<a:xfrm${attrs([['rot', defaults.rotation]])}>${serializeTransformContents(defaults.bounds)}</a:xfrm>`
     : ''
-  const geometry = defaults.preset ? serializeGeometry(defaults.preset) : ''
-  const line = defaults.stroke ? `<a:ln>${serializeFillXml(defaults.stroke)}</a:ln>` : ''
+  const geometry = defaults.preset ? serializeGeometry(defaults.preset, defaults.adjustValues) : ''
+  // Written whenever any outline field is set, not only when there is a colour: a placeholder may state a
+  // width and take its colour from `lnRef`, and the old colour-only condition dropped everything else.
+  const hasLine = defaults.stroke !== undefined
+    || defaults.strokeWidth !== undefined
+    || defaults.strokeStyle !== undefined
+    || defaults.strokeCap !== undefined
+    || defaults.strokeJoin !== undefined
+    || defaults.strokeCompound !== undefined
+    || defaults.strokeAlign !== undefined
+    || defaults.strokeMiterLimit !== undefined
+  const lineAttrs = attrs([
+    ['w', defaults.strokeWidth],
+    ['cap', defaults.strokeCap],
+    ['cmpd', defaults.strokeCompound],
+    ['algn', defaults.strokeAlign],
+  ])
+  const line = hasLine
+    ? `<a:ln${lineAttrs}>${serializeFillXml(defaults.stroke)}`
+      + `${serializeDashXml(defaults.strokeStyle)}`
+      + `${serializeJoinXml(defaults.strokeJoin, defaults.strokeMiterLimit)}</a:ln>`
+    : ''
   const shapeProperties = `<p:spPr>${transform}${geometry}${serializeFillXml(defaults.fill)}${line}</p:spPr>`
   // `body` wins over the legacy flat `text`, the rule elements already follow; the importer derives
   // `text` back from whichever was written.

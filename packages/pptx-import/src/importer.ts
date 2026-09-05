@@ -1711,6 +1711,25 @@ function parseDefaults(shape: XmlNode): [string, ElementDefaults] | undefined {
   if (fill) defaults.fill = fill
   const stroke = parseStroke(shape)
   if (stroke) defaults.stroke = stroke
+  // The same `a:ln` and `a:prstGeom` the element path reads, through the same parsers. Without these the
+  // inheriting shape got the outline's colour and a hairline solid line in place of everything else.
+  const line = child(shapeProperties(shape) ?? shape, 'ln')
+  const strokeWidth = parseLineWidth(line)
+  if (strokeWidth !== undefined) defaults.strokeWidth = strokeWidth
+  const dash = parseDashStyle(line)
+  if (dash !== undefined && dash !== 'solid') defaults.strokeStyle = dash
+  const cap = parseStrokeCap(line)
+  if (cap) defaults.strokeCap = cap
+  const join = parseStrokeJoin(line)
+  if (join) defaults.strokeJoin = join
+  const compound = parseStrokeCompound(line)
+  if (compound) defaults.strokeCompound = compound
+  const align = parseStrokeAlign(line)
+  if (align) defaults.strokeAlign = align
+  const miterLimit = parseStrokeMiterLimit(line)
+  if (miterLimit !== undefined) defaults.strokeMiterLimit = miterLimit
+  const adjustValues = parseAdjustValues(shape)
+  if (adjustValues) defaults.adjustValues = adjustValues
   const body = parseTextBody(shape)
   // `text` stays alongside `body`: master/layout writeback compares against it in its no-body path.
   if (body) defaults.body = body

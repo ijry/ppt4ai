@@ -821,12 +821,26 @@ export interface ImageElement {
 
 export type Element = ShapeElement | TextElement | TableElement | GroupElement | ImageElement
 
+/**
+ * What a master or layout placeholder hands to the slide shape that inherits from it.
+ *
+ * Field names match `ShapeElement`'s exactly, and that is load-bearing rather than tidy:
+ * `resolveInheritedElement` merges these with `Object.assign`, so only an identical key overrides.
+ */
 export interface ElementDefaults {
   bounds?: Rect
   rotation?: number
   preset?: PresetGeometry
   fill?: Fill
   stroke?: Fill
+  strokeWidth?: number
+  strokeStyle?: StrokeStyle | { custom: DashSegment[] }
+  strokeCap?: StrokeCap
+  strokeJoin?: StrokeJoin
+  strokeCompound?: StrokeCompound
+  strokeAlign?: StrokeAlign
+  strokeMiterLimit?: number
+  adjustValues?: AdjustValue[]
   text?: string
   body?: TextBody
   listStyle?: LevelDefaults[]
