@@ -221,7 +221,9 @@ function serializeRun(text: string, marks: TextMarks | undefined): string {
 }
 
 function serializeParagraph(paragraph: TextParagraph): string {
-  const properties = serializeParagraphProperties(paragraph)
+  // The paragraph's own `a:defRPr`. Only the `a:lstStyle` path used to pass it, so a paragraph-level one
+  // was read on import and then dropped by every sourceless export.
+  const properties = serializeParagraphProperties(paragraph, 'a:pPr', paragraph.attrs?.defaultMarks)
   const runs = paragraph.runs.map((run) => serializeRun(run.text, run.marks)).join('')
   const content = properties + runs
   return content ? `<a:p>${content}</a:p>` : '<a:p/>'

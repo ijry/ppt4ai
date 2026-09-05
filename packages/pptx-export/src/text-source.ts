@@ -112,6 +112,10 @@ function sourceParagraphAttrs(paragraphProperties: XmlElement | undefined): Text
   if (spaceAfter !== undefined) attrs.spaceAfter = spaceAfter
   const bullet = sourceBullet(paragraphProperties)
   if (bullet) attrs.bullet = bullet
+  // Read for the same reason `sourceFill` reads a pattern: once the serializer writes `a:defRPr`, a
+  // comparison blind to it would call every such paragraph edited and rewrite the whole `txBody`.
+  const defaultMarks = sourceRunMarks(directChildOf(paragraphProperties, 'defRPr'))
+  if (defaultMarks) attrs.defaultMarks = defaultMarks
   return Object.keys(attrs).length > 0 ? attrs : undefined
 }
 
