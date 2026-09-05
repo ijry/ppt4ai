@@ -112,7 +112,7 @@ export function patternGeometry(preset: string, bounds: GeometryBounds): Pattern
 
 ## 7. 实现记录（2026-09-05）
 
-实现提交 `待填`。按设计执行，两处补充：
+实现提交 `ce8a19c`。按设计执行，两处补充：
 
 **只需改一处绘制入口，不是三处**。第 2 节已更正过延期理由；实现时确认得更彻底：`paintShapeNode` 与 `paintPathFills`（带文字的形状走这条）各加一个分支即可，`slide-canvas-renderer` 与 `thumbnail-worker` 都调前者，一行未改。
 
