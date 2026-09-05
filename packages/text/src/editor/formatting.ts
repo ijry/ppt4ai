@@ -24,6 +24,8 @@ export interface TextFormattingState {
   readonly italic: TextToggleState
   readonly underline: TextToggleState
   readonly fontFamily?: string
+  /** `a:ea`. A run carries this alongside `fontFamily`, not instead of it. */
+  readonly fontFamilyEa?: string
   readonly fontSize?: number
   readonly color?: Fill
   readonly align?: 'left' | 'center' | 'right'
@@ -31,6 +33,7 @@ export interface TextFormattingState {
 
 const markNames = new Set<keyof TextMarks>([
   'fontFamily',
+  'fontFamilyEa',
   'fontSize',
   'bold',
   'italic',
@@ -124,6 +127,7 @@ export function getTextFormattingState(state: EditorState): TextFormattingState 
     italic: TextToggleState
     underline: TextToggleState
     fontFamily?: string
+    fontFamilyEa?: string
     fontSize?: number
     color?: Fill
     align?: 'left' | 'center' | 'right'
@@ -133,9 +137,11 @@ export function getTextFormattingState(state: EditorState): TextFormattingState 
     underline: reduceBoolean(marks?.map((value) => isUnderlined(value?.underline)) ?? [false]),
   }
   const fontFamily = reduceScalar(marks?.map((value) => value?.fontFamily) ?? [undefined])
+  const fontFamilyEa = reduceScalar(marks?.map((value) => value?.fontFamilyEa) ?? [undefined])
   const fontSize = reduceScalar(marks?.map((value) => value?.fontSize) ?? [undefined])
   const color = reduceScalar(marks?.map((value) => value?.color) ?? [undefined])
   if (fontFamily !== undefined) result.fontFamily = fontFamily
+  if (fontFamilyEa !== undefined) result.fontFamilyEa = fontFamilyEa
   if (fontSize !== undefined) result.fontSize = fontSize
   if (color !== undefined) result.color = structuredClone(color)
   const alignments = collectParagraphAlignments(state)
@@ -149,7 +155,9 @@ function validatePatch(patch: TextMarksPatch): void {
   for (const [key, value] of Object.entries(patch)) {
     if (!markNames.has(key as keyof TextMarks)) throw new TypeError(`unsupported text mark: ${key}`)
     if (value === undefined) continue
-    if (key === 'fontFamily' && (typeof value !== 'string' || value.trim().length === 0)) throw new TypeError('fontFamily must be non-empty')
+    if ((key === 'fontFamily' || key === 'fontFamilyEa') && (typeof value !== 'string' || value.trim().length === 0)) {
+      throw new TypeError(`${key} must be non-empty`)
+    }
     if (key === 'fontSize' && (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)) throw new TypeError('fontSize must be positive')
     if ((key === 'bold' || key === 'italic') && typeof value !== 'boolean') throw new TypeError(`${key} must be boolean`)
     if (key === 'underline' && (typeof value !== 'string' || !/^[A-Za-z][A-Za-z0-9]*$/u.test(value))) throw new TypeError('underline must be an underline token')

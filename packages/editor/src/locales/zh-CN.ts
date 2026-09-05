@@ -22,6 +22,7 @@ const zhCN = {
       italic: '斜体',
       underline: '下划线',
       fontFamily: '字体',
+      fontFamilyEa: '中日韩字体',
       fontSize: '字号',
       color: '文字颜色',
       mixed: '混合',

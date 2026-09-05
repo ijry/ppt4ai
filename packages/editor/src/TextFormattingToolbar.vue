@@ -19,6 +19,11 @@ function fontFamily(event: Event): void {
   if (value) emit('set-marks', { fontFamily: value })
 }
 
+function fontFamilyEa(event: Event): void {
+  const value = (event.target as HTMLSelectElement).value
+  if (value) emit('set-marks', { fontFamilyEa: value })
+}
+
 function fontSize(event: Event): void {
   const value = Number((event.target as HTMLSelectElement).value)
   if (Number.isFinite(value) && value > 0) emit('set-marks', { fontSize: value })
@@ -67,6 +72,17 @@ function color(event: Event): void {
     >
       <option value="">{{ t('toolbar.textFormatting.mixed') }}</option>
       <option v-for="font in props.fontFamilies" :key="font" :value="font">{{ font }}</option>
+    </select>
+
+    <select
+      class="h-8 border border-slate-300 bg-white px-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+      :aria-label="t('toolbar.textFormatting.fontFamilyEa')"
+      :disabled="!props.active"
+      :value="props.state.fontFamilyEa ?? ''"
+      @change="fontFamilyEa"
+    >
+      <option value="">{{ t('toolbar.textFormatting.mixed') }}</option>
+      <option v-for="font in (props.eaFontFamilies ?? props.fontFamilies)" :key="font" :value="font">{{ font }}</option>
     </select>
 
     <select

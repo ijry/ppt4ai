@@ -22,6 +22,7 @@ function mountToolbar(active: boolean) {
       active,
       state,
       fontFamilies: ['Arial', 'Calibri'],
+      eaFontFamilies: ['宋体', '黑体'],
       fontSizes: [12, 18],
       'onSet-marks': (patch: unknown) => events.marks.push(patch),
       'onToggle-mark': (name: unknown) => events.toggles.push(name),
@@ -38,11 +39,11 @@ describe('TextFormattingToolbar', () => {
     const { app, host } = mountToolbar(false)
 
     expect(host.querySelectorAll('button')).toHaveLength(6)
-    expect(host.querySelectorAll('select')).toHaveLength(2)
+    expect(host.querySelectorAll('select')).toHaveLength(3)
     expect(host.querySelector('input[type="color"]')).not.toBeNull()
     expect(host.querySelector('button[aria-pressed="mixed"]')).not.toBeNull()
     expect(host.querySelectorAll('button:disabled')).toHaveLength(6)
-    expect(host.querySelectorAll('select:disabled')).toHaveLength(2)
+    expect(host.querySelectorAll('select:disabled')).toHaveLength(3)
     expect((host.querySelector('input[type="color"]') as HTMLInputElement).disabled).toBe(true)
     expect(host.querySelector('select')?.querySelector('option[value=""]')).not.toBeNull()
     expect(host.querySelector('[data-text-formatting-toolbar]')?.className).toContain('flex')
@@ -52,7 +53,7 @@ describe('TextFormattingToolbar', () => {
     host.remove()
   })
 
-  it('emits typed mark, alignment, font, size, and color commands', () => {
+  it('emits typed mark, alignment, both fonts, size, and color commands', () => {
     const { app, host, events } = mountToolbar(true)
     const buttons = [...host.querySelectorAll('button')] as HTMLButtonElement[]
     buttons[0]?.click()
@@ -60,8 +61,10 @@ describe('TextFormattingToolbar', () => {
     const selects = [...host.querySelectorAll('select')] as HTMLSelectElement[]
     selects[0]!.value = 'Arial'
     selects[0]!.dispatchEvent(new Event('change', { bubbles: true }))
-    selects[1]!.value = '18'
+    selects[1]!.value = '宋体'
     selects[1]!.dispatchEvent(new Event('change', { bubbles: true }))
+    selects[2]!.value = '18'
+    selects[2]!.dispatchEvent(new Event('change', { bubbles: true }))
     const color = host.querySelector('input[type="color"]') as HTMLInputElement
     color.value = '#00ff00'
     color.dispatchEvent(new Event('change', { bubbles: true }))
@@ -70,6 +73,7 @@ describe('TextFormattingToolbar', () => {
     expect(events.alignments).toEqual(['left'])
     expect(events.marks).toEqual([
       { fontFamily: 'Arial' },
+      { fontFamilyEa: '宋体' },
       { fontSize: 18 },
       { color: { color: { type: 'srgb', v: '00ff00' } } },
     ])

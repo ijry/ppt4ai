@@ -1,6 +1,6 @@
 # 中日韩字体工具栏控件
 
-> 状态：待实现
+> 状态：已实现
 > 日期：2026-09-05
 
 ## 1. 目标
@@ -71,3 +71,13 @@ i18n：`toolbar.textFormatting.fontFamilyEa` 中英各一条。
 **字体清单仍由宿主提供**：浏览器无法枚举已安装字体，这不是本刀能改的。playground 目前给的是一份西文清单，接入方要中日韩字体需自己给 `eaFontFamilies`。
 
 **主题字体的 `ea` 槽位无关**：主题面板编辑 `+mn-ea` 那类引用是另一条路（`ThemePanel`），本刀只管 run 级直接声明。
+
+## 7. 实现记录（2026-09-05）
+
+实现提交 `待填`。按设计执行，三处值得记：
+
+**回退写在两层，因为 `exactOptionalPropertyTypes`**。设计说「缺省回退到 `fontFamilies`」，实现时 `PptEditor.vue` 把 `props.eaFontFamilies`（`readonly string[] | undefined`）直接透传给可选 prop 被 TS 拒绝——该选项禁止显式传 `undefined` 给可选属性。于是 `PptEditor` 传 `props.eaFontFamilies ?? props.fontFamilies ?? []`，工具栏自己保留 `?? props.fontFamilies` 以便独立使用与单测。两层都有回退，各自单独成立。
+
+**测试必须先建立选区**。第一版三条用例失败：空选区下 `setTextMarks` 只写 `storedMarks`（要等打字才落到 run 上），而 `getTextFormattingState` 读的是光标处的 marks 而非整段。改成每个用例先 `TextSelection.create(doc, 1, size - 1)`——这也正是工具栏的真实用法。
+
+**既有工具栏测试的下标要挪**：中日韩下拉框插在西文与字号之间，`selects[1]` 从字号变成了 EA 字体，两处 `toHaveLength(2)` 变成 3。这类"新增控件让既有下标位移"的改动无法避免，只能靠测试当场标红——它做到了。

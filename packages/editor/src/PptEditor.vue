@@ -41,6 +41,8 @@ const props = withDefaults(defineProps<{
   devicePixelRatio?: number
   /** The host supplies these: a browser cannot enumerate installed fonts. */
   fontFamilies?: readonly string[]
+  /** Typefaces for the east asian slot; falls back to `fontFamilies` when the host gives only one list. */
+  eaFontFamilies?: readonly string[]
 }>(), { zoom: 1 })
 
 const emit = defineEmits<{
@@ -790,6 +792,7 @@ onBeforeUnmount(() => {
         active
         :state="textFormatting"
         :font-families="props.fontFamilies ?? []"
+        :ea-font-families="props.eaFontFamilies ?? props.fontFamilies ?? []"
         :font-sizes="FONT_SIZES"
         @set-marks="textBoxRef?.setMarks($event)"
         @toggle-mark="textBoxRef?.toggleMark($event)"

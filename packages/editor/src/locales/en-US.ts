@@ -22,6 +22,7 @@ const enUS = {
       italic: 'Italic',
       underline: 'Underline',
       fontFamily: 'Font family',
+      fontFamilyEa: 'East Asian font',
       fontSize: 'Font size',
       color: 'Text color',
       mixed: 'Mixed',
