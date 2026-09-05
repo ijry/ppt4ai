@@ -88,7 +88,7 @@ export function patternCoverage(preset: string): number | undefined
 
 ## 7. 实现记录（2026-09-05）
 
-实现提交 `待填`。按设计执行，一处补充：
+实现提交 `4926844`。按设计执行，一处补充：
 
 **`paintPatternFill` 的空盒判断上移**。原先由 `patternGeometry` 负责（零面积返回 `undefined`），但覆盖率分支不经过它，于是零宽高的百分比图案会去 `fillRect` 一个空矩形。判断移到函数开头，两条路共用。
 
