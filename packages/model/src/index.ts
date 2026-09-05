@@ -345,11 +345,21 @@ export interface PatternFill {
 export type PresetPattern = string
 
 /**
- * The `prst` words that paint as a real tile. Empty for now — every pattern paints as its foreground
- * colour, because a tile needs `createPattern` and one of the three paint paths runs in a worker with
- * no canvas API. This constant is where that follow-up slice lands.
+ * The `prst` words that paint as real geometry rather than as their foreground colour. These are the
+ * line-shaped families, where the word itself states the direction and the density tier; the exact
+ * spacing and weight are this project's own approximation (see `patternGeometry`).
+ *
+ * The percentage families (`pct5`…`pct90`) and the decorative words (`zigZag`, `weave`, `sphere`, …)
+ * are deliberately absent: the first is a dot-density problem, and the second has a shape the name
+ * does not describe. Both keep painting as the foreground colour.
  */
-export const PAINTED_PRESET_PATTERNS: readonly string[] = []
+export const PAINTED_PRESET_PATTERNS: readonly string[] = [
+  'ltHorz', 'horz', 'dkHorz', 'narHorz',
+  'ltVert', 'vert', 'dkVert', 'narVert',
+  'ltUpDiag', 'dkUpDiag', 'wdUpDiag',
+  'ltDnDiag', 'dkDnDiag', 'wdDnDiag',
+  'smGrid', 'lgGrid', 'cross', 'diagCross',
+]
 
 /** A pattern with both colours already resolved through the theme and colour map. */
 export interface ResolvedPattern {

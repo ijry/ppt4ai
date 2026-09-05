@@ -1,6 +1,6 @@
 # 图案纹理绘制（`a:pattFill` 第二刀）
 
-> 状态：待实现
+> 状态：已实现
 > 日期：2026-09-05
 
 ## 1. 目标
@@ -109,3 +109,13 @@ export function patternGeometry(preset: string, bounds: GeometryBounds): Pattern
 **百分比族（12 个）与装饰族（26 个）仍画前景纯色**：前者是性能问题（满页形状上万个点），后者是形状猜不出来。
 
 **密集图案的操作数随形状尺寸增长**：一个满页 `narHorz` 在高缩放下是几百条线。tile 化是独立优化，等有实测慢再做。
+
+## 7. 实现记录（2026-09-05）
+
+实现提交 `待填`。按设计执行，两处补充：
+
+**只需改一处绘制入口，不是三处**。第 2 节已更正过延期理由；实现时确认得更彻底：`paintShapeNode` 与 `paintPathFills`（带文字的形状走这条）各加一个分支即可，`slide-canvas-renderer` 与 `thumbnail-worker` 都调前者，一行未改。
+
+**阴影只投一次**。`paintPatternFill` 内部铺完背景就调 `clearShadow`——否则背景的 `fillRect` 与线条的 `stroke` 各投一次，线条的阴影会透过半透明背景显出来。这与 `shadowCaster` 存在的理由是同一条（「filling and stroking would each cast their own」），只是这刀多了一个绘制操作要照顾。
+
+实测 18 个词（设计写 16，实际把 `cross`/`diagCross` 也算进线条族后是 18）。`PAINTED_PRESET_PATTERNS` 与 `patternGeometry` 的一致性由 geometry 层一条测试锁住，两边不许漂移。

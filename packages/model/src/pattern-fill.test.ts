@@ -70,8 +70,11 @@ describe('pattern fill validation', () => {
     expect(errorsFor([valid])).toContain('slides.sld_1.background.fill.pattern must be an object')
   })
 
-  /** Empty on purpose: every pattern paints as its foreground until a tile slice fills this in. */
-  it('paints no preset as a real tile yet', () => {
-    expect(PAINTED_PRESET_PATTERNS).toEqual([])
+  /** The line-shaped families paint as geometry; percentage and decorative words stay flat. */
+  it('lists the presets that paint as real geometry', () => {
+    expect(PAINTED_PRESET_PATTERNS).toContain('ltHorz')
+    expect(PAINTED_PRESET_PATTERNS).toContain('diagCross')
+    expect(PAINTED_PRESET_PATTERNS).not.toContain('pct50')
+    expect(PAINTED_PRESET_PATTERNS).not.toContain('zigZag')
   })
 })

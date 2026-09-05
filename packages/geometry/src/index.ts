@@ -38,6 +38,87 @@ export interface GeometryPoint {
   y: number
 }
 
+/** A `a:pattFill` preset drawn as a set of lines across the shape's box. */
+export interface PatternGeometry {
+  lines: Array<{ from: GeometryPoint; to: GeometryPoint }>
+  /** Stroke width for those lines, in the same space as `bounds`. */
+  lineWidth: number
+}
+
+/**
+ * How the 16 line-shaped `prst` words are laid out. Only what the word itself states is encoded here:
+ * the direction, and the density tier `lt`/`dk`/`nar`/`wd`/`sm`/`lg` puts it in.
+ *
+ * `spacing` and `width` are this project's constants, not the spec's. Office draws each pattern from an
+ * 8x8 bitmap whose exact pixels are not verifiable in this environment, so no precise magnitudes are
+ * invented — the same bargain `dashPattern` makes for the eleven dash tokens. What is guaranteed is
+ * that the distinctions the names state are visible: `dkHorz` is heavier than `ltHorz`, `narHorz` is
+ * tighter than `horz`, and a diagonal leans the way its word says.
+ */
+const patternRecipes: Record<string, { directions: PatternDirection[]; spacing: number; width: number }> = {
+  ltHorz: { directions: ['horizontal'], spacing: 8, width: 1 },
+  horz: { directions: ['horizontal'], spacing: 8, width: 2 },
+  dkHorz: { directions: ['horizontal'], spacing: 8, width: 3 },
+  narHorz: { directions: ['horizontal'], spacing: 4, width: 1 },
+  ltVert: { directions: ['vertical'], spacing: 8, width: 1 },
+  vert: { directions: ['vertical'], spacing: 8, width: 2 },
+  dkVert: { directions: ['vertical'], spacing: 8, width: 3 },
+  narVert: { directions: ['vertical'], spacing: 4, width: 1 },
+  ltUpDiag: { directions: ['up'], spacing: 8, width: 1 },
+  dkUpDiag: { directions: ['up'], spacing: 8, width: 3 },
+  wdUpDiag: { directions: ['up'], spacing: 16, width: 2 },
+  ltDnDiag: { directions: ['down'], spacing: 8, width: 1 },
+  dkDnDiag: { directions: ['down'], spacing: 8, width: 3 },
+  wdDnDiag: { directions: ['down'], spacing: 16, width: 2 },
+  smGrid: { directions: ['horizontal', 'vertical'], spacing: 8, width: 1 },
+  lgGrid: { directions: ['horizontal', 'vertical'], spacing: 16, width: 1 },
+  cross: { directions: ['horizontal', 'vertical'], spacing: 8, width: 2 },
+  diagCross: { directions: ['up', 'down'], spacing: 8, width: 2 },
+}
+
+type PatternDirection = 'horizontal' | 'vertical' | 'up' | 'down'
+
+/**
+ * The lines that paint `preset` across `bounds`, or `undefined` when the word is one this project does
+ * not draw — the caller then falls back to the pattern's foreground colour, which is what every
+ * pattern painted before any of them had geometry.
+ */
+export function patternGeometry(preset: string, bounds: GeometryBounds): PatternGeometry | undefined {
+  const recipe = patternRecipes[preset]
+  if (!recipe) return undefined
+  if (!(bounds.w > 0) || !(bounds.h > 0)) return undefined
+  const lines = recipe.directions.flatMap((direction) => patternLines(direction, bounds, recipe.spacing))
+  return lines.length > 0 ? { lines, lineWidth: recipe.width } : undefined
+}
+
+/**
+ * A diagonal sweep walks the x intercept from `-h` to `w` so the lines cover the corners too: a line
+ * entering the left edge low still has to cross the box. `up` runs bottom-left to top-right, which is
+ * a negative slope in a y-down space.
+ */
+function patternLines(direction: PatternDirection, bounds: GeometryBounds, spacing: number): PatternGeometry['lines'] {
+  const { x, y, w, h } = bounds
+  const lines: PatternGeometry['lines'] = []
+  if (direction === 'horizontal') {
+    for (let offset = 0; offset < h; offset += spacing) {
+      lines.push({ from: { x, y: y + offset }, to: { x: x + w, y: y + offset } })
+    }
+    return lines
+  }
+  if (direction === 'vertical') {
+    for (let offset = 0; offset < w; offset += spacing) {
+      lines.push({ from: { x: x + offset, y }, to: { x: x + offset, y: y + h } })
+    }
+    return lines
+  }
+  for (let offset = -h; offset < w; offset += spacing) {
+    lines.push(direction === 'up'
+      ? { from: { x: x + offset, y: y + h }, to: { x: x + offset + h, y } }
+      : { from: { x: x + offset, y }, to: { x: x + offset + h, y: y + h } })
+  }
+  return lines
+}
+
 const quarterTurn = Math.PI / 2
 
 /** OOXML states rotation in 60000ths of a degree; positive turns clockwise in a y-down space. */

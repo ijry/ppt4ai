@@ -1,6 +1,6 @@
 import type { PathCommand } from '@ppt4ai/geometry'
-import { gradientAxis, gradientFocus, rotationRadians } from '@ppt4ai/geometry'
-import type { DashSegment, Rect, ResolvedColor, ResolvedGradient, ResolvedShadow, StrokeCap, StrokeJoin, StrokeStyle } from '@ppt4ai/model'
+import { gradientAxis, gradientFocus, patternGeometry, rotationRadians } from '@ppt4ai/geometry'
+import type { DashSegment, Rect, ResolvedColor, ResolvedGradient, ResolvedPattern, ResolvedShadow, StrokeCap, StrokeJoin, StrokeStyle } from '@ppt4ai/model'
 import type { SceneShapeNode, ScenePictureFill } from '@ppt4ai/render'
 import type { DecodedImage } from './image-canvas-renderer'
 import { applyEffects, cropSource } from './image-painting'
@@ -229,6 +229,8 @@ export function paintPathFills(
     pictureFill?: ScenePictureFill
     /** The decoded media for `pictureFill`; absent means it could not be loaded, so no fill paints. */
     picture?: DecodedImage
+    /** An `a:pattFill` with both colours resolved; needs `fillBounds` for the same reason a gradient does. */
+    fillPattern?: ResolvedPattern
     shadow?: ResolvedShadow
     stroke?: ResolvedColor
     strokeGradient?: ResolvedGradient
@@ -250,11 +252,20 @@ export function paintPathFills(
     : undefined
   const castShadow = shadowCaster(context, colors.shadow, mapping.scale)
   if (fill) {
-    tracePath(context, path, mapping)
-    context.fillStyle = gradient ?? fill.style
-    context.globalAlpha = gradient ? 1 : fill.alpha
-    castShadow()
-    context.fill()
+    // A pattern paints its own background and lines; a preset with no geometry falls through to the
+    // flat colour below, exactly as in paintShapeNode.
+    let painted = false
+    if (colors.fillPattern && colors.fillBounds) {
+      castShadow()
+      painted = paintPatternFill(context, colors.fillPattern, path, mapping, mapRect(colors.fillBounds, mapping))
+    }
+    if (!painted) {
+      tracePath(context, path, mapping)
+      context.fillStyle = gradient ?? fill.style
+      context.globalAlpha = gradient ? 1 : fill.alpha
+      castShadow()
+      context.fill()
+    }
   }
   if (colors.pictureFill && colors.picture && colors.fillBounds) {
     castShadow()
@@ -372,6 +383,50 @@ function createPath(context: ShapeContext, node: SceneShapeNode, mapping: ShapeP
 }
 
 /**
+ * An `a:pattFill` drawn as its background colour plus a set of foreground lines, clipped to the
+ * shape's own path. Returns false when the preset is one `patternGeometry` does not draw, and the
+ * caller then paints the flat foreground colour it painted before any pattern had geometry.
+ *
+ * Lines are drawn rather than tiled through `createPattern` so the same code runs in the worker and in
+ * the tests, neither of which has a canvas to rasterize a tile into.
+ */
+export function paintPatternFill(
+  context: ShapeContext,
+  pattern: ResolvedPattern,
+  path: readonly PathCommand[],
+  mapping: ShapePageMapping,
+  bounds: Rect,
+): boolean {
+  const geometry = patternGeometry(pattern.preset, bounds)
+  if (!geometry) return false
+  const background = colorStyle(pattern.background)
+  const foreground = colorStyle(pattern.foreground)
+  context.save()
+  try {
+    tracePath(context, path, mapping)
+    context.clip()
+    context.globalAlpha = background.alpha
+    context.fillStyle = background.style
+    context.fillRect(bounds.x, bounds.y, bounds.w, bounds.h)
+    // One shadow per shape, as everywhere else: the background has just cast it, so the lines must not.
+    clearShadow(context)
+    context.globalAlpha = foreground.alpha
+    context.strokeStyle = foreground.style
+    context.lineWidth = geometry.lineWidth
+    context.setLineDash([])
+    context.beginPath()
+    for (const line of geometry.lines) {
+      context.moveTo(line.from.x, line.from.y)
+      context.lineTo(line.to.x, line.to.y)
+    }
+    context.stroke()
+  } finally {
+    context.restore()
+  }
+  return true
+}
+
+/**
  * `picture` is the decoded media for `node.pictureFill`. The caller loads it, because loading is
  * asynchronous and painting is not; absent means it failed or was never asked for, and then the shape
  * paints its outline and nothing else rather than disappearing.
@@ -388,14 +443,23 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
       const castShadow = shadowCaster(context, node.shadow, mapping.scale)
       createPath(context, node, mapping)
       if (fill) {
-        createPath(context, node, mapping)
-        // The gradient already carries per-stop alpha, so globalAlpha stays open for it.
-        context.fillStyle = node.resolvedFillGradient
-          ? fillGradient(context, node.resolvedFillGradient, bounds)
-          : fill.style
-        context.globalAlpha = node.resolvedFillGradient ? 1 : fill.alpha
-        castShadow()
-        context.fill()
+        // A pattern paints its own background and lines. Only when its preset has no geometry does the
+        // flat foreground colour stand in for it, which is what every pattern painted before this.
+        let painted = false
+        if (node.resolvedFillPattern) {
+          castShadow()
+          painted = paintPatternFill(context, node.resolvedFillPattern, node.path, mapping, bounds)
+        }
+        if (!painted) {
+          createPath(context, node, mapping)
+          // The gradient already carries per-stop alpha, so globalAlpha stays open for it.
+          context.fillStyle = node.resolvedFillGradient
+            ? fillGradient(context, node.resolvedFillGradient, bounds)
+            : fill.style
+          context.globalAlpha = node.resolvedFillGradient ? 1 : fill.alpha
+          castShadow()
+          context.fill()
+        }
       }
       if (node.pictureFill && picture) {
         castShadow()

@@ -214,6 +214,7 @@ export function paintTextNode(context: TextContext, node: SceneTextNode, mapping
       paintPathFills(context, node.path, mapping, {
         ...(node.resolvedFillColor ? { fill: node.resolvedFillColor } : {}),
         ...(node.resolvedFillGradient ? { fillGradient: node.resolvedFillGradient, fillBounds: node.bounds } : {}),
+        ...(node.resolvedFillPattern ? { fillPattern: node.resolvedFillPattern, fillBounds: node.bounds } : {}),
         ...(node.pictureFill ? { pictureFill: node.pictureFill, fillBounds: node.bounds } : {}),
         ...(node.pictureFill && picture ? { picture } : {}),
         ...(node.resolvedStrokeColor ? { stroke: node.resolvedStrokeColor } : {}),
