@@ -1,8 +1,9 @@
 /**
- * `a:prstGeom/@prst` verbatim. ECMA-376 defines 187 presets whose outlines come from a guide formula
- * table this project cannot verify, so the model records the word and painting draws the four it knows
- * — a `chevron` keeps its name in the file instead of being rewritten as a rectangle. Unknown words
- * paint as a rectangle, which is exactly what they did before the word was preserved.
+ * `a:prstGeom/@prst` verbatim. ECMA-376 defines 187 presets, most of whose outlines come from a guide
+ * formula table this project cannot verify, so the model records the word and painting draws the twelve
+ * whose outline the name itself determines (see `PAINTED_PRESET_GEOMETRIES`) — a `chevron` keeps its name
+ * in the file instead of being rewritten as a rectangle. The rest paint as a rectangle, which is exactly
+ * what every word did before any of them was preserved.
  */
 export type PresetGeometry = string
 
@@ -156,9 +157,9 @@ export interface ThemeSource {
 }
 
 /**
- * One entry of `a:fillStyleLst` or `a:bgFillStyleLst`. `null` marks an entry we cannot express — a
- * gradient, pattern or picture fill — so a shape pointing at it stays unfilled rather than being
- * painted an invented approximation.
+ * One entry of `a:fillStyleLst` or `a:bgFillStyleLst`. Solid, gradient and pattern entries are all
+ * expressible now; `null` marks one that is not — a picture fill — so a shape pointing at it stays
+ * unfilled rather than being painted an invented approximation.
  */
 export type ThemeStyleEntry = Fill | null
 
@@ -449,8 +450,8 @@ export interface ResolvedShadow {
  * picture. Keeping `fill` absent for a picture-filled shape also means the range writeback compares
  * "no fill" on both sides and leaves the source `a:blipFill` untouched.
  *
- * Only the `a:stretch` form is expressible: `a:tile` needs six more attributes to place its repeats,
- * so a tiled fill stays unmodeled and paints nothing, the same way `a:path` gradients do.
+ * Both `a:stretch` and `a:tile` are expressible: an absent `tile` is the stretch form. What no `Fill`
+ * can hold is the picture itself, which is why this is a sibling field rather than a `Fill` variant.
  */
 export interface PictureFill {
   /** Key into `Ppt4aiDocument.assets`, the same asset space `ImageElement.assetId` uses. */

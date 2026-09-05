@@ -221,10 +221,10 @@ function themeEffectStyleXml(entry: ThemeEffectStyleEntry): string {
 }
 
 /**
- * A `null` entry is one the model cannot express — a gradient, pattern or picture. It still has to
- * occupy its slot, because references are positional and skipping it would shift every later index.
- * `a:noFill` is what it writes: `resolveStyleFill` already resolves a null entry to nothing and the
- * canvas already paints nothing, so the file and the canvas say the same thing.
+ * A `null` entry is one the model cannot express — a picture fill. It still has to occupy its slot,
+ * because references are positional and skipping it would shift every later index. `a:noFill` is what it
+ * writes: `resolveStyleFill` already resolves a null entry to nothing and the canvas already paints
+ * nothing, so the file and the canvas say the same thing.
  */
 function themeStyleFillXml(entry: ThemeStyleEntry): string {
   return entry ? serializeFillXml(entry) : '<a:noFill/>'
@@ -267,8 +267,8 @@ function serializeDashXml(style: StrokeStyle | { custom: DashSegment[] } | undef
  * The four `fmtScheme` lists. Before this they were written empty while slides kept emitting
  * `lnRef`/`fillRef`/`bgRef` indexes, so every style reference in a generated package dangled.
  *
- * `a:effectStyleLst` is written as three empty effect styles: effects are not modeled, and an
- * `effectRef` still needs an entry to land on. Resolving to "no effect" is what the renderer does.
+ * `a:effectStyleLst` writes each modeled entry's `a:outerShdw`, and an empty `a:effectLst` for a `null`
+ * one — Office's own first entry is empty, and an `effectRef` still needs an entry to land on.
  */
 function serializeFormatSchemeXml(theme: Theme | undefined): string {
   const scheme = theme?.formatScheme
@@ -487,7 +487,9 @@ function serializeGeometry(preset: ShapeElement['preset'], adjustValues?: readon
 /**
  * `a:custGeom` from the literal path list. Written instead of `a:prstGeom`, because a shape that carries
  * custom geometry is not the preset — before this it was exported as `prst="rect"`, which threw the path
- * away. `a:avLst` stays empty: the adjust values belong to the guide language the model does not read.
+ * away. Its `a:avLst` stays empty: a custom geometry's own guides belong to the formula language the path
+ * parser does not read either. The adjust values of a *preset* geometry are written — see
+ * `serializeGeometry`.
  */
 function serializeCustomGeometry(geometry: NonNullable<ShapeElement['customGeometry']>): string {
   const paths = geometry.paths.map((path) => {

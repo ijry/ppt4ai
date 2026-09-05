@@ -201,7 +201,7 @@ function parseThemeStyleEntries(list: XmlNode | undefined): ThemeStyleEntry[] | 
 /**
  * `a:effectStyleLst` entries. Each `a:effectStyle` keeps only its `a:outerShdw`; an empty effect list
  * and one holding effects we cannot express both become `null`, which is what the model means by
- * "this entry paints nothing" — the same convention the fill entries use for gradients and pictures.
+ * "this entry paints nothing" — the same convention the fill entries use for a picture fill.
  */
 function parseThemeEffectStyleEntries(list: XmlNode | undefined): ThemeEffectStyleEntry[] | undefined {
   if (!list) return undefined
