@@ -1,12 +1,18 @@
-import type { Color, ColorMap, ColorMapKey, ColorTransformType, ElementDefaults, Fill, Rect, TextBody } from '@ppt4ai/model'
-import { serializeColorXml, serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
+import { colorTransformValueIsValid, isOoxmlToken, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ElementDefaults, type Fill, type Rect, type TextBody } from '@ppt4ai/model'
+import { serializeColorXml, serializeTextBodyXml } from './standalone-xml.js'
+import { sourceFill } from './color-source.js'
+import {
+  fillNodeNames,
+  fillNodeReplacements,
+  fillsEqual,
+  namespacePrefix,
+  serializeFillPrefixed,
+} from './fill-patch.js'
 import { sourceTextBody } from './text-source.js'
 import { decodeXml, descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 
-const colorNodeNames = new Set(['srgbClr', 'schemeClr', 'prstClr', 'sysClr', 'scrgbClr'])
-const fillNodeNames = new Set(['noFill', 'solidFill', 'gradFill', 'blipFill', 'pattFill', 'grpFill'])
-const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
+const gradientPaths = new Set(['circle', 'rect', 'shape'])
 const themeColorSlots = new Set(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 /** The twelve `CT_ColorMapping` slots, in the order both the writeback and the standalone path write them. */
 export const colorMapKeys = ['bg1', 'tx1', 'bg2', 'tx2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'] as const
@@ -46,11 +52,6 @@ function escapeXml(value: string | number, kind: string, id: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&apos;')
-}
-
-function namespacePrefix(name: string): string {
-  const separator = name.lastIndexOf(':')
-  return separator >= 0 ? name.slice(0, separator + 1) : ''
 }
 
 function qualifiedName(sourceName: string, localName: string): string {
@@ -116,66 +117,17 @@ function parseNumber(value: string | undefined): number | undefined {
 
 function parsePercentage(value: string | undefined): number | undefined {
   const number = parseNumber(value)
-  return number !== undefined && Number.isInteger(number) && number >= 0 && number <= 100000 ? number : undefined
+  return number !== undefined && isPercentage(number) ? number : undefined
+}
+
+/** The range a thousandth-of-a-percent measurement lives in, shared by a stop position and an inset. */
+function isPercentage(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100000
 }
 
 function parseHexColor(value: string | undefined): string | undefined {
   const normalized = value?.trim().toUpperCase()
   return normalized && /^[0-9A-F]{6}$/u.test(normalized) ? normalized : undefined
-}
-
-interface SourceColor {
-  node?: XmlElement
-  color?: Color
-  invalidKnownNode: boolean
-}
-
-function sourceColor(node: XmlElement | undefined): SourceColor {
-  if (!node) return { invalidKnownNode: false }
-  let invalidKnownNode = false
-  for (const child of node.children) {
-    if (!colorNodeNames.has(child.localName)) continue
-    let color: Color | undefined
-    if (child.localName === 'srgbClr') {
-      const value = parseHexColor(child.attributes.val)
-      if (value) color = { type: 'srgb', v: value }
-    } else if (child.localName === 'schemeClr') {
-      const value = child.attributes.val?.trim()
-      if (value) color = { type: 'scheme', v: value }
-    } else if (child.localName === 'prstClr') {
-      const value = child.attributes.val?.trim()
-      if (value) color = { type: 'preset', v: value }
-    } else if (child.localName === 'sysClr') {
-      const value = parseHexColor(child.attributes.lastClr)
-      if (value) color = { type: 'system', v: value }
-    } else if (child.localName === 'scrgbClr') {
-      const channels = [child.attributes.r, child.attributes.g, child.attributes.b].map(parsePercentage)
-      if (channels.every((value) => value !== undefined)) color = { type: 'scrgb', v: channels.join(',') }
-    }
-    if (!color) {
-      invalidKnownNode = true
-      continue
-    }
-    const transforms = child.children.flatMap((transform) => {
-      if (!colorTransformTypes.has(transform.localName as ColorTransformType)) return []
-      const value = parsePercentage(transform.attributes.val)
-      return value === undefined ? [] : [{ type: transform.localName as ColorTransformType, value }]
-    })
-    return { node: child, color: transforms.length > 0 ? { ...color, transforms } : color, invalidKnownNode }
-  }
-  return { invalidKnownNode }
-}
-
-function colorsEqual(left: Color | undefined, right: Color | undefined): boolean {
-  if (!left || !right) return left === right
-  if (left.type !== right.type || left.v !== right.v) return false
-  const leftTransforms = left.transforms ?? []
-  const rightTransforms = right.transforms ?? []
-  return leftTransforms.length === rightTransforms.length
-    && leftTransforms.every((transform, index) => {
-      const other = rightTransforms[index]
-      return other?.type === transform.type && other.value === transform.value
-    })
 }
 
 function validateColor(value: unknown, kind: string, id: string, field: string): Color {
@@ -195,30 +147,76 @@ function validateColor(value: unknown, kind: string, id: string, field: string):
     normalized = candidate.v.trim()
     if (normalized.length === 0) throw failure(kind, id, `unsupported color ${field}`)
   }
+  // A `schemeClr`/`prstClr` word reaches an attribute verbatim, so it is checked here rather than left
+  // to throw inside the serializer, where the failure would carry no placeholder in it.
+  assertXmlCharacters(normalized, kind, id)
   let transforms: Color['transforms']
   if (candidate.transforms !== undefined) {
     if (!Array.isArray(candidate.transforms)) throw failure(kind, id, `unsupported color ${field}`)
-    const parsed: Array<{ type: ColorTransformType; value: number }> = []
+    const parsed: ColorTransform[] = []
     for (const transform of candidate.transforms) {
       if (!transform || typeof transform !== 'object' || Array.isArray(transform)) throw failure(kind, id, `unsupported color ${field}`)
       const item = transform as Record<string, unknown>
-      if (typeof item.type !== 'string' || !colorTransformTypes.has(item.type as ColorTransformType)
-        || typeof item.value !== 'number' || !Number.isInteger(item.value) || item.value < 0 || item.value > 100000) throw failure(kind, id, `unsupported color ${field}`)
-      parsed.push({ type: item.type as ColorTransformType, value: item.value })
+      // The model's own rule, not a private allowlist: any OOXML token is a transform, a `*Mod` value is
+      // not capped at 100000, and the switch forms (`a:comp`, `a:inv`, `a:gray`) carry no value at all.
+      // The allowlist this replaces rejected `satMod` twice over, on a document `validateDocument` passes.
+      if (!isOoxmlToken(item.type)) throw failure(kind, id, `unsupported color ${field}`)
+      if (item.value === undefined) {
+        parsed.push({ type: item.type })
+        continue
+      }
+      if (typeof item.value !== 'number' || !colorTransformValueIsValid(item.type, item.value)) {
+        throw failure(kind, id, `unsupported color ${field}`)
+      }
+      parsed.push({ type: item.type, value: item.value })
     }
     if (parsed.length > 0) transforms = parsed
   }
   return { type: candidate.type as Color['type'], v: normalized, ...(transforms ? { transforms } : {}) }
 }
 
-function serializeFill(fill: Fill, prefix: string, kind: string, id: string, field: string): string {
-  const color = validateColor(fill.color, kind, id, field)
-  try {
-    const colorXml = serializeColorXml(color, prefix)
-    return `<${prefix}solidFill>${colorXml}</${prefix}solidFill>`
-  } catch {
-    throw failure(kind, id, `unsupported color ${field}`)
+/**
+ * The model fill as this writer will emit it. Every colour goes through `validateColor`, so a gradient's
+ * stops and a pattern's two colours are checked and normalized the same way the plain one is — the
+ * comparison against `sourceFill` is only meaningful if both sides spell a colour identically.
+ */
+function validateFill(value: Fill, kind: string, id: string, field: string): Fill {
+  const color = validateColor(value.color, kind, id, field)
+  const gradient = value.gradient
+  const pattern = value.pattern
+  if (gradient) {
+    if (!Array.isArray(gradient.stops)) throw failure(kind, id, `unsupported color ${field}`)
+    const stops = gradient.stops.map((stop) => {
+      if (!isPercentage(stop?.pos)) throw failure(kind, id, `unsupported color ${field}`)
+      return { pos: stop.pos, color: validateColor(stop.color, kind, id, field) }
+    })
+    // The gradient's own scalars follow `validateGradient`: an integer angle, a boolean `scaled`, one of
+    // the three path words, insets inside 0..100000. They reach attributes, so an unchecked one would be
+    // written into XML no reader accepts rather than reported against this placeholder.
+    if (gradient.angle !== undefined && !Number.isInteger(gradient.angle)) throw failure(kind, id, `unsupported color ${field}`)
+    if (gradient.scaled !== undefined && typeof gradient.scaled !== 'boolean') throw failure(kind, id, `unsupported color ${field}`)
+    if (gradient.path !== undefined && !gradientPaths.has(gradient.path)) throw failure(kind, id, `unsupported color ${field}`)
+    const rect = gradient.fillToRect
+    if (rect !== undefined) {
+      if (!rect || typeof rect !== 'object' || Array.isArray(rect)) throw failure(kind, id, `unsupported color ${field}`)
+      for (const side of ['left', 'top', 'right', 'bottom'] as const) {
+        if (rect[side] !== undefined && !isPercentage(rect[side])) throw failure(kind, id, `unsupported color ${field}`)
+      }
+    }
+    return { color, gradient: { ...gradient, stops } }
   }
+  if (pattern) {
+    if (!isOoxmlToken(pattern.preset)) throw failure(kind, id, `unsupported color ${field}`)
+    return {
+      color,
+      pattern: {
+        preset: pattern.preset,
+        foreground: validateColor(pattern.foreground, kind, id, field),
+        background: validateColor(pattern.background, kind, id, field),
+      },
+    }
+  }
+  return { color }
 }
 
 function sourceShapeProperties(shape: XmlElement): XmlElement | undefined {
@@ -336,17 +334,23 @@ function geometryReplacements(xml: string, shape: XmlElement, preset: ElementDef
   return [{ start: insertion, end: insertion, value }]
 }
 
+/**
+ * A placeholder's fill, read and written the way a slide's own is. The source goes through `sourceFill`,
+ * the mirror pinned against the importer's `parseDirectFill`, so a gradient or a pattern the model does
+ * carry compares equal instead of being flattened into the one shape a colour-only reader could write.
+ * A change within one kind is patched part by part; changing the kind still swaps the whole node,
+ * `EG_FillProperties` being a choice.
+ */
 function fillReplacements(xml: string, shape: XmlElement, fill: Fill | undefined, kind: string, id: string, field: string): Replacement[] {
   if (!fill) return []
   const properties = sourceShapeProperties(shape)
   if (!properties) return []
-  const fillNode = properties.children.find((child) => fillNodeNames.has(child.localName) && child.localName !== 'ln')
-  const source = fillNode?.localName === 'solidFill' ? sourceColor(fillNode) : { invalidKnownNode: false }
-  if (source.invalidKnownNode && !source.color) throw failure(kind, id, `placeholder ${field} malformed`)
-  const expected = validateColor(fill.color, kind, id, field)
-  if (colorsEqual(source.color, expected)) return []
-  const value = serializeFill({ color: expected }, fillNode ? namespacePrefix(fillNode.name) : drawingPrefix(shape), kind, id, field)
-  if (fillNode) return [{ start: fillNode.start, end: fillNode.end, value }]
+  const fillNode = properties.children.find((child) => fillNodeNames.has(child.localName))
+  const existing = sourceFill(fillNode)
+  const expected = validateFill(fill, kind, id, field)
+  if (fillsEqual(existing, expected)) return []
+  if (fillNode) return fillNodeReplacements(xml, fillNode, existing, expected)
+  const value = serializeFillPrefixed(expected, drawingPrefix(shape))
   const line = properties.children.find((child) => child.localName === 'ln')
   const insertion = line?.start ?? closingStart(xml, properties)
   return [{ start: insertion, end: insertion, value }]
@@ -358,12 +362,11 @@ function strokeReplacements(xml: string, shape: XmlElement, stroke: Fill | undef
   if (!properties) return []
   const line = properties.children.find((child) => child.localName === 'ln')
   const fillNode = line?.children.find((child) => fillNodeNames.has(child.localName))
-  const source = fillNode?.localName === 'solidFill' ? sourceColor(fillNode) : { invalidKnownNode: false }
-  if (source.invalidKnownNode && !source.color) throw failure(kind, id, 'placeholder stroke malformed')
-  const expected = validateColor(stroke.color, kind, id, 'stroke')
-  if (colorsEqual(source.color, expected)) return []
-  if (fillNode) return [{ start: fillNode.start, end: fillNode.end, value: serializeFill({ color: expected }, namespacePrefix(fillNode.name), kind, id, 'stroke') }]
-  const value = serializeFill({ color: expected }, line ? namespacePrefix(line.name) : drawingPrefix(shape), kind, id, 'stroke')
+  const existing = sourceFill(fillNode)
+  const expected = validateFill(stroke, kind, id, 'stroke')
+  if (fillsEqual(existing, expected)) return []
+  if (fillNode) return fillNodeReplacements(xml, fillNode, existing, expected)
+  const value = serializeFillPrefixed(expected, line ? namespacePrefix(line.name) : drawingPrefix(shape))
   if (line) {
     if (line.children.length > 0) return [{ start: line.children[0]!.start, end: line.children[0]!.start, value }]
     return [insertElementContent(xml, line, value, kind, id)]

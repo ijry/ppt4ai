@@ -86,6 +86,11 @@ export function reprefixed(value: string, prefix: string): string {
   return value.replaceAll('<a:', `<${prefix}`).replaceAll('</a:', `</${prefix}`)
 }
 
+/** A whole fill node at the prefix its surroundings use, for the paths that replace the node outright. */
+export function serializeFillPrefixed(fill: Fill, prefix: string): string {
+  return reprefixed(serializeFillXml(fill), prefix)
+}
+
 /** Replaces `child` with `value`, or appends it inside `parent` when the child is not there yet. */
 export function childReplacement(xml: string, parent: XmlElement, child: XmlElement | undefined, value: string): Replacement {
   if (child) return { start: child.start, end: child.end, value }
@@ -122,26 +127,40 @@ export function attributeReplacements(xml: string, element: XmlElement, name: st
 }
 
 /**
+ * The replacements one fill node needs in order to state `fill`: patched part by part when the node is
+ * already that kind of fill, swapped whole when it is not — `EG_FillProperties` is a choice, so a change
+ * of kind has no correspondence to preserve.
+ *
+ * `existing` is what the mirror could read out of the node. Being unable to read it (an `a:hslClr`, a
+ * `gradFill` with a single stop) makes every part count as changed; it is not a reason to take the node
+ * and its unmodeled attributes down with it.
+ */
+export function fillNodeReplacements(xml: string, fillNode: XmlElement, existing: Fill | undefined, fill: Fill): Replacement[] {
+  if (fillNode.localName === modelFillNodeName(fill)) return sameKindFillPatches(xml, fillNode, existing, fill)
+  return [{ start: fillNode.start, end: fillNode.end, value: serializeFillPrefixed(fill, namespacePrefix(fillNode.name)) }]
+}
+
+/**
  * One fill node, patched part by part. Each part compares on its own so that changing a gradient's stops
  * leaves its axis alone, and changing a pattern's foreground leaves its background alone.
  */
-export function sameKindFillPatches(xml: string, fillNode: XmlElement, existing: Fill, fill: Fill): Replacement[] {
+export function sameKindFillPatches(xml: string, fillNode: XmlElement, existing: Fill | undefined, fill: Fill): Replacement[] {
   const named = (name: string): XmlElement | undefined => fillNode.children.find((child) => child.localName === name)
   const colorChild = (): XmlElement | undefined => fillNode.children.find((child) => colorChoiceNames.has(child.localName))
   const kind = fillKind(fill)
-  // A stroke's fill sits inside `a:ln`, and a placeholder's inside a part with its own prefix, so every
-  // emitted fragment takes the node's own — the reason `serializeFillForLine` exists for the whole-node path.
+  // A stroke's fill sits inside `a:ln`, and a placeholder's inside a part that may carry another prefix,
+  // so every emitted fragment takes the node's own — the reason `serializeFillForLine` exists too.
   const prefix = namespacePrefix(fillNode.name) || 'a:'
   const reprefix = (value: string): string => reprefixed(value, prefix)
 
   if (kind === 'solid') {
-    if (colorsEqual(existing.color, fill.color)) return []
+    if (colorsEqual(existing?.color, fill.color)) return []
     return [childReplacement(xml, fillNode, colorChild(), serializeColorXml(fill.color, prefix))]
   }
 
   if (kind === 'pattern') {
     const pattern = fill.pattern!
-    const before = existing.pattern
+    const before = existing?.pattern
     const replacements: Replacement[] = []
     if (before?.preset !== pattern.preset) {
       replacements.push(...attributeReplacements(xml, fillNode, 'prst', pattern.preset))
@@ -159,7 +178,7 @@ export function sameKindFillPatches(xml: string, fillNode: XmlElement, existing:
   }
 
   const gradient = fill.gradient!
-  const before = existing.gradient
+  const before = existing?.gradient
   const replacements: Replacement[] = []
   const stopsChanged = before === undefined
     || before.stops.length !== gradient.stops.length

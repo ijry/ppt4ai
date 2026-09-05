@@ -2,7 +2,7 @@ import type { Theme } from '@ppt4ai/model'
 import { describe, expect, it } from 'vitest'
 import { rewriteThemeXml } from './theme-writeback.js'
 
-const sourceTheme = '<a:theme xmlns:a="a" data-theme="keep"><a:themeElements><a:clrScheme name="Custom" data-scheme="keep"><a:accent1 data-slot="keep"><a:srgbClr val="336699"><a:lumMod val="80000"/><a:customTransform keep="yes"/></a:srgbClr><a:extLst data-ext="keep"/></a:accent1><a:accent2><a:customSlot keep="yes"/></a:accent2></a:clrScheme><a:fontScheme data-font="keep"/></a:themeElements></a:theme>'
+const sourceTheme = '<a:theme xmlns:a="a" data-theme="keep"><a:themeElements><a:clrScheme name="Custom" data-scheme="keep"><a:accent1 data-slot="keep"><a:srgbClr val="336699"><a:lumMod val="80000"/><a:satMod val="160000"/><a:customTransform keep="yes"/></a:srgbClr><a:extLst data-ext="keep"/></a:accent1><a:accent2><a:customSlot keep="yes"/></a:accent2></a:clrScheme><a:fontScheme data-font="keep"/></a:themeElements></a:theme>'
 
 describe('rewriteThemeXml', () => {
   it('patches a changed color while preserving the surrounding theme XML', () => {
@@ -39,10 +39,21 @@ describe('rewriteThemeXml', () => {
     expect(rewritten).toContain('<a:fontScheme data-font="keep"/>')
   })
 
+  /**
+   * The three transforms the source writes are the three the importer would have put in the model —
+   * `satMod` uncapped, the valueless switch form kept as a word — so an untouched slot writes nothing.
+   * The narrower allowlist this replaces threw `theme color unsupported` on the `satMod` instead.
+   */
   it('returns the exact source when defined colors are unchanged', () => {
     expect(rewriteThemeXml(sourceTheme, {
       id: 'theme_1',
-      colors: { accent1: { type: 'srgb', v: '336699', transforms: [{ type: 'lumMod', value: 80000 }] } },
+      colors: {
+        accent1: {
+          type: 'srgb',
+          v: '336699',
+          transforms: [{ type: 'lumMod', value: 80000 }, { type: 'satMod', value: 160000 }, { type: 'customTransform' }],
+        },
+      },
     })).toBe(sourceTheme)
   })
 

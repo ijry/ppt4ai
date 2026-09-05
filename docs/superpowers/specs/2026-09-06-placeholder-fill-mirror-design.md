@@ -63,46 +63,50 @@
 
 `exportPptx` 这条路上没有 `validateDocument`（它只在 `standalone.ts` 的无源路径上），所以这个模块的校验是唯一的守门人，不能删。它从只查 `fill.color` 扩到渐变每个停靠点与图案两色，并顺带把颜色规范化（十六进制统一大写）后再比较，否则大小写不同会被判成「变了」。
 
-**决策 7：源包里读不出的实心颜色不再报错，改为覆盖**
+**决策 7：源包里读不出的颜色不再报错，也不再连节点一起换掉**
 
-原来 `a:solidFill` 里有个认得名字但读不出的颜色节点会抛 `placeholder fill malformed`。保留它就得保留一份私有的颜色名字集合——正是本刀要删的私货。删掉之后这种源被当成「没有可比的填充」，颜色子元素被换掉、其余原样留下，等于把坏值修好。今天 `a:hslClr` 走的已经是这条路（探针确认不抛），所以是把两种读不出的颜色统一，而不是新开一条路。
+原来 `a:solidFill` 里有个认得名字但读不出的颜色节点会抛 `placeholder fill malformed`。保留它就得保留一份私有的颜色名字集合——正是本刀要删的私货。删掉之后这种源被当成「每一格都变了」：颜色子元素被换掉（`a:hslClr` 也算，否则会在一个 `a:solidFill` 里留下两个颜色，违反 choice），节点自己与其余子元素原样留下。今天 `a:hslClr` 走的已经是不抛这条路（探针确认），所以是把两种读不出的颜色统一。
+
+**决策 8：「同种」的判据是节点名，不是镜像读出了东西**
+
+共享的 `sameKindFillPatches` 现在接受 `existing?: Fill`：读不出来只意味着每一格都算变了，不意味着节点必须整块换掉。因此判据从「镜像读出了同种填充」收敛成「节点名就是模型这种填充要写的那个名字」。**幻灯片那一侧一并受益**：一个只有一个停靠点的 `a:gradFill`（镜像按导入端规则读成纯色）在模型给出两个停靠点时，此前整块换掉，现在只换 `a:gsLst` 与轴。
 
 ## 5. 契约（增量）
 
-- 新模块 `fill-patch.ts`（包内私有，不进 `index.ts`）：`sameKindFillPatches`、`childReplacement`、`attributeReplacements`、`fillsEqual`/`colorsEqual`/`gradientsEqual`/`patternsEqual`、`fillKind`、`modelFillNodeName`、`namespacePrefix`、`reprefixed`、`fillNodeNames`、`colorChoiceNames`。
+- 新模块 `fill-patch.ts`（包内私有，不进 `index.ts`）：`fillNodeReplacements`、`sameKindFillPatches`、`childReplacement`、`attributeReplacements`、`fillsEqual`/`colorsEqual`/`gradientsEqual`/`patternsEqual`、`fillKind`、`modelFillNodeName`、`namespacePrefix`、`reprefixed`、`serializeFillPrefixed`、`fillNodeNames`、`colorChoiceNames`。
 - `color-source.ts`：`sourceFill` 认径向 `a:path`（`path` 与 `fillToRect` 两项，按 `parseGradientNode` 的取值规则）。
-- `@ppt4ai/pptx-export` 对外行为：`rewriteMasterXml`/`rewriteLayoutXml`/`rewritePlaceholderPartXml` 不再把占位符的渐变与图案写成纯色，不再因为一个 `satMod` 抛错，改填充只动该动的那一格。`rewriteThemeXml` 不再因为 `satMod` 或 `a:comp` 抛错。
-- 错误面变化：`placeholder fill malformed` / `placeholder stroke malformed` 两条不再产生（决策 7）。
+- `@ppt4ai/pptx-export` 对外行为：`rewriteMasterXml`/`rewriteLayoutXml`/`rewritePlaceholderPartXml` 不再把占位符的渐变与图案写成纯色，不再因为一个 `satMod` 抛错，改填充只动该动的那一格。`rewriteThemeXml` 不再因为 `satMod` 或 `a:comp` 抛错，且带这类 transform 的未编辑色位不再被重写。
+- 错误面变化：`placeholder fill malformed` / `placeholder stroke malformed` 两条不再产生（决策 7）；模型侧新增四类稳定错误（非 token 的 transform、坏的停靠点颜色/位置、坏的 `path` 词、越界内缩），都沿用既有的 `unsupported color ${field}` 措辞。
 
 ## 6. 验证
 
-`packages/pptx-export/src/placeholder-fill-patch.test.ts`：
+`packages/pptx-export/src/placeholder-fill-patch.test.ts`（16 条）。**每个源侧样例都有一处「序列化器不会那样写」的拼法**——`a:lin` 属性倒序、`a:fillToRect` 的两个内缩倒序、颜色用单引号——否则「未编辑就逐字节相同」什么也证明不了：比较坏掉时补丁器会把同值的那一格按规范拼法重写一遍，字节仍可能相同。有了这些拼法，字节相同才等于「一个字都没写」。
 
-- 未编辑的渐变占位符填充 → 逐字节相同（含 `@flip`/`@rotWithShape`/`a:tileRect`）
-- 未编辑的图案占位符填充 → 逐字节相同（含 `a:extLst`）
-- 未编辑的径向渐变占位符填充 → 逐字节相同
-- 改渐变停靠点 → 只换 `a:gsLst`，属性与 `a:lin` 逐字保留
-- 改图案前景色 → 只换 `a:fgClr`，`@prst`、背景色、`a:extLst` 不动
+- 未编辑的渐变 / 径向渐变 / 图案 / 渐变描边 → 逐字节等于源
+- 改渐变停靠点 → 只换 `a:gsLst`，`flip`/`rotWithShape`/`a:lin`（倒序拼法）/`a:tileRect` 逐字保留
+- 改图案前景色 → 只换 `a:fgClr`，`@prst`、背景色（单引号拼法）、`a:extLst` 不动
 - 改实心颜色 → 只换颜色子元素，`data-fill` 与 `a:extLst` 保留
 - 改描边色 → `a:ln` 里只换颜色子元素，`@w`/`a:prstDash`/`data-stroke` 保留
-- 实心 → 渐变（换种类）→ 整块替换
-- 颜色带 `satMod`（值 > 100000）与无 `val` 的 `a:comp` → 不抛，逐字往返
-- `a:solidFill` 里是 `a:hslClr` → 颜色被换掉且只有一个颜色子元素
-- 空 `a:solidFill`（自闭合）→ 展开并写入颜色
+- 实心 → 渐变（换种类）→ 整块替换，且 `data-fill` 确实丢掉（既有代价，明写在断言里）
+- 颜色带 `satMod val="160000"` 与无 `val` 的 `a:comp` → 不抛，逐字往返
+- `a:hslClr` → 颜色被换掉、只剩一个颜色子元素，而节点的 `data-fill` 仍在
+- 空的自闭合 `a:solidFill` → 展开并写入颜色
+- 非 OOXML token 的 transform、非十六进制的停靠点颜色、`path="ellipse"`、内缩 200000 → 四条稳定错误
+- 只有 `rotation` 的占位符、以及 `a:blipFill` 占位符 → 逐字节等于源
 
 `writeback-mirror-agreement.test.ts`：径向渐变一条「两边读法一致」。
 
-`gradient-writeback.test.ts`：未编辑的径向渐变元素 → 逐字节相同（决策 5 在幻灯片侧的对应断言）。
+`gradient-writeback.test.ts`：未编辑的径向渐变元素在文本编辑后逐字保留，改 `a:fillToRect` 只换 `a:path`（决策 5 在幻灯片侧的对应断言）。
 
-`master-layout-writeback.test.ts` 既有一条 `patches placeholder geometry, rotation, fill, stroke, preset, and text` 的预期里写着 `data-fill="keep"` 被丢掉——**这条测试名字里的 `patches` 自己就说了要打补丁**，预期改成属性保留。
+`master-layout-writeback.test.ts` 既有一条 `patches placeholder geometry, rotation, fill, stroke, preset, and text` 的预期里写着 `data-fill="keep"` 被丢掉——**这条测试名字里的 `patches` 自己就说了要打补丁**，预期改成属性保留。`writeback.test.ts` 的 `writes imported master, layout, and slide defaults and color maps` 同样一条，同样改法。`theme-writeback.test.ts` 的 `returns the exact source when defined colors are unchanged` 的模型补上源里那三个 transform（含 `satMod` 与无 `val` 的那个），它此前是照旧的窄读法手写的。
 
-区分力：把同种补丁那一段退回整块替换、把 `sourceFill` 换回颜色镜像，各自看有几条标红。
+区分力（三次实测）：把镜像退回只读 `solidFill` 颜色 → 6 条标红；把「同种打补丁」退回整块替换 → 9 条标红（含 `fill-node-patch.test.ts` 的 5 条）；把 transform 规则退回七词白名单 → 1 条标红。
 
 ## 7. 已知限制
 
 - **主题的颜色节点仍整块替换**：`rewriteThemeXml` 换一个色位时替换整个 `a:srgbClr`，它未建模的 transform 子元素（`a:customTransform`，真实文件里是 `a:comp`/`a:gray` 这类）会丢。`theme-writeback.test.ts` 现有预期正把这个损失固定着。本刀只修它的 transform 规则，颜色节点打补丁是下一刀。
 - **主题写回仍自带一份颜色镜像**：与 `color-source.ts` 的 `sourceColor` 逐行近似但返回节点，下一刀一起收。
-- **占位符的图片填充写不回**：`Fill.pictureFill` 不进 `serializeFillXml`，会被当成实心写出；导入端 `parseDirectFill` 也不读 `a:blipFill`，所以这条路今天到不了，但命令可以造出来。
+- **占位符的图片填充根本不建模**：`ElementDefaults` 没有 `pictureFill` 字段（它挂在 `ShapeElement`/`TextElement`/`TableCell`/`SlideBackground` 上，不在 `Fill` 里），导入端 `parseDirectFill` 也不读 `a:blipFill`。所以带 `a:blipFill` 的占位符 `defaults.fill` 为空、写回直接早退、源节点原样留下——今天是对的，但它的图片填充也无法编辑。
 - **换填充种类仍丢未建模内容**：与上一刀同一个理由，choice 之间没有对应关系。
 
 ## 8. 实现记录

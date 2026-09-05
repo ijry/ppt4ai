@@ -407,7 +407,7 @@ describe('exportPptx', () => {
     expect(masterXml).toContain('<a:t>Changed master</a:t>')
     expect(layoutXml).toContain('data-layout-map="keep"')
     expect(layoutXml).toContain('accent1="accent4"')
-    expect(layoutXml).toContain('<a:solidFill><a:srgbClr val="00FF00"/></a:solidFill>')
+    expect(layoutXml).toContain('<a:solidFill data-fill="keep"><a:srgbClr val="00FF00"/></a:solidFill>')
     expect(layoutXml).toContain('<a:t>Changed layout</a:t>')
     expect(slideXml).toContain('data-slide="keep"')
     expect(slideXml).toContain('accent1="accent5"')

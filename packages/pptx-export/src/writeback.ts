@@ -18,13 +18,11 @@ import {
   childReplacement,
   colorChoiceNames,
   colorsEqual,
-  fillKind,
   fillNodeNames,
+  fillNodeReplacements,
   fillsEqual,
-  modelFillNodeName,
   namespacePrefix,
-  reprefixed,
-  sameKindFillPatches,
+  serializeFillPrefixed,
 } from './fill-patch.js'
 import { rewriteThemeXml } from './theme-writeback.js'
 import { rewriteLayoutXml, rewriteMasterXml, rewriteSlideColorMapXml } from './master-layout-writeback.js'
@@ -347,14 +345,8 @@ function fillReplacements(xml: string, sourceElement: XmlElement, fill: Fill | u
   const existing = sourceFill(fillNode)
   if (fillsEqual(existing, fill)) return []
   if (fill) {
-    // Same kind of fill means only the parts that changed are touched, so what the model does not express
-    // survives: `a:gradFill/@flip`, `@rotWithShape`, `a:tileRect`, a pattern's `a:extLst`. Changing the
-    // kind has nothing to preserve, since `EG_FillProperties` is a choice, and still swaps the node.
-    if (fillNode && existing && fillKind(existing) === fillKind(fill) && fillNode.localName === modelFillNodeName(fill)) {
-      return sameKindFillPatches(xml, fillNode, existing, fill)
-    }
+    if (fillNode) return fillNodeReplacements(xml, fillNode, existing, fill)
     const value = serializeFillXml(fill)
-    if (fillNode) return [{ start: fillNode.start, end: fillNode.end, value }]
     const line = properties.children.find((child) => child.localName === 'ln')
     const insertion = line?.start ?? xml.lastIndexOf('</', properties.end)
     if (insertion < properties.start) throw new Error('PPTX export source shape properties malformed')
@@ -367,7 +359,7 @@ function fillReplacements(xml: string, sourceElement: XmlElement, fill: Fill | u
 }
 
 function serializeFillForLine(fill: Fill, lineName: string): string {
-  return reprefixed(serializeFillXml(fill), namespacePrefix(lineName))
+  return serializeFillPrefixed(fill, namespacePrefix(lineName))
 }
 
 function serializeNoFill(lineName: string): string {
@@ -646,13 +638,12 @@ function strokeReplacements(
         const value = `<a:ln${widthAttribute}${capAttribute}>${serializeFillXml(stroke)}${dash}${join}</a:ln>`
         return shapePropertyInsertion(xml, properties, value)
       }
-      // Same rule as the shape's own fill: patch when the kind matches so the stroke's unmodeled
-      // attributes and children survive, swap the node only when the kind changes.
-      if (fillNode && existing && fillKind(existing) === fillKind(stroke) && fillNode.localName === modelFillNodeName(stroke)) {
-        replacements.push(...sameKindFillPatches(xml, fillNode, existing, stroke))
+      // Same rule as the shape's own fill: patch when the node is already this kind so the stroke's
+      // unmodeled attributes and children survive, swap the node only when the kind changes.
+      if (fillNode) {
+        replacements.push(...fillNodeReplacements(xml, fillNode, existing, stroke))
       } else {
-        const value = serializeFillForLine(stroke, line.name)
-        replacements.push(...(fillNode ? [{ start: fillNode.start, end: fillNode.end, value }] : lineReplacements(xml, line, value)))
+        replacements.push(...lineReplacements(xml, line, serializeFillForLine(stroke, line.name)))
       }
     } else if (line && fillNode && existing) {
       replacements.push({ start: fillNode.start, end: fillNode.end, value: serializeNoFill(line.name) })

@@ -29,7 +29,9 @@ describe('master and layout XML write-back', () => {
     expect(rewritten).toContain('<d:off x="11" y="22"/>')
     expect(rewritten).toContain('<d:ext cx="33" cy="44"/>')
     expect(rewritten).toContain('prst="ellipse"')
-    expect(rewritten).toContain('<d:solidFill><d:srgbClr val="FF0000"/></d:solidFill>')
+    // The fill node keeps its own attributes: only the colour inside it is replaced, which is what the
+    // name of this test promised long before the writeback did it.
+    expect(rewritten).toContain('<d:solidFill data-fill="keep"><d:srgbClr val="FF0000"/></d:solidFill>')
     expect(rewritten).toContain('<d:ln data-line="keep"><d:solidFill><d:srgbClr val="00FF00"/></d:solidFill></d:ln>')
     expect(rewritten).toContain('<d:t>Changed</d:t>')
     expect(rewritten).toContain('data-unknown="keep"')

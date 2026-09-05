@@ -1,4 +1,4 @@
-import { DEFAULT_THEME_COLORS, DEFAULT_THEME_FONTS, type Color, type ColorTransform, type ColorTransformType, type Theme, type ThemeColorSlot, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
+import { colorTransformValueIsValid, isOoxmlToken, DEFAULT_THEME_COLORS, DEFAULT_THEME_FONTS, type Color, type ColorTransform, type Theme, type ThemeColorSlot, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
 import { serializeColorXml } from './standalone-xml.js'
 import { escapeXml } from './text-xml.js'
 import { descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
@@ -8,7 +8,6 @@ const themeColorSlotSet = new Set<string>(themeColorSlots)
 const themeFontSlots = ['major', 'minor'] as const
 const themeFontScripts = ['latin', 'ea', 'cs'] as const
 const colorNodeNames = new Set(['srgbClr', 'schemeClr', 'prstClr', 'sysClr', 'scrgbClr'])
-const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
 
 function malformedTheme(theme: Theme): Error {
   return new Error(`PPTX export theme source malformed: ${theme.id}`)
@@ -54,11 +53,20 @@ function parseColor(node: XmlElement): Color | undefined {
     if (red !== undefined && green !== undefined && blue !== undefined) color = { type: 'scrgb', v: `${red},${green},${blue}` }
   }
   if (!color) return undefined
+  // The same rule the importer's `parseColorTransforms` uses, so a source `satMod` or a valueless
+  // `a:comp` is read rather than dropped — dropping it made an untouched theme colour compare changed.
   const transforms: ColorTransform[] = []
   for (const child of node.children) {
-    if (!colorTransformTypes.has(child.localName as ColorTransformType)) continue
-    const value = parsePercentage(child.attributes.val)
-    if (value !== undefined) transforms.push({ type: child.localName as ColorTransformType, value })
+    if (!isOoxmlToken(child.localName)) continue
+    const raw = child.attributes.val
+    if (raw === undefined) {
+      transforms.push({ type: child.localName })
+      continue
+    }
+    const value = Number(raw)
+    if (raw.trim() !== '' && Number.isInteger(value) && colorTransformValueIsValid(child.localName, value)) {
+      transforms.push({ type: child.localName, value })
+    }
   }
   return transforms.length > 0 ? { ...color, transforms } : color
 }
@@ -108,6 +116,11 @@ function hasUnsupportedXmlCharacter(value: string): boolean {
   return false
 }
 
+/**
+ * The model's own transform rule, shared rather than copied: any OOXML token is a transform, a `*Mod`
+ * value is not capped at 100000, and the switch forms carry no value. The private allowlist this
+ * replaces made a theme colour with a `satMod` throw on export while `validateDocument` passed it.
+ */
 function validatedTransforms(theme: Theme, slot: string, value: unknown): ColorTransform[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value)) throw unsupportedColor(theme, slot)
@@ -115,9 +128,15 @@ function validatedTransforms(theme: Theme, slot: string, value: unknown): ColorT
   for (const candidate of value) {
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) throw unsupportedColor(theme, slot)
     const transform = candidate as Record<string, unknown>
-    if (typeof transform.type !== 'string' || !colorTransformTypes.has(transform.type as ColorTransformType)) throw unsupportedColor(theme, slot)
-    if (typeof transform.value !== 'number' || !Number.isInteger(transform.value) || transform.value < 0 || transform.value > 100000) throw unsupportedColor(theme, slot)
-    transforms.push({ type: transform.type as ColorTransformType, value: transform.value })
+    if (!isOoxmlToken(transform.type)) throw unsupportedColor(theme, slot)
+    if (transform.value === undefined) {
+      transforms.push({ type: transform.type })
+      continue
+    }
+    if (typeof transform.value !== 'number' || !colorTransformValueIsValid(transform.type, transform.value)) {
+      throw unsupportedColor(theme, slot)
+    }
+    transforms.push({ type: transform.type, value: transform.value })
   }
   return transforms.length > 0 ? transforms : undefined
 }
