@@ -321,3 +321,159 @@ describe('standalone round-trip invariants for pictures, themes and rich text', 
     expect(theme?.formatScheme?.effectStyles?.[0]).toMatchObject({ blurRadius: 57150, distance: 19050 })
   })
 })
+
+/**
+ * The line and fill vocabulary added after the two fixtures above: a pattern fill, a custom dash, the
+ * compound and alignment words, a miter limit and a preset's adjust values — on the element and, where
+ * the schema allows it, on the theme entry too.
+ *
+ * Each of these shipped as its own slice with its own test file. They are gathered here for the reason
+ * this file exists: the per-slice tests prove one feature survives alone, and this proves they survive
+ * together, which is where a positional list or a shared serializer would break them.
+ */
+function lineAndFillDocument(): Ppt4aiDocument {
+  return {
+    format: 'ppt4ai',
+    version: 1,
+    id: 'dck_round_trip_lines',
+    page: { w: 12192000, h: 6858000 },
+    slides: { sld_1: { id: 'sld_1', elementIds: ['shape_1', 'shape_2'], masterId: 'mst_1' } },
+    slideOrder: ['sld_1'],
+    elements: {
+      shape_1: {
+        id: 'shape_1',
+        kind: 'shape',
+        preset: 'roundRect',
+        bounds: { x: 100000, y: 100000, w: 2000000, h: 1000000 },
+        adjustValues: [{ name: 'adj', formula: 'val 25000' }],
+        fill: {
+          color: { type: 'srgb', v: 'FF0000' },
+          pattern: {
+            preset: 'dkUpDiag',
+            foreground: { type: 'srgb', v: 'FF0000' },
+            background: { type: 'srgb', v: '00FF00' },
+          },
+        },
+        stroke: { color: { type: 'srgb', v: '203864' } },
+        strokeWidth: 76200,
+        strokeStyle: { custom: [{ dash: 400000, space: 300000 }, { dash: 100000, space: 300000 }] },
+        strokeCap: 'sq',
+        strokeJoin: 'miter',
+        strokeMiterLimit: 800000,
+        strokeCompound: 'thickThin',
+        strokeAlign: 'in',
+      },
+      shape_2: {
+        id: 'shape_2',
+        kind: 'shape',
+        preset: 'hexagon',
+        bounds: { x: 100000, y: 1500000, w: 1000000, h: 1000000 },
+        adjustValues: [{ name: 'adj1', formula: 'val 16667' }, { name: 'adj2', formula: 'pin 0 adj 50000' }],
+        stroke: { color: { type: 'srgb', v: '000000' } },
+        strokeWidth: 12700,
+        strokeCompound: 'tri',
+      },
+    },
+    masters: { mst_1: { id: 'mst_1', themeId: 'thm_1' } },
+    themes: {
+      thm_1: {
+        id: 'thm_1',
+        colors: { accent1: { type: 'srgb', v: '4472C4' } },
+        formatScheme: {
+          fillStyles: [{
+            color: { type: 'scheme', v: 'phClr' },
+            pattern: {
+              preset: 'ltHorz',
+              foreground: { type: 'scheme', v: 'phClr' },
+              background: { type: 'srgb', v: 'FFFFFF' },
+            },
+          }],
+          lineStyles: [{
+            color: { type: 'scheme', v: 'phClr' },
+            width: 6350,
+            style: 'lgDashDotDot',
+            cap: 'flat',
+            join: 'miter',
+            miterLimit: 500000,
+            compound: 'dbl',
+            align: 'ctr',
+          }],
+        },
+      },
+    },
+  }
+}
+
+async function lineRoundTrip() {
+  const imported = await importPptx(await createPptx(lineAndFillDocument()))
+  const ids = imported.slides.sld_1?.elementIds ?? []
+  const patterned = imported.elements[ids[0] ?? '']
+  const polygon = imported.elements[ids[1] ?? '']
+  if (patterned?.kind !== 'shape') throw new Error('the patterned shape did not come back as a shape')
+  if (polygon?.kind !== 'shape') throw new Error('the polygon did not come back as a shape')
+  return { imported, patterned, polygon }
+}
+
+describe('standalone round-trip invariants for the line and fill vocabulary', () => {
+  it('keeps a pattern fill with both colours', async () => {
+    const { patterned } = await lineRoundTrip()
+
+    expect(patterned.fill?.pattern).toEqual({
+      preset: 'dkUpDiag',
+      foreground: { type: 'srgb', v: 'FF0000' },
+      background: { type: 'srgb', v: '00FF00' },
+    })
+  })
+
+  it('keeps a custom dash segment for segment', async () => {
+    const { patterned } = await lineRoundTrip()
+
+    expect(patterned.strokeStyle).toEqual({ custom: [{ dash: 400000, space: 300000 }, { dash: 100000, space: 300000 }] })
+  })
+
+  /** Four attributes and one child element on the same `a:ln`, which is where an order bug would show. */
+  it('keeps the cap, corner, limit, compound and alignment together', async () => {
+    const { patterned } = await lineRoundTrip()
+
+    expect(patterned.strokeCap).toBe('sq')
+    expect(patterned.strokeJoin).toBe('miter')
+    expect(patterned.strokeMiterLimit).toBe(800000)
+    expect(patterned.strokeCompound).toBe('thickThin')
+    expect(patterned.strokeAlign).toBe('in')
+  })
+
+  it('keeps the adjust values of both presets, formulas verbatim', async () => {
+    const { patterned, polygon } = await lineRoundTrip()
+
+    expect(patterned.adjustValues).toEqual([{ name: 'adj', formula: 'val 25000' }])
+    expect(polygon.adjustValues).toEqual([
+      { name: 'adj1', formula: 'val 16667' },
+      { name: 'adj2', formula: 'pin 0 adj 50000' },
+    ])
+    expect(polygon.preset).toBe('hexagon')
+  })
+
+  it('keeps the theme pattern entry and every word on the theme line entry', async () => {
+    const { imported } = await lineRoundTrip()
+    const scheme = Object.values(imported.themes ?? {})[0]?.formatScheme
+
+    expect(scheme?.fillStyles?.[0]?.pattern).toEqual({
+      preset: 'ltHorz',
+      foreground: { type: 'scheme', v: 'phClr' },
+      background: { type: 'srgb', v: 'FFFFFF' },
+    })
+    expect(scheme?.lineStyles?.[0]).toMatchObject({
+      width: 6350,
+      style: 'lgDashDotDot',
+      cap: 'flat',
+      join: 'miter',
+      miterLimit: 500000,
+      compound: 'dbl',
+      align: 'ctr',
+    })
+  })
+
+  it('is deterministic', async () => {
+    expect(await createPptx(lineAndFillDocument())).toEqual(await createPptx(lineAndFillDocument()))
+  })
+})
