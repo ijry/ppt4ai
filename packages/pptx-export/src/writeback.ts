@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type AdjustValue, type ColorTransformType, type CustomGeometry, type DashSegment, type Fill, type GroupElement, type ImageElement, type OuterShadow, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeElement, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type AdjustValue, type CustomGeometry, type DashSegment, type Fill, type GroupElement, type ImageElement, type OuterShadow, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeElement, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { serializeColorXml, serializeCustomGeometry, serializeFillXml, serializeShadowXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
@@ -13,6 +13,19 @@ import {
 import { rewritePictureAppearance } from './image-appearance-writeback.js'
 import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } from './dependency-graph.js'
 import { decodeXml, descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
+import {
+  attributeReplacements,
+  childReplacement,
+  colorChoiceNames,
+  colorsEqual,
+  fillKind,
+  fillNodeNames,
+  fillsEqual,
+  modelFillNodeName,
+  namespacePrefix,
+  reprefixed,
+  sameKindFillPatches,
+} from './fill-patch.js'
 import { rewriteThemeXml } from './theme-writeback.js'
 import { rewriteLayoutXml, rewriteMasterXml, rewriteSlideColorMapXml } from './master-layout-writeback.js'
 import { sourceColor, sourceFill, sourceOuterShadow } from './color-source.js'
@@ -323,46 +336,6 @@ function groupBoundsReplacements(xml: string, sourceElement: XmlElement, element
   ]
 }
 
-const colorTransformTypes = new Set<ColorTransformType>(['tint', 'shade', 'lumMod', 'lumOff', 'alpha', 'alphaMod', 'alphaOff'])
-const fillNodeNames = new Set(['noFill', 'solidFill', 'gradFill', 'blipFill', 'pattFill', 'grpFill'])
-
-function colorsEqual(left: Color | undefined, right: Color | undefined): boolean {
-  if (!left || !right) return left === right
-  if (left.type !== right.type || left.v !== right.v) return false
-  const leftTransforms = left.transforms ?? []
-  const rightTransforms = right.transforms ?? []
-  return leftTransforms.length === rightTransforms.length
-    && leftTransforms.every((transform, index) => {
-      const other = rightTransforms[index]
-      return other?.type === transform.type && other.value === transform.value
-    })
-}
-
-function gradientsEqual(left: Fill['gradient'], right: Fill['gradient']): boolean {
-  if (!left || !right) return left === right
-  if (left.stops.length !== right.stops.length) return false
-  if ((left.angle ?? 0) !== (right.angle ?? 0)) return false
-  if ((left.scaled ?? false) !== (right.scaled ?? false)) return false
-  return left.stops.every((stop, index) => {
-    const other = right.stops[index]
-    return other?.pos === stop.pos && colorsEqual(stop.color, other.color)
-  })
-}
-
-function fillsEqual(left: Fill | undefined, right: Fill | undefined): boolean {
-  return colorsEqual(left?.color, right?.color)
-    && gradientsEqual(left?.gradient, right?.gradient)
-    && patternsEqual(left?.pattern, right?.pattern)
-}
-
-/** Both absent counts as equal; otherwise the preset and both colours have to match. */
-function patternsEqual(left: Fill['pattern'], right: Fill['pattern']): boolean {
-  if (!left || !right) return !left && !right
-  return left.preset === right.preset
-    && colorsEqual(left.foreground, right.foreground)
-    && colorsEqual(left.background, right.background)
-}
-
 function sourceShapeProperties(element: XmlElement): XmlElement | undefined {
   return firstDescendant(element, 'spPr')
 }
@@ -393,105 +366,8 @@ function fillReplacements(xml: string, sourceElement: XmlElement, fill: Fill | u
   return []
 }
 
-type FillKind = 'solid' | 'gradient' | 'pattern'
-
-function fillKind(fill: Fill): FillKind {
-  if (fill.gradient) return 'gradient'
-  if (fill.pattern) return 'pattern'
-  return 'solid'
-}
-
-function modelFillNodeName(fill: Fill): string {
-  const kind = fillKind(fill)
-  return kind === 'gradient' ? 'gradFill' : kind === 'pattern' ? 'pattFill' : 'solidFill'
-}
-
-/** Replaces `child` with `value`, or appends it inside `parent` when the child is not there yet. */
-function childReplacement(xml: string, parent: XmlElement, child: XmlElement | undefined, value: string): Replacement {
-  if (child) return { start: child.start, end: child.end, value }
-  const openingEnd = tagEnd(xml, parent.start + 1)
-  const opening = xml.slice(parent.start, openingEnd)
-  if (opening.endsWith('/>')) {
-    return { start: parent.start, end: openingEnd, value: `${opening.slice(0, -2)}>${value}</${parent.name}>` }
-  }
-  return { start: openingEnd, end: openingEnd, value }
-}
-
-/**
- * One fill node, patched part by part. Each part compares on its own so that changing a gradient's stops
- * leaves its axis alone, and changing a pattern's foreground leaves its background alone.
- */
-function sameKindFillPatches(xml: string, fillNode: XmlElement, existing: Fill, fill: Fill): Replacement[] {
-  const named = (name: string): XmlElement | undefined => fillNode.children.find((child) => child.localName === name)
-  const colorChild = (): XmlElement | undefined => fillNode.children.find((child) => colorNodeNames.has(child.localName))
-  const kind = fillKind(fill)
-  // A stroke's fill sits inside `a:ln`, which may carry a different prefix, so every emitted fragment
-  // takes the node's own — the reason `serializeFillForLine` exists for the whole-node path.
-  const prefix = namespacePrefix(fillNode.name) || 'a:'
-  const reprefix = (value: string): string =>
-    prefix === 'a:' ? value : value.replaceAll('<a:', `<${prefix}`).replaceAll('</a:', `</${prefix}`)
-
-  if (kind === 'solid') {
-    if (colorsEqual(existing.color, fill.color)) return []
-    return [childReplacement(xml, fillNode, colorChild(), serializeColorXml(fill.color, prefix))]
-  }
-
-  if (kind === 'pattern') {
-    const pattern = fill.pattern!
-    const before = existing.pattern
-    const replacements: Replacement[] = []
-    if (before?.preset !== pattern.preset) {
-      replacements.push(...lineAttributeReplacements(xml, fillNode, 'prst', pattern.preset))
-    }
-    for (const [name, next, previous] of [
-      ['fgClr', pattern.foreground, before?.foreground],
-      ['bgClr', pattern.background, before?.background],
-    ] as const) {
-      if (colorsEqual(previous, next)) continue
-      const slot = named(name)
-      const value = `<${prefix}${name}>${serializeColorXml(next, prefix)}</${prefix}${name}>`
-      replacements.push(childReplacement(xml, fillNode, slot, value))
-    }
-    return replacements
-  }
-
-  const gradient = fill.gradient!
-  const before = existing.gradient
-  const replacements: Replacement[] = []
-  const stopsChanged = before === undefined
-    || before.stops.length !== gradient.stops.length
-    || !gradient.stops.every((stop, index) => before.stops[index]?.pos === stop.pos && colorsEqual(before.stops[index]?.color, stop.color))
-  if (stopsChanged) {
-    const serialized = serializeFillXml(fill)
-    const list = serialized.slice(serialized.indexOf('<a:gsLst'), serialized.indexOf('</a:gsLst>') + 10)
-    replacements.push(childReplacement(xml, fillNode, named('gsLst'), reprefix(list)))
-  }
-  // `a:lin` and `a:path` are a choice, so a change of form replaces whichever one is there.
-  const wantsPath = gradient.path !== undefined
-  const formChanged = (before?.path !== undefined) !== wantsPath
-    || (!wantsPath && ((before?.angle ?? 0) !== (gradient.angle ?? 0) || (before?.scaled ?? false) !== (gradient.scaled ?? false)))
-    || (wantsPath && before?.path !== gradient.path)
-  if (formChanged) {
-    const serialized = serializeFillXml(fill)
-    const form = serialized.slice(
-      wantsPath ? serialized.indexOf('<a:path') : serialized.indexOf('<a:lin'),
-      serialized.lastIndexOf('</a:gradFill>'),
-    )
-    replacements.push(childReplacement(xml, fillNode, named('lin') ?? named('path'), reprefix(form)))
-  }
-  return replacements
-}
-
-function namespacePrefix(name: string): string {
-  const separator = name.lastIndexOf(':')
-  return separator >= 0 ? name.slice(0, separator + 1) : ''
-}
-
 function serializeFillForLine(fill: Fill, lineName: string): string {
-  const prefix = namespacePrefix(lineName)
-  const value = serializeFillXml(fill)
-  if (prefix === 'a:') return value
-  return value.replaceAll('<a:', `<${prefix}`).replaceAll('</a:', `</${prefix}`)
+  return reprefixed(serializeFillXml(fill), namespacePrefix(lineName))
 }
 
 function serializeNoFill(lineName: string): string {
@@ -625,40 +501,17 @@ function customDashEqual(node: XmlElement, segments: readonly DashSegment[]): bo
 
 /** `a:ln/@cap`; absent means the OOXML default, so a model without one removes the attribute. */
 function lineCapReplacements(xml: string, line: XmlElement, cap: StrokeCap | undefined): Replacement[] {
-  return lineAttributeReplacements(xml, line, 'cap', cap)
+  return attributeReplacements(xml, line, 'cap', cap)
 }
 
 /** `a:ln/@cmpd`; the model holds it verbatim, so an untouched source compares equal and is left alone. */
 function lineCompoundReplacements(xml: string, line: XmlElement, compound: StrokeCompound | undefined): Replacement[] {
-  return lineAttributeReplacements(xml, line, 'cmpd', compound)
+  return attributeReplacements(xml, line, 'cmpd', compound)
 }
 
 /** `a:ln/@algn`, same shape. */
 function lineAlignReplacements(xml: string, line: XmlElement, align: StrokeAlign | undefined): Replacement[] {
-  return lineAttributeReplacements(xml, line, 'algn', align)
-}
-
-/**
- * One attribute of the `<a:ln>` opening tag, patched in place. The whole tag is never rewritten, so the
- * attributes this project does not model stay exactly as the source wrote them.
- */
-function lineAttributeReplacements(xml: string, line: XmlElement, name: string, value: string | undefined): Replacement[] {
-  const source = line.attributes[name]
-  if (value === source || (value === undefined && source === undefined)) return []
-  const openingEnd = xml.indexOf('>', line.start)
-  if (openingEnd < 0) throw new Error('PPTX export source line malformed')
-  const existing = new RegExp(`\\s+${name}\\s*=\\s*"[^"]*"`, 'u').exec(xml.slice(line.start, openingEnd))
-  if (value === undefined) {
-    if (!existing) return []
-    const start = line.start + existing.index
-    return [{ start, end: start + existing[0].length, value: '' }]
-  }
-  if (existing) {
-    const start = line.start + existing.index
-    return [{ start, end: start + existing[0].length, value: ` ${name}="${value}"` }]
-  }
-  const nameEnd = line.start + 1 + line.name.length
-  return [{ start: nameEnd, end: nameEnd, value: ` ${name}="${value}"` }]
+  return attributeReplacements(xml, line, 'algn', align)
 }
 
 const joinNames = new Set(['round', 'bevel', 'miter'])
@@ -745,26 +598,16 @@ function shadowNodePatches(
   shadow: OuterShadow,
 ): Replacement[] {
   const replacements: Replacement[] = [
-    ...lineAttributeReplacements(xml, outer, 'blurRad', shadow.blurRadius === undefined ? undefined : String(shadow.blurRadius)),
-    ...lineAttributeReplacements(xml, outer, 'dist', shadow.distance === undefined ? undefined : String(shadow.distance)),
-    ...lineAttributeReplacements(xml, outer, 'dir', shadow.direction === undefined ? undefined : String(shadow.direction)),
+    ...attributeReplacements(xml, outer, 'blurRad', shadow.blurRadius === undefined ? undefined : String(shadow.blurRadius)),
+    ...attributeReplacements(xml, outer, 'dist', shadow.distance === undefined ? undefined : String(shadow.distance)),
+    ...attributeReplacements(xml, outer, 'dir', shadow.direction === undefined ? undefined : String(shadow.direction)),
   ]
   if (!colorsEqual(existing?.color, shadow.color)) {
-    const colorNode = outer.children.find((child) => colorNodeNames.has(child.localName))
-    const value = serializeColorXml(shadow.color)
-    if (colorNode) replacements.push({ start: colorNode.start, end: colorNode.end, value })
-    else {
-      const openingEnd = tagEnd(xml, outer.start + 1)
-      const opening = xml.slice(outer.start, openingEnd)
-      if (opening.endsWith('/>')) {
-        replacements.push({ start: outer.start, end: openingEnd, value: `${opening.slice(0, -2)}>${value}</${outer.name}>` })
-      } else replacements.push({ start: openingEnd, end: openingEnd, value })
-    }
+    const colorNode = outer.children.find((child) => colorChoiceNames.has(child.localName))
+    replacements.push(childReplacement(xml, outer, colorNode, serializeColorXml(shadow.color)))
   }
   return replacements
 }
-
-const colorNodeNames = new Set(['srgbClr', 'schemeClr', 'prstClr', 'sysClr', 'scrgbClr', 'hslClr'])
 
 function shadowsEqual(left: OuterShadow | undefined, right: OuterShadow | undefined): boolean {
   if (!left || !right) return !left && !right
