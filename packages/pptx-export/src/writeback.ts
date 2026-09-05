@@ -722,6 +722,11 @@ function numericAttribute(element: XmlElement | undefined, name: string): boolea
   return element !== undefined && element.attributes[name] !== undefined && Number.isFinite(Number(element.attributes[name]))
 }
 
+/** A `p:ph` anywhere inside `p:nvSpPr`; the importer treats exactly these as able to inherit a position. */
+function isPlaceholder(element: XmlElement): boolean {
+  return descendants(element.children, 'ph').length > 0
+}
+
 function hasBounds(element: XmlElement): boolean {
   const transform = firstDescendant(element, 'xfrm')
   const offset = transform && firstDescendant(transform, 'off')
@@ -787,7 +792,9 @@ function slideElements(xml: string, slideId: string, slidePath: string, relation
       const candidate = element.localName === 'sp' || element.localName === 'graphicFrame' || element.localName === 'pic'
       const expectedId = candidate ? `el_${elementNumber}` : undefined
       if (candidate) elementNumber += 1
-      if (expectedId && element.localName === 'sp' && hasBounds(element)) {
+      // A placeholder may state no `a:xfrm` and inherit its position, which the importer now follows, so
+      // the scan has to keep the same shapes the importer keeps or the two numberings stop agreeing.
+      if (expectedId && element.localName === 'sp' && (hasBounds(element) || isPlaceholder(element))) {
         const sourceBody = sourceTextBody(element)
         result.push({ element, expectedId, ...(sourceBody !== undefined ? { sourceBody } : {}) })
       } else if (expectedId && element.localName === 'graphicFrame' && isImportableTable(element)) {
@@ -1564,7 +1571,19 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
     if (!scanned) throw new Error(`PPTX export source slide scan missing: ${plan.source?.partPath ?? slidePath}`)
     const slide = document.slides[slideId]
     if (!slide) throw new Error(`PPTX export document slide missing: ${slideId}`)
-    if (slide.elementIds.length < scanned.elements.length) throw new Error(`PPTX export element count mismatch for slide ${slideId}`)
+    /**
+     * A reused slide pairs by id; a cloned one still pairs by position.
+     *
+     * Both the importer and the scan number every candidate shape in tree order, so in reuse mode the
+     * model's `el_N` names the source shape directly — and a shape one side keeps while the other skips
+     * (a placeholder inheriting its position, an undecodable picture) no longer shifts every later
+     * pairing. A cloned slide carries the caller's own ids, which name nothing in the source, so
+     * position is all it has.
+     */
+    const scannedById = new Map(scanned.elements.map((entry) => [entry.expectedId, entry]))
+    if (plan.mode !== 'reuse' && slide.elementIds.length < scanned.elements.length) {
+      throw new Error(`PPTX export element count mismatch for slide ${slideId}`)
+    }
     const invalidPicture = scanned.invalidPictures.find(({ expectedId }) => slide.elementIds.includes(expectedId))
     if (invalidPicture) throw invalidPicture.error
     const newRelationships: string[] = []
@@ -1575,11 +1594,12 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
     for (let index = 0; index < slide.elementIds.length; index += 1) {
       const elementId = slide.elementIds[index]
       const element = elementId ? document.elements[elementId] : undefined
-      const source = scanned.elements[index]
+      const source = plan.mode === 'reuse'
+        ? (elementId ? scannedById.get(elementId) : undefined)
+        : scanned.elements[index]
       const sourceElement = source?.element
       const sourceImage = source?.image
       if (!element) throw new Error(`PPTX export element mapping missing for slide ${slideId}`)
-      if (source && plan.mode === 'reuse' && elementId !== source.expectedId) throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
       if (source?.group) {
         if (element.kind !== 'group') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
         continue

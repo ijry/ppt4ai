@@ -1614,8 +1614,13 @@ function parseTextBody(shape: XmlNode): TextBody | undefined {
   return bodyPr ? { bodyPr, paragraphs } : { paragraphs }
 }
 
-function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Element | undefined {
-  const bounds = parseBounds(shape)
+/**
+ * `inheritedBounds` is the layout or master placeholder's own position, used when the shape states none.
+ * A real deck's title and body placeholders routinely omit `a:xfrm` and inherit it, and without this the
+ * whole element was dropped — invisible and unselectable rather than merely misplaced.
+ */
+function parseElement(shape: XmlNode, id: string, requireBounds: boolean, inheritedBounds?: Rect): Element | undefined {
+  const bounds = parseBounds(shape) ?? inheritedBounds
   if (requireBounds && !bounds) return undefined
   const placeholder = parsePlaceholder(shape)
   const rotation = parseRotation(shape)
@@ -2025,7 +2030,16 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
           })
         },
       }
-      const element = localName(shape.node.name) === 'graphicFrame' ? parseTable(shape.node, id, tableMedia) : parseElement(shape.node, id, true)
+      // Only a placeholder has somewhere to inherit from, and the layout wins over the master — the same
+      // order `findDefaults` gives them, where the master is pushed first and overwritten.
+      const inheritedKey = parsePlaceholder(shape.node)
+      const inheritedBounds = inheritedKey === undefined
+        ? undefined
+        : (layoutId ? layouts[layoutId]?.defaults?.[inheritedKey]?.bounds : undefined)
+          ?? (masterId ? masters[masterId]?.defaults?.[inheritedKey]?.bounds : undefined)
+      const element = localName(shape.node.name) === 'graphicFrame'
+        ? parseTable(shape.node, id, tableMedia)
+        : parseElement(shape.node, id, true, inheritedBounds)
       if (!element) continue
       // A shape's picture fill is resolved here rather than in `parseElement`, because only this loop
       // has the relationships and part bytes the blip points at — the same reason `parsePicture` takes

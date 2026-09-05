@@ -1,6 +1,6 @@
 # 无 `a:xfrm` 的占位符
 
-> 状态：待实现
+> 状态：已实现
 > 日期：2026-09-05
 
 ## 1. 目标
@@ -23,7 +23,7 @@ no element imported: []
 
 上一刀记录里写「要修得让 `parseElement` 接受无 bounds 的占位符……会牵动导出的索引对齐」。**读代码后这条不成立**，两个理由：
 
-**索引对齐反而变好**。EMF 的先例说明的是「导入与导出跳过同一个 `p:pic`，索引因此天然对齐」。这里同理：今天导入跳过该占位符，导出也跳过，对齐成立；让它进模型后两侧都不跳过，对齐同样成立。会出问题的是只改一侧。
+**索引对齐会断，这条最初判断错了**（见第 7 节）。两侧都按树序给**每一个**候选形状编号（导入 `importer.ts:1996` 的 `elementCounter++` 在解析之前，导出 `writeback.ts` 的 `elementNumber += 1` 同理），所以跳过一个不会让编号错位——但**导出侧不会把它放进结果列表**，而配对是按**列表下标**做的。只改导入侧，模型多出一个元素，配对整体错位一格，`elementId !== source.expectedId` 立刻抛错。这正是上一刀那句「会牵动导出索引对齐」说的事，本节初稿的反驳是错的。
 
 **写回不会插入 `a:xfrm`**。`boundsReplacements`（`writeback.ts:204`）第一行就是 `const previous = sourceBounds(sourceElement)`，紧接着 `if (!previous || …) return []`——源包没有 `a:xfrm` 时它直接返回空，**从不新建**。`transformReplacements` 同样在 `if (!source) return []` 处退出。所以模型持有继承来的 bounds 而源包没有 `a:xfrm` 这个组合，写回天然保持不动。
 
@@ -79,3 +79,15 @@ layout 的默认值优先于 master 的，与 `findDefaults`（`model/index.ts:1
 **无源导出把继承的位置写成显式的**：见决策 5。
 
 **改 bounds 写不回去**：源包没有 `a:xfrm` 时写回无处落笔，因此对这类占位符的移动/缩放写不出去。这是既有行为（今天这类元素根本不存在，更谈不上移动），本刀让它变成「可见但位置只读」，比不可见严格更好。要真支持得让写回按 ECMA 序列插入 `a:xfrm`，那是独立一刀。
+
+## 8. 实现记录（2026-09-05）
+
+实现提交 `待填`。**第 3 节的第一条理由是错的，测试当场抓住**，因此本刀比设计大一圈：
+
+**只改导入侧会让写回抛错**。写回把模型元素与扫描结果**按下标**配对（`const source = scanned.elements[index]`），并用 `elementId !== source.expectedId` 兜底。导入侧开始接受无 `a:xfrm` 的占位符后，模型多出一个 `el_1`，而扫描结果里第一项是 `el_2`（那个占位符 `hasBounds` 为假、没进列表），配对错位一格 → 抛 `element prefix mismatch`。**未编辑的往返之所以还绿，是因为它走字节快路**（指纹相同直接返回源字节），根本没进写回。这一点值得记：字节往返测试**不能**证明写回正确。
+
+修法两步：
+1. 扫描端与导入端采同一条规则——`sp` 在 `hasBounds(element) || isPlaceholder(element)` 时进列表
+2. **reuse 模式改为按 id 配对**（`scannedById.get(elementId)`），因为两侧的 `el_N` 编号本就是同一套树序编号，按 id 配对使错位在构造上不可能发生，且一侧保留而另一侧跳过的形状自然保持不动
+
+**clone 模式必须保持按下标配对**。第一版把两种模式一起改成按 id，`writeback.test.ts` 一条既有测试立刻标红：克隆页的 `elementIds` 是调用方自己的名字（`img_copy`），在源包里什么都不指，按 id 查为空 → 被当成新元素 → 去找 adapter 取字节 → 抛错。原来的 `elementIds.length < scanned.elements.length` 计数守卫也只对 clone 有意义，一并只保留在那一侧。被删掉的 `expectedId` 守卫在 reuse 侧成了同义反复（按 id 查到的东西必然 id 相同），因此确实该去掉。
