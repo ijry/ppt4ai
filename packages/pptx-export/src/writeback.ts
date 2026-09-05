@@ -374,6 +374,12 @@ function fillReplacements(xml: string, sourceElement: XmlElement, fill: Fill | u
   const existing = sourceFill(fillNode)
   if (fillsEqual(existing, fill)) return []
   if (fill) {
+    // Same kind of fill means only the parts that changed are touched, so what the model does not express
+    // survives: `a:gradFill/@flip`, `@rotWithShape`, `a:tileRect`, a pattern's `a:extLst`. Changing the
+    // kind has nothing to preserve, since `EG_FillProperties` is a choice, and still swaps the node.
+    if (fillNode && existing && fillKind(existing) === fillKind(fill) && fillNode.localName === modelFillNodeName(fill)) {
+      return sameKindFillPatches(xml, fillNode, existing, fill)
+    }
     const value = serializeFillXml(fill)
     if (fillNode) return [{ start: fillNode.start, end: fillNode.end, value }]
     const line = properties.children.find((child) => child.localName === 'ln')
@@ -385,6 +391,90 @@ function fillReplacements(xml: string, sourceElement: XmlElement, fill: Fill | u
     return [{ start: fillNode.start, end: fillNode.end, value: '' }]
   }
   return []
+}
+
+type FillKind = 'solid' | 'gradient' | 'pattern'
+
+function fillKind(fill: Fill): FillKind {
+  if (fill.gradient) return 'gradient'
+  if (fill.pattern) return 'pattern'
+  return 'solid'
+}
+
+function modelFillNodeName(fill: Fill): string {
+  const kind = fillKind(fill)
+  return kind === 'gradient' ? 'gradFill' : kind === 'pattern' ? 'pattFill' : 'solidFill'
+}
+
+/** Replaces `child` with `value`, or appends it inside `parent` when the child is not there yet. */
+function childReplacement(xml: string, parent: XmlElement, child: XmlElement | undefined, value: string): Replacement {
+  if (child) return { start: child.start, end: child.end, value }
+  const openingEnd = tagEnd(xml, parent.start + 1)
+  const opening = xml.slice(parent.start, openingEnd)
+  if (opening.endsWith('/>')) {
+    return { start: parent.start, end: openingEnd, value: `${opening.slice(0, -2)}>${value}</${parent.name}>` }
+  }
+  return { start: openingEnd, end: openingEnd, value }
+}
+
+/**
+ * One fill node, patched part by part. Each part compares on its own so that changing a gradient's stops
+ * leaves its axis alone, and changing a pattern's foreground leaves its background alone.
+ */
+function sameKindFillPatches(xml: string, fillNode: XmlElement, existing: Fill, fill: Fill): Replacement[] {
+  const named = (name: string): XmlElement | undefined => fillNode.children.find((child) => child.localName === name)
+  const colorChild = (): XmlElement | undefined => fillNode.children.find((child) => colorNodeNames.has(child.localName))
+  const kind = fillKind(fill)
+
+  if (kind === 'solid') {
+    if (colorsEqual(existing.color, fill.color)) return []
+    return [childReplacement(xml, fillNode, colorChild(), serializeColorXml(fill.color))]
+  }
+
+  if (kind === 'pattern') {
+    const pattern = fill.pattern!
+    const before = existing.pattern
+    const replacements: Replacement[] = []
+    if (before?.preset !== pattern.preset) {
+      replacements.push(...lineAttributeReplacements(xml, fillNode, 'prst', pattern.preset))
+    }
+    for (const [name, next, previous] of [
+      ['fgClr', pattern.foreground, before?.foreground],
+      ['bgClr', pattern.background, before?.background],
+    ] as const) {
+      if (colorsEqual(previous, next)) continue
+      const slot = named(name)
+      const value = `<${namespacePrefix(fillNode.name)}${name}>${serializeColorXml(next)}</${namespacePrefix(fillNode.name)}${name}>`
+      replacements.push(childReplacement(xml, fillNode, slot, value))
+    }
+    return replacements
+  }
+
+  const gradient = fill.gradient!
+  const before = existing.gradient
+  const replacements: Replacement[] = []
+  const stopsChanged = before === undefined
+    || before.stops.length !== gradient.stops.length
+    || !gradient.stops.every((stop, index) => before.stops[index]?.pos === stop.pos && colorsEqual(before.stops[index]?.color, stop.color))
+  if (stopsChanged) {
+    const serialized = serializeFillXml(fill)
+    const list = serialized.slice(serialized.indexOf('<a:gsLst'), serialized.indexOf('</a:gsLst>') + 10)
+    replacements.push(childReplacement(xml, fillNode, named('gsLst'), list))
+  }
+  // `a:lin` and `a:path` are a choice, so a change of form replaces whichever one is there.
+  const wantsPath = gradient.path !== undefined
+  const formChanged = (before?.path !== undefined) !== wantsPath
+    || (!wantsPath && ((before?.angle ?? 0) !== (gradient.angle ?? 0) || (before?.scaled ?? false) !== (gradient.scaled ?? false)))
+    || (wantsPath && before?.path !== gradient.path)
+  if (formChanged) {
+    const serialized = serializeFillXml(fill)
+    const form = serialized.slice(
+      wantsPath ? serialized.indexOf('<a:path') : serialized.indexOf('<a:lin'),
+      serialized.lastIndexOf('</a:gradFill>'),
+    )
+    replacements.push(childReplacement(xml, fillNode, named('lin') ?? named('path'), form))
+  }
+  return replacements
 }
 
 function namespacePrefix(name: string): string {

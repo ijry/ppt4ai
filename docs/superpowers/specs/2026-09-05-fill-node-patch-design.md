@@ -1,6 +1,6 @@
 # 改填充时保留未建模的部分
 
-> 状态：待实现
+> 状态：已实现
 > 日期：2026-09-05
 
 ## 1. 目标
@@ -72,3 +72,15 @@
 ## 7. 已知限制
 
 **换填充种类仍丢未建模内容**：`a:solidFill` → `a:gradFill` 这种改变没有对应关系可保留，整块替换是唯一可做的事。
+
+## 8. 实现记录（2026-09-05）
+
+实现提交 `待填`。按设计执行。
+
+**两条既有测试的预期本来固定着这个损失**：
+- `gradient-writeback.test.ts` 的 `rewrites the gradient when a stop colour changes` 断言 `rotWithShape` **不存在**——它记录的正是「改停靠点会丢属性」。改名为 `replaces only the stop list…` 并改成断言属性与 `a:lin` 都在。
+- `writeback.test.ts` 的 `writes edited shape and text fills while preserving surrounding XML` 断言 `<a:solidFill><a:srgbClr val="00FF00"/></a:solidFill>`,即丢掉 `data-fill="keep"`。**这条测试的名字自己就说了要保留周围的 XML**,所以新行为比旧预期更符合它的意图,只需把预期字符串补上那个属性。
+
+`lineAttributeReplacements` 第三次跨元素复用（`a:ln` → `a:outerShdw` → `a:pattFill/@prst`）。名字里的 `line` 已经明显是历史残留,但三次复用都只用到 `start` 与 `name`,说明抽象本身是对的。
+
+区分力已验证：把同种补丁那一段删掉、退回整块替换,九条里四条标红。

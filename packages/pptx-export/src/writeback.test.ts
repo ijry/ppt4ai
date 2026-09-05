@@ -851,7 +851,8 @@ describe('exportPptx', () => {
     const outputSlide = new TextDecoder().decode(entries.get('ppt/slides/slide1.xml'))
     const imported = await importPptx(output)
 
-    expect(outputSlide).toContain('<a:solidFill><a:srgbClr val="00FF00"/></a:solidFill>')
+    // Only the colour child is replaced now, so `data-fill` — which the model cannot express — survives.
+    expect(outputSlide).toContain('<a:solidFill data-fill="keep"><a:srgbClr val="00FF00"/></a:solidFill>')
     expect(outputSlide).toContain('<a:solidFill><a:schemeClr val="accent2"/></a:solidFill>')
     expect(outputSlide).toContain('<a:customStyle keep="yes"/>')
     expect(imported.elements.el_1).toMatchObject({ fill: { color: { type: 'srgb', v: '00FF00' } } })

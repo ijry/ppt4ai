@@ -93,7 +93,11 @@ describe('gradient fill survives writeback', () => {
   })
 
   /** A stop colour edit is a real change, so the gradient is rewritten from the model. */
-  it('rewrites the gradient when a stop colour changes', async () => {
+  /**
+   * `rotWithShape` used to disappear here, because a stop edit rewrote the whole `a:gradFill`. Only the
+   * `a:gsLst` is replaced now, so the attributes and children the model cannot express stay put.
+   */
+  it('replaces only the stop list when a stop colour changes', async () => {
     const source = sourcePackage()
     const document = await importPptx(source)
     const element = document.elements.el_1
@@ -103,6 +107,7 @@ describe('gradient fill survives writeback', () => {
     const outputSlide = await slideXmlOf(await exportPptx(document, source))
 
     expect(outputSlide).toContain('<a:gs pos="100000"><a:srgbClr val="00FF00"/></a:gs>')
-    expect(outputSlide).not.toContain('rotWithShape')
+    expect(outputSlide).toContain('<a:gradFill rotWithShape="1">')
+    expect(outputSlide).toContain('<a:lin ang="5400000" scaled="0"/>')
   })
 })
