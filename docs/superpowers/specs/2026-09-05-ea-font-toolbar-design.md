@@ -74,7 +74,7 @@ i18n：`toolbar.textFormatting.fontFamilyEa` 中英各一条。
 
 ## 7. 实现记录（2026-09-05）
 
-实现提交 `待填`。按设计执行，三处值得记：
+实现提交 `ee7de4f`。按设计执行，三处值得记：
 
 **回退写在两层，因为 `exactOptionalPropertyTypes`**。设计说「缺省回退到 `fontFamilies`」，实现时 `PptEditor.vue` 把 `props.eaFontFamilies`（`readonly string[] | undefined`）直接透传给可选 prop 被 TS 拒绝——该选项禁止显式传 `undefined` 给可选属性。于是 `PptEditor` 传 `props.eaFontFamilies ?? props.fontFamilies ?? []`，工具栏自己保留 `?? props.fontFamilies` 以便独立使用与单测。两层都有回退，各自单独成立。
 
