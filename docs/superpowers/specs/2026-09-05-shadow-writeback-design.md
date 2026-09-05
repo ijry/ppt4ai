@@ -66,7 +66,7 @@
 
 ## 8. 实现记录（2026-09-05）
 
-实现提交 `待填`。按设计执行，一处值得记：
+实现提交 `edd31c4`。按设计执行，一处值得记：
 
 **既有测试里有一条正是钉住这个缺口的**。`outer-shadow.test.ts` 的 `leaves the effect list alone even when the model shadow is dropped` 删掉 `shape.shadow` 后断言整个 `a:effectLst` 逐字不变——它记录的是「删阴影什么也不会发生」。本刀让删除真的生效，那条立刻标红。
 
