@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type AdjustValue, type ColorTransformType, type DashSegment, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type AdjustValue, type ColorTransformType, type DashSegment, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeElement, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { serializeColorXml, serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
@@ -199,6 +199,64 @@ function transformReplacements(
   let value = rotationChanged ? updateXmlAttribute(openingXml, 'rot', transform.rotation) : openingXml
   for (const axis of flips) value = updateXmlAttribute(value, axis, transform[axis] === true ? '1' : undefined)
   return value === openingXml ? [] : [{ start: source.start, end: openingEnd, value }]
+}
+
+/**
+ * The `a:xfrm` a shape that never had one needs once its position changes.
+ *
+ * A placeholder may omit `a:xfrm` and inherit its position, which the importer follows; leaving the
+ * absence alone is what keeps such a deck byte-identical, so the node is only created when the model's
+ * bounds actually differ from the inherited ones. `inherited` being undefined means nothing was found to
+ * inherit from, and then any bounds count as a change — writing a real position is the safe side of that
+ * choice, losing a move silently is not.
+ *
+ * `CT_ShapeProperties` puts `a:xfrm` first, so it goes directly after the opening tag. The prefix comes
+ * from a drawing sibling rather than from `p:spPr`, which is in the presentation namespace.
+ */
+/** The placeholder bounds the importer would have inherited: the layout's default, else the master's. */
+function inheritedBoundsFor(document: Ppt4aiDocument, slideId: string, element: TextElement | ShapeElement): Rect | undefined {
+  const key = element.placeholder
+  if (key === undefined) return undefined
+  const slide = document.slides[slideId]
+  const layout = slide?.layoutId ? document.layouts?.[slide.layoutId] : undefined
+  const master = slide?.masterId
+    ? document.masters?.[slide.masterId]
+    : layout?.masterId ? document.masters?.[layout.masterId] : undefined
+  return layout?.defaults?.[key]?.bounds ?? master?.defaults?.[key]?.bounds
+}
+
+function insertTransformReplacements(
+  xml: string,
+  sourceElement: XmlElement,
+  bounds: Rect,
+  transform: { rotation?: number; flipH?: boolean; flipV?: boolean },
+  inherited: Rect | undefined,
+): Replacement[] {
+  const properties = sourceShapeProperties(sourceElement)
+  if (!properties) return []
+  // A source with no `a:xfrm` states no rotation and no flip either, so either one is a change on its own
+  // even when the position still matches what was inherited.
+  const boundsMatch = inherited !== undefined
+    && inherited.x === bounds.x && inherited.y === bounds.y && inherited.w === bounds.w && inherited.h === bounds.h
+  const transformed = transform.rotation !== undefined || transform.flipH === true || transform.flipV === true
+  if (boundsMatch && !transformed) return []
+  const prefixSource = properties.children.find((child) => child.name.includes(':'))
+  const prefix = prefixSource ? prefixSource.name.slice(0, prefixSource.name.lastIndexOf(':') + 1) : 'a:'
+  const attributes = [
+    transform.rotation === undefined ? '' : ` rot="${transform.rotation}"`,
+    transform.flipH === true ? ' flipH="1"' : '',
+    transform.flipV === true ? ' flipV="1"' : '',
+  ].join('')
+  const value = `<${prefix}xfrm${attributes}>`
+    + `<${prefix}off x="${bounds.x}" y="${bounds.y}"/><${prefix}ext cx="${bounds.w}" cy="${bounds.h}"/>`
+    + `</${prefix}xfrm>`
+  const openingEnd = tagEnd(xml, properties.start + 1)
+  const opening = xml.slice(properties.start, openingEnd)
+  // A self-closing `<p:spPr/>` has nowhere to put a child, so it becomes a pair first.
+  if (opening.endsWith('/>')) {
+    return [{ start: properties.start, end: openingEnd, value: `${opening.slice(0, -2)}>${value}</${properties.name}>` }]
+  }
+  return [{ start: openingEnd, end: openingEnd, value }]
 }
 
 function boundsReplacements(xml: string, sourceElement: XmlElement, bounds: Rect): Replacement[] {
@@ -1268,15 +1326,27 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
         if (source.sourceBody === undefined || serializeTextBodyXml(body) !== serializeTextBodyXml(source.sourceBody)) {
           replacements.push({ start: sourceBodyElement.start, end: sourceBodyElement.end, value: serializeTextBodyXml(body) })
         }
-        replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
-        replacements.push(...transformReplacements(xml, sourceElement, element))
+        // A shape with no `a:xfrm` inherits its position, so a moved one needs the node created rather
+        // than patched — the two paths are exclusive, since `sourceBounds` is what decides.
+        if (sourceBounds(sourceElement) === undefined) {
+          replacements.push(...insertTransformReplacements(xml, sourceElement, element.bounds, element, inheritedBoundsFor(document, slideId, element)))
+        } else {
+          replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
+          replacements.push(...transformReplacements(xml, sourceElement, element))
+        }
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
         replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin, element.strokeCompound, element.strokeAlign, element.strokeMiterLimit))
       } else if (element.kind === 'text') {
         throw new Error(`PPTX export text source mismatch for element ${element.id}`)
       } else if (element.kind === 'shape') {
-        replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
-        replacements.push(...transformReplacements(xml, sourceElement, element))
+        // A shape with no `a:xfrm` inherits its position, so a moved one needs the node created rather
+        // than patched — the two paths are exclusive, since `sourceBounds` is what decides.
+        if (sourceBounds(sourceElement) === undefined) {
+          replacements.push(...insertTransformReplacements(xml, sourceElement, element.bounds, element, inheritedBoundsFor(document, slideId, element)))
+        } else {
+          replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
+          replacements.push(...transformReplacements(xml, sourceElement, element))
+        }
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
         replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin, element.strokeCompound, element.strokeAlign, element.strokeMiterLimit))
         replacements.push(...geometryReplacements(xml, sourceElement, element.preset, element.adjustValues))

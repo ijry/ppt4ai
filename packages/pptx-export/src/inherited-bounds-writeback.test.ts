@@ -37,6 +37,16 @@ function sourcePackage(): Uint8Array {
   ])
 }
 
+async function movedFirst(x: number): Promise<string> {
+  const source = sourcePackage()
+  const document = await importPptx(source)
+  const ids = Object.values(document.slides)[0]?.elementIds ?? []
+  const element = document.elements[ids[0] ?? '']
+  if (!element) throw new Error('the inherited element did not import')
+  element.bounds = { ...element.bounds, x }
+  return slideXmlOf(await exportPptx(document, source))
+}
+
 async function slideXmlOf(bytes: Uint8Array): Promise<string> {
   const entries = new Map((await readZipEntries(bytes)).map((entry) => [entry.name, entry.data]))
   const data = entries.get('ppt/slides/slide1.xml')
@@ -65,19 +75,49 @@ describe('a placeholder with inherited bounds survives source writeback', () => 
     expect(await exportPptx(await importPptx(source), source)).toEqual(source)
   })
 
-  /** Moving it cannot be written back, because there is no `a:xfrm` to patch — visible but position-only-read. */
-  it('does not invent a transform when the inherited element moves', async () => {
+  /**
+   * Moving it used to be lost: the element was visible and draggable after the import slice, and the move
+   * silently did not persist. The node is created now, first inside `p:spPr` as `CT_ShapeProperties` wants,
+   * and the self-closing `<p:spPr/>` is expanded to hold it.
+   */
+  it('creates the transform when the inherited element moves', async () => {
+    const slide = await movedFirst(4444444)
+
+    expect(slide).toContain('<p:spPr><a:xfrm><a:off x="4444444" y="365125"/><a:ext cx="10515600" cy="1325563"/></a:xfrm></p:spPr>')
+  })
+
+  it('keeps the inherited height and width it was not asked to change', async () => {
+    const slide = await movedFirst(4444444)
+
+    expect(slide).toContain('cx="10515600" cy="1325563"')
+  })
+
+  /** Rotation went through the same hole, so it is created by the same insertion. */
+  it('creates the transform with a rotation', async () => {
     const source = sourcePackage()
     const document = await importPptx(source)
     const ids = Object.values(document.slides)[0]?.elementIds ?? []
     const element = document.elements[ids[0] ?? '']
-    if (!element) throw new Error('the inherited element did not import')
-    element.bounds = { ...element.bounds, x: 4444444 }
+    if (element?.kind !== 'text') throw new Error('the inherited element did not import as text')
+    element.rotation = 2700000
+
+    const slide = await slideXmlOf(await exportPptx(document, source))
+
+    expect(slide).toContain('<a:xfrm rot="2700000">')
+  })
+
+  /** Nothing moved, so nothing is created — this is the byte-identity property in its edited form. */
+  it('creates nothing when the inherited bounds are unchanged', async () => {
+    const source = sourcePackage()
+    const document = await importPptx(source)
+    const ids = Object.values(document.slides)[0]?.elementIds ?? []
+    const other = document.elements[ids[1] ?? '']
+    if (!other) throw new Error('the positioned element did not import')
+    other.bounds = { ...other.bounds, x: 5555555 }
 
     const slide = await slideXmlOf(await exportPptx(document, source))
 
     expect(slide).toContain('<p:spPr/>')
-    expect(slide).not.toContain('4444444')
   })
 
   /** Editing its neighbour must not disturb it, which is what a shifted positional map would do. */
