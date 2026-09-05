@@ -94,7 +94,7 @@ export interface ElementDefaults {
 
 **`shadow` 与 `customGeometry` 仍不进默认值**——**已在 `156bc84` 补上**（连 `styleRef` 一起）。决策 2 给的搁置理由经复盘只有一半成立：`customGeometry` 的优先级早已定好，`shadow` 那半的正确动作是把 `styleRef` 一并加上而非延后。见 [2026-09-05-placeholder-effect-defaults-design.md](./2026-09-05-placeholder-effect-defaults-design.md)。
 
-**默认值不参与 `validateDocument` 的元素校验**：这是既有状况（`ElementDefaults` 一直没有逐字段校验），本刀不改变它，也不假装改变。
+**默认值不参与 `validateDocument` 的元素校验**——**已在后续一刀修掉**。这条当时的措辞也不够准确：默认值其实**部分**走校验（`rotation` 与 `listStyle` 一直在查），缺的是其余字段。现在元素侧与默认值侧共用同一个 `validateStrokeVocabulary`，加上 `fill`/`stroke`/`shadow`/`customGeometry`/`styleRef` 各自的既有校验器。
 
 ## 7. 实现记录（2026-09-05）
 

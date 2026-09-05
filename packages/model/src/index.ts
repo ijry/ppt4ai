@@ -1507,14 +1507,89 @@ function validateFiniteNumber(value: unknown, path: string, errors: string[], pr
   if (typeof value !== 'number' || !Number.isFinite(value) || !predicate(value)) errors.push(`${path} ${message}`)
 }
 
-function validateDefaultRotations(value: unknown, path: string, errors: string[]): void {
+/**
+ * The `a:ln` and `a:prstGeom` vocabulary an element and a placeholder default both carry. Shared rather
+ * than duplicated: the two used to diverge, with every one of these validated on the element and none of
+ * them on the default, so a layout could hold a token the exporter would then write as invalid XML.
+ */
+function validateStrokeVocabulary(value: Record<string, unknown>, path: string, errors: string[]): void {
+  if (value.strokeStyle !== undefined) {
+    if (typeof value.strokeStyle === 'string') {
+      if (!strokeStyles.has(value.strokeStyle as StrokeStyle)) {
+        errors.push(`${path}.strokeStyle must be a supported preset dash token`)
+      }
+    } else if (typeof value.strokeStyle === 'object' && !Array.isArray(value.strokeStyle)) {
+      const custom = (value.strokeStyle as { custom?: unknown }).custom
+      if (!Array.isArray(custom)) errors.push(`${path}.strokeStyle.custom must be an array`)
+      else {
+        custom.forEach((segment: unknown, index: number) => {
+          const seg = segment as { dash?: unknown; space?: unknown } | null
+          if (typeof seg?.dash !== 'number' || !Number.isInteger(seg.dash) || seg.dash <= 0) {
+            errors.push(`${path}.strokeStyle.custom[${index}].dash must be a positive integer`)
+          }
+          if (typeof seg?.space !== 'number' || !Number.isInteger(seg.space) || seg.space <= 0) {
+            errors.push(`${path}.strokeStyle.custom[${index}].space must be a positive integer`)
+          }
+        })
+      }
+    } else {
+      errors.push(`${path}.strokeStyle must be a string or { custom: DashSegment[] }`)
+    }
+  }
+  if (value.strokeCap !== undefined && !strokeCaps.has(value.strokeCap as StrokeCap)) {
+    errors.push(`${path}.strokeCap must be flat, rnd, or sq`)
+  }
+  if (value.strokeJoin !== undefined && !strokeJoins.has(value.strokeJoin as StrokeJoin)) {
+    errors.push(`${path}.strokeJoin must be round, bevel, or miter`)
+  }
+  if (value.strokeCompound !== undefined && !strokeCompounds.has(value.strokeCompound as StrokeCompound)) {
+    errors.push(`${path}.strokeCompound must be a supported compound line token`)
+  }
+  if (value.strokeAlign !== undefined && !strokeAligns.has(value.strokeAlign as StrokeAlign)) {
+    errors.push(`${path}.strokeAlign must be ctr or in`)
+  }
+  if (value.strokeMiterLimit !== undefined) {
+    validateFiniteNumber(value.strokeMiterLimit, `${path}.strokeMiterLimit`, errors, (number) => number > 0, 'must be a positive number')
+  }
+  if (value.strokeWidth !== undefined) {
+    validateFiniteNumber(value.strokeWidth, `${path}.strokeWidth`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')
+  }
+  if (value.adjustValues !== undefined) {
+    if (!Array.isArray(value.adjustValues)) errors.push(`${path}.adjustValues must be an array`)
+    else {
+      value.adjustValues.forEach((entry: unknown, index: number) => {
+        const adjustPath = `${path}.adjustValues[${index}]`
+        if (!entry || typeof entry !== 'object') {
+          errors.push(`${adjustPath} must be an object`)
+          return
+        }
+        const adjust = entry as { name?: unknown; formula?: unknown }
+        if (!isOoxmlToken(adjust.name)) errors.push(`${adjustPath}.name must be a non-empty string`)
+        if (typeof adjust.formula !== 'string' || adjust.formula.trim() === '') {
+          errors.push(`${adjustPath}.formula must be a non-empty string`)
+        }
+      })
+    }
+  }
+}
+
+function validatePlaceholderDefaults(value: unknown, path: string, errors: string[]): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return
   for (const [key, defaultValue] of Object.entries(value as Record<string, unknown>)) {
     if (!defaultValue || typeof defaultValue !== 'object' || Array.isArray(defaultValue)) continue
     const def = defaultValue as Record<string, unknown>
+    const entryPath = `${path}.${key}`
     const rotation = def.rotation
-    if (rotation !== undefined) validateFiniteNumber(rotation, `${path}.${key}.rotation`, errors, Number.isInteger, 'must be an integer')
-    if ('listStyle' in def && def.listStyle !== undefined) validateLevelDefaults(def.listStyle, `${path}.${key}.listStyle`, errors)
+    if (rotation !== undefined) validateFiniteNumber(rotation, `${entryPath}.rotation`, errors, Number.isInteger, 'must be an integer')
+    if ('listStyle' in def && def.listStyle !== undefined) validateLevelDefaults(def.listStyle, `${entryPath}.listStyle`, errors)
+    // The same rules the element carrying these fields gets. Before this a layout could hold a token no
+    // exporter could write, and `validateDocument` said the document was fine.
+    validateStrokeVocabulary(def, entryPath, errors)
+    if (def.fill !== undefined) validateFill(def.fill, `${entryPath}.fill`, errors)
+    if (def.stroke !== undefined) validateFill(def.stroke, `${entryPath}.stroke`, errors)
+    if (def.shadow !== undefined) validateOuterShadow(def.shadow as OuterShadow, `${entryPath}.shadow`, errors)
+    if (def.customGeometry !== undefined) validateCustomGeometry(def.customGeometry as CustomGeometry, `${entryPath}.customGeometry`, errors)
+    if (def.styleRef !== undefined) validateShapeStyleReference(def.styleRef, `${entryPath}.styleRef`, errors)
   }
 }
 
@@ -2375,7 +2450,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       }
       if ('themeId' in master && master.themeId !== undefined && (typeof master.themeId !== 'string' || master.themeId.length === 0)) errors.push(`${masterPath}.themeId must be a non-empty string`)
       if ('colorMap' in master && master.colorMap !== undefined) validateColorMap(master.colorMap, `${masterPath}.colorMap`, errors)
-      if ('defaults' in master && master.defaults !== undefined) validateDefaultRotations(master.defaults, `${masterPath}.defaults`, errors)
+      if ('defaults' in master && master.defaults !== undefined) validatePlaceholderDefaults(master.defaults, `${masterPath}.defaults`, errors)
       if ('textStyles' in master && master.textStyles !== undefined) validateTextStyles(master.textStyles, `${masterPath}.textStyles`, errors)
       if ('background' in master && master.background !== undefined) validateSlideBackground(master.background, `${masterPath}.background`, errors, value.assets)
     }
@@ -2399,7 +2474,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
         }
       }
       if ('colorMapOverride' in layout && layout.colorMapOverride !== undefined) validateColorMap(layout.colorMapOverride, `${layoutPath}.colorMapOverride`, errors)
-      if ('defaults' in layout && layout.defaults !== undefined) validateDefaultRotations(layout.defaults, `${layoutPath}.defaults`, errors)
+      if ('defaults' in layout && layout.defaults !== undefined) validatePlaceholderDefaults(layout.defaults, `${layoutPath}.defaults`, errors)
       if ('background' in layout && layout.background !== undefined) validateSlideBackground(layout.background, `${layoutPath}.background`, errors, value.assets)
     }
   }
@@ -2450,62 +2525,8 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     if ((element.kind === 'shape' || element.kind === 'text') && element.styleRef !== undefined) {
       validateShapeStyleReference(element.styleRef, `elements.${elementId}.styleRef`, errors)
     }
-    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeStyle !== undefined) {
-      if (typeof element.strokeStyle === 'string') {
-        if (!strokeStyles.has(element.strokeStyle)) {
-          errors.push(`elements.${elementId}.strokeStyle must be a supported preset dash token`)
-        }
-      } else if (typeof element.strokeStyle === 'object' && !Array.isArray(element.strokeStyle)) {
-        if (!Array.isArray(element.strokeStyle.custom)) {
-          errors.push(`elements.${elementId}.strokeStyle.custom must be an array`)
-        } else {
-          element.strokeStyle.custom.forEach((seg, i) => {
-            if (typeof seg?.dash !== 'number' || !Number.isInteger(seg.dash) || seg.dash <= 0) {
-              errors.push(`elements.${elementId}.strokeStyle.custom[${i}].dash must be a positive integer`)
-            }
-            if (typeof seg?.space !== 'number' || !Number.isInteger(seg.space) || seg.space <= 0) {
-              errors.push(`elements.${elementId}.strokeStyle.custom[${i}].space must be a positive integer`)
-            }
-          })
-        }
-      } else {
-        errors.push(`elements.${elementId}.strokeStyle must be a string or { custom: DashSegment[] }`)
-      }
-    }
-    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeCap !== undefined && !strokeCaps.has(element.strokeCap)) {
-      errors.push(`elements.${elementId}.strokeCap must be flat, rnd, or sq`)
-    }
-    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeJoin !== undefined && !strokeJoins.has(element.strokeJoin)) {
-      errors.push(`elements.${elementId}.strokeJoin must be round, bevel, or miter`)
-    }
-    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeCompound !== undefined && !strokeCompounds.has(element.strokeCompound)) {
-      errors.push(`elements.${elementId}.strokeCompound must be a supported compound line token`)
-    }
-    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeAlign !== undefined && !strokeAligns.has(element.strokeAlign)) {
-      errors.push(`elements.${elementId}.strokeAlign must be ctr or in`)
-    }
-    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeMiterLimit !== undefined) {
-      validateFiniteNumber(element.strokeMiterLimit, `elements.${elementId}.strokeMiterLimit`, errors, (number) => number > 0, 'must be a positive number')
-    }
-    if ((element.kind === 'shape' || element.kind === 'text') && element.adjustValues !== undefined) {
-      if (!Array.isArray(element.adjustValues)) {
-        errors.push(`elements.${elementId}.adjustValues must be an array`)
-      } else {
-        element.adjustValues.forEach((adjust, index) => {
-          const path = `elements.${elementId}.adjustValues[${index}]`
-          if (!adjust || typeof adjust !== 'object') {
-            errors.push(`${path} must be an object`)
-            return
-          }
-          if (!isOoxmlToken(adjust.name)) errors.push(`${path}.name must be a non-empty string`)
-          if (typeof adjust.formula !== 'string' || adjust.formula.trim() === '') {
-            errors.push(`${path}.formula must be a non-empty string`)
-          }
-        })
-      }
-    }
-    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeWidth !== undefined) {
-      validateFiniteNumber(element.strokeWidth, `elements.${elementId}.strokeWidth`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')
+    if (element.kind === 'shape' || element.kind === 'text') {
+      validateStrokeVocabulary(element as unknown as Record<string, unknown>, `elements.${elementId}`, errors)
     }
     // An element's own paint went unvalidated until commands could set it; the background, table cell
     // and theme entry paths already ran the same rules through `validateFill`.

@@ -69,7 +69,7 @@
 
 ## 7. 已知限制
 
-**`ElementDefaults` 仍不参与 `validateDocument`**：与上一刀相同的既有状况。
+**`ElementDefaults` 的校验已补齐**：元素侧与默认值侧共用 `validateStrokeVocabulary`，本刀新增的 `shadow`/`customGeometry`/`styleRef` 也各自接上既有校验器。
 
 ## 8. 实现记录（2026-09-05）
 
