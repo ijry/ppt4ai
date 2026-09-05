@@ -60,7 +60,7 @@
 
 ## 7. 已知限制
 
-**替换阴影会丢掉它未建模的属性**：`sx`/`sy`/`kx`/`ky`/`algn`/`rotWithShape` 不在模型里，因此一旦该节点被重写就不再出现。不碰阴影则完全不受影响。
+**替换阴影会丢掉它未建模的属性**——**已在 `3e2d7f4` 修掉**。这条限制的理由也没站住：本刀自己的手法（只替换最窄的节点）再走一层就是只补需要改的属性、不换节点。见 [2026-09-05-shadow-attribute-patch-design.md](./2026-09-05-shadow-attribute-patch-design.md)。
 
 **`customGeometry` 仍写不回去**——**已在 `5bf6c71` 修掉**，而决策 3 给的理由是错的：它假设「按模型重写整个 `a:custGeom`」，而本刀自己的做法（只替换最窄的节点）恰好就是答案。见 [2026-09-05-custom-geometry-writeback-design.md](./2026-09-05-custom-geometry-writeback-design.md)。
 

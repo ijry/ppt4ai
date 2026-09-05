@@ -53,7 +53,7 @@ loses the shadow attributes the model cannot express when it replaces the node
 
 ## 7. 实现记录（2026-09-05）
 
-实现提交 `待填`。按设计执行。
+实现提交 `3e2d7f4`。按设计执行。
 
 **`lineAttributeReplacements` 第二次被跨元素复用**（尖角限制那刀是第一次）：它只依赖元素的 `start` 与 `name`，因此对 `a:outerShdw` 与 `a:ln` 一样成立。名字里的 `line` 现在是历史残留，但改名要动全部调用点、换不到任何东西，所以只在注释里说明它服务哪些元素。
 
