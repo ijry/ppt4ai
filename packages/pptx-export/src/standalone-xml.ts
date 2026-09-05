@@ -235,9 +235,9 @@ function themeStyleFillXml(entry: ThemeStyleEntry): string {
  */
 function themeLineStyleXml(entry: ThemeLineStyleEntry): string {
   const dash = serializeDashXml(entry?.style)
-  const cap = entry?.cap ? ` cap="${entry.cap}"` : ''
   const join = entry?.join ? `<a:${entry.join}/>` : ''
-  return `<a:ln${attrs([['w', entry?.width]])}${cap}>${themeStyleFillXml(entry)}${dash}${join}</a:ln>`
+  const openAttrs = attrs([['w', entry?.width], ['cap', entry?.cap], ['cmpd', entry?.compound], ['algn', entry?.align]])
+  return `<a:ln${openAttrs}>${themeStyleFillXml(entry)}${dash}${join}</a:ln>`
 }
 
 /**
@@ -579,7 +579,7 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   // The corner follows the dash in the ECMA-376 sequence, and its element name is the model value.
   const join = element.strokeJoin ? `<a:${element.strokeJoin}/>` : ''
   const line = element.stroke
-    ? `<a:ln${attrs([['w', element.strokeWidth], ['cap', element.strokeCap]])}>${serializeFillXml(element.stroke)}${dash}${join}</a:ln>`
+    ? `<a:ln${attrs([['w', element.strokeWidth], ['cap', element.strokeCap], ['cmpd', element.strokeCompound], ['algn', element.strokeAlign]])}>${serializeFillXml(element.stroke)}${dash}${join}</a:ln>`
     : ''
   // One fill node per shape: the picture replaces the colour, the way the scene and the command do.
   const pictureFill = serializePictureFillXml(element, pictureRelationshipId)

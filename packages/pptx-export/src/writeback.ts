@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type DashSegment, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideBackground, type StrokeCap, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorTransformType, type DashSegment, type Fill, type GroupElement, type ImageElement, type Ppt4aiDocument, type PresetGeometry, type Rect, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { serializeColorXml, serializeFillXml, serializeTextBodyXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
@@ -471,22 +471,40 @@ function customDashEqual(node: XmlElement, segments: readonly DashSegment[]): bo
 
 /** `a:ln/@cap`; absent means the OOXML default, so a model without one removes the attribute. */
 function lineCapReplacements(xml: string, line: XmlElement, cap: StrokeCap | undefined): Replacement[] {
-  const source = line.attributes.cap
-  if (cap === source || (cap === undefined && source === undefined)) return []
+  return lineAttributeReplacements(xml, line, 'cap', cap)
+}
+
+/** `a:ln/@cmpd`; the model holds it verbatim, so an untouched source compares equal and is left alone. */
+function lineCompoundReplacements(xml: string, line: XmlElement, compound: StrokeCompound | undefined): Replacement[] {
+  return lineAttributeReplacements(xml, line, 'cmpd', compound)
+}
+
+/** `a:ln/@algn`, same shape. */
+function lineAlignReplacements(xml: string, line: XmlElement, align: StrokeAlign | undefined): Replacement[] {
+  return lineAttributeReplacements(xml, line, 'algn', align)
+}
+
+/**
+ * One attribute of the `<a:ln>` opening tag, patched in place. The whole tag is never rewritten, so the
+ * attributes this project does not model stay exactly as the source wrote them.
+ */
+function lineAttributeReplacements(xml: string, line: XmlElement, name: string, value: string | undefined): Replacement[] {
+  const source = line.attributes[name]
+  if (value === source || (value === undefined && source === undefined)) return []
   const openingEnd = xml.indexOf('>', line.start)
   if (openingEnd < 0) throw new Error('PPTX export source line malformed')
-  const existing = /\s+cap\s*=\s*"[^"]*"/u.exec(xml.slice(line.start, openingEnd))
-  if (cap === undefined) {
+  const existing = new RegExp(`\\s+${name}\\s*=\\s*"[^"]*"`, 'u').exec(xml.slice(line.start, openingEnd))
+  if (value === undefined) {
     if (!existing) return []
     const start = line.start + existing.index
     return [{ start, end: start + existing[0].length, value: '' }]
   }
   if (existing) {
     const start = line.start + existing.index
-    return [{ start, end: start + existing[0].length, value: ` cap="${cap}"` }]
+    return [{ start, end: start + existing[0].length, value: ` ${name}="${value}"` }]
   }
   const nameEnd = line.start + 1 + line.name.length
-  return [{ start: nameEnd, end: nameEnd, value: ` cap="${cap}"` }]
+  return [{ start: nameEnd, end: nameEnd, value: ` ${name}="${value}"` }]
 }
 
 const joinNames = new Set(['round', 'bevel', 'miter'])
@@ -513,6 +531,8 @@ function strokeReplacements(
   strokeStyle?: StrokeStyle | { custom: DashSegment[] },
   strokeCap?: StrokeCap,
   strokeJoin?: StrokeJoin,
+  strokeCompound?: StrokeCompound,
+  strokeAlign?: StrokeAlign,
 ): Replacement[] {
   const properties = sourceShapeProperties(sourceElement)
   if (!properties) return []
@@ -545,6 +565,8 @@ function strokeReplacements(
     replacements.push(...lineDashReplacements(xml, line, strokeStyle))
     replacements.push(...lineCapReplacements(xml, line, strokeCap))
     replacements.push(...lineJoinReplacements(xml, line, strokeJoin))
+    replacements.push(...lineCompoundReplacements(xml, line, strokeCompound))
+    replacements.push(...lineAlignReplacements(xml, line, strokeAlign))
   }
   return replacements
 }
@@ -1171,14 +1193,14 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
         replacements.push(...transformReplacements(xml, sourceElement, element))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
-        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin))
+        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin, element.strokeCompound, element.strokeAlign))
       } else if (element.kind === 'text') {
         throw new Error(`PPTX export text source mismatch for element ${element.id}`)
       } else if (element.kind === 'shape') {
         replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
         replacements.push(...transformReplacements(xml, sourceElement, element))
         replacements.push(...fillReplacements(xml, sourceElement, element.fill))
-        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin))
+        replacements.push(...strokeReplacements(xml, sourceElement, element.stroke, element.strokeWidth, element.strokeStyle, element.strokeCap, element.strokeJoin, element.strokeCompound, element.strokeAlign))
         replacements.push(...geometryReplacements(xml, sourceElement, element.preset))
       } else {
         throw new Error(`PPTX export shape source mismatch for element ${element.id}`)

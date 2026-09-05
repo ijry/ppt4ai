@@ -1,4 +1,4 @@
-import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type DashSegment, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeCap, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type DashSegment, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -234,7 +234,9 @@ function parseThemeLineStyleEntries(list: XmlNode | undefined): ThemeLineStyleEn
     const style = parseDashStyle(node)
     const cap = parseStrokeCap(node)
     const join = parseStrokeJoin(node)
-    return { color, ...(width === undefined ? {} : { width }), ...(style === 'solid' ? {} : { style }), ...(cap === undefined ? {} : { cap }), ...(join === undefined ? {} : { join }) }
+    const compound = parseStrokeCompound(node)
+    const align = parseStrokeAlign(node)
+    return { color, ...(width === undefined ? {} : { width }), ...(style === 'solid' ? {} : { style }), ...(cap === undefined ? {} : { cap }), ...(join === undefined ? {} : { join }), ...(compound === undefined ? {} : { compound }), ...(align === undefined ? {} : { align }) }
   })
   return entries.length > 0 ? entries : undefined
 }
@@ -581,11 +583,25 @@ function parseStrokeWidth(shape: XmlNode): number | undefined {
 
 const strokeCaps = new Set<StrokeCap>(['flat', 'rnd', 'sq'])
 const strokeJoins = new Set<StrokeJoin>(['round', 'bevel', 'miter'])
+const strokeCompounds = new Set<StrokeCompound>(['sng', 'dbl', 'thickThin', 'thinThick', 'tri'])
+const strokeAligns = new Set<StrokeAlign>(['ctr', 'in'])
 
 /** `a:ln/@cap`; an unrecognised word is ignored rather than stored, as elsewhere. */
 function parseStrokeCap(line: XmlNode | undefined): StrokeCap | undefined {
   const value = line ? attribute(line, 'cap') : undefined
   return value !== undefined && strokeCaps.has(value as StrokeCap) ? value as StrokeCap : undefined
+}
+
+/** `a:ln/@cmpd`; held for the file's sake, since painting draws every value as a single line. */
+function parseStrokeCompound(line: XmlNode | undefined): StrokeCompound | undefined {
+  const value = line ? attribute(line, 'cmpd') : undefined
+  return value !== undefined && strokeCompounds.has(value as StrokeCompound) ? value as StrokeCompound : undefined
+}
+
+/** `a:ln/@algn`; `ctr` is what painting already does, `in` would need the path offset inward. */
+function parseStrokeAlign(line: XmlNode | undefined): StrokeAlign | undefined {
+  const value = line ? attribute(line, 'algn') : undefined
+  return value !== undefined && strokeAligns.has(value as StrokeAlign) ? value as StrokeAlign : undefined
 }
 
 /** The corner is a child element rather than an attribute, so its name is the value. */
@@ -1593,6 +1609,10 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     if (textCap) element.strokeCap = textCap
     const textJoin = parseStrokeJoin(line)
     if (textJoin) element.strokeJoin = textJoin
+    const textCompound = parseStrokeCompound(line)
+    if (textCompound) element.strokeCompound = textCompound
+    const textAlign = parseStrokeAlign(line)
+    if (textAlign) element.strokeAlign = textAlign
     const textShadow = parseOuterShadow(shape)
     if (textShadow) element.shadow = textShadow
     const textGeometry = parseCustomGeometry(shape)
@@ -1624,6 +1644,10 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   if (shapeCap) element.strokeCap = shapeCap
   const shapeJoin = parseStrokeJoin(shapeLine)
   if (shapeJoin) element.strokeJoin = shapeJoin
+  const shapeCompound = parseStrokeCompound(shapeLine)
+  if (shapeCompound) element.strokeCompound = shapeCompound
+  const shapeAlign = parseStrokeAlign(shapeLine)
+  if (shapeAlign) element.strokeAlign = shapeAlign
   const shapeShadow = parseOuterShadow(shape)
   if (shapeShadow) element.shadow = shapeShadow
   const shapeGeometry = parseCustomGeometry(shape)

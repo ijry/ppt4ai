@@ -150,6 +150,10 @@ export interface ThemeLineStyle extends Fill {
   cap?: StrokeCap
   /** The `a:round`/`a:bevel`/`a:miter` child, as on an element stroke. */
   join?: StrokeJoin
+  /** `a:ln/@cmpd`, as on an element stroke. */
+  compound?: StrokeCompound
+  /** `a:ln/@algn`, as on an element stroke. */
+  align?: StrokeAlign
 }
 
 export type ThemeLineStyleEntry = ThemeLineStyle | null
@@ -273,6 +277,18 @@ export type StrokeCap = 'flat' | 'rnd' | 'sq'
 
 /** The `a:ln` corner child element name: `a:round`, `a:bevel` or `a:miter`. */
 export type StrokeJoin = 'round' | 'bevel' | 'miter'
+
+/**
+ * `a:ln/@cmpd` verbatim. Painting draws every one of them as a single line — canvas has no compound
+ * stroke, and faking one needs path offsetting — so this is held for the file's sake, not the canvas's.
+ */
+export type StrokeCompound = 'sng' | 'dbl' | 'thickThin' | 'thinThick' | 'tri'
+
+/**
+ * `a:ln/@algn` verbatim. `ctr` is what canvas already does; `in` would need the path offset inward by
+ * half the width, so both paint alike today.
+ */
+export type StrokeAlign = 'ctr' | 'in'
 
 /** One `a:gs` of `a:gsLst`: a colour at a position in thousandths of a percent. */
 export interface GradientStop {
@@ -544,6 +560,10 @@ export interface ShapeElement {
   strokeStyle?: StrokeStyle | { custom: DashSegment[] }
   strokeCap?: StrokeCap
   strokeJoin?: StrokeJoin
+  /** `a:ln/@cmpd`. Held verbatim; painting draws a single line for every value. */
+  strokeCompound?: StrokeCompound
+  /** `a:ln/@algn`. Held verbatim; painting centres every stroke. */
+  strokeAlign?: StrokeAlign
   styleRef?: ShapeStyleReference
   placeholder?: string
 }
@@ -585,6 +605,10 @@ export interface TextElement {
   strokeStyle?: StrokeStyle | { custom: DashSegment[] }
   strokeCap?: StrokeCap
   strokeJoin?: StrokeJoin
+  /** `a:ln/@cmpd`. Held verbatim; painting draws a single line for every value. */
+  strokeCompound?: StrokeCompound
+  /** `a:ln/@algn`. Held verbatim; painting centres every stroke. */
+  strokeAlign?: StrokeAlign
   styleRef?: ShapeStyleReference
   placeholder?: string
 }
@@ -1126,7 +1150,7 @@ export function resolveStyleEffect(
 export function resolveStyleLineStroke(
   reference: StyleReference | undefined,
   theme?: Theme,
-): { width?: number; style?: StrokeStyle | { custom: DashSegment[] }; cap?: StrokeCap; join?: StrokeJoin } | undefined {
+): { width?: number; style?: StrokeStyle | { custom: DashSegment[] }; cap?: StrokeCap; join?: StrokeJoin; compound?: StrokeCompound; align?: StrokeAlign } | undefined {
   const entry = styleEntryAt(reference, theme?.formatScheme?.lineStyles)
   if (!entry) return undefined
   const stroke = {
@@ -1134,6 +1158,8 @@ export function resolveStyleLineStroke(
     ...(entry.style === undefined ? {} : { style: entry.style }),
     ...(entry.cap === undefined ? {} : { cap: entry.cap }),
     ...(entry.join === undefined ? {} : { join: entry.join }),
+    ...(entry.compound === undefined ? {} : { compound: entry.compound }),
+    ...(entry.align === undefined ? {} : { align: entry.align }),
   }
   return Object.keys(stroke).length > 0 ? stroke : undefined
 }
@@ -1401,6 +1427,8 @@ const strokeStyles = new Set<StrokeStyle>(['solid', 'dot', 'sysDot', 'dash', 'lg
 const tableBorderStyles = new Set<string>([...strokeStyles, 'none'])
 const strokeCaps = new Set<StrokeCap>(['flat', 'rnd', 'sq'])
 const strokeJoins = new Set<StrokeJoin>(['round', 'bevel', 'miter'])
+const strokeCompounds = new Set<StrokeCompound>(['sng', 'dbl', 'thickThin', 'thinThick', 'tri'])
+const strokeAligns = new Set<StrokeAlign>(['ctr', 'in'])
 const fontCollectionIndexes = new Set(['major', 'minor', 'none'])
 const themeColorSlots = new Set<ThemeColorSlot>(['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'])
 const themeFontSlots = new Set<ThemeFontSlot>(['major', 'minor'])
@@ -1570,6 +1598,12 @@ function validateThemeLineStyleEntries(value: unknown, path: string, errors: str
     }
     if (line.join !== undefined && !strokeJoins.has(line.join as StrokeJoin)) {
       errors.push(`${entryPath}.join must be a supported join token`)
+    }
+    if (line.compound !== undefined && !strokeCompounds.has(line.compound as StrokeCompound)) {
+      errors.push(`${entryPath}.compound must be a supported compound line token`)
+    }
+    if (line.align !== undefined && !strokeAligns.has(line.align as StrokeAlign)) {
+      errors.push(`${entryPath}.align must be ctr or in`)
     }
   })
 }
@@ -2374,6 +2408,12 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.strokeJoin !== undefined && !strokeJoins.has(element.strokeJoin)) {
       errors.push(`elements.${elementId}.strokeJoin must be round, bevel, or miter`)
+    }
+    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeCompound !== undefined && !strokeCompounds.has(element.strokeCompound)) {
+      errors.push(`elements.${elementId}.strokeCompound must be a supported compound line token`)
+    }
+    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeAlign !== undefined && !strokeAligns.has(element.strokeAlign)) {
+      errors.push(`elements.${elementId}.strokeAlign must be ctr or in`)
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.strokeWidth !== undefined) {
       validateFiniteNumber(element.strokeWidth, `elements.${elementId}.strokeWidth`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')
