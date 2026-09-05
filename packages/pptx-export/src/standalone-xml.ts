@@ -292,8 +292,9 @@ export function serializeTableStylesXml(styles: Record<string, TableStyle>): str
       const borders = entry.borders
         ? `<a:tcBdr>${serializeThemeableBorderXml('left', entry.borders.left)}${serializeThemeableBorderXml('right', entry.borders.right)}`
           + `${serializeThemeableBorderXml('top', entry.borders.top)}${serializeThemeableBorderXml('bottom', entry.borders.bottom)}`
-          // `CT_TableCellBorderStyle` puts the interior lines after the four outer ones.
-          + `${serializeThemeableBorderXml('insideH', entry.borders.insideH)}${serializeThemeableBorderXml('insideV', entry.borders.insideV)}</a:tcBdr>`
+          // `CT_TableCellBorderStyle` puts the interior lines after the four outer ones, then the diagonals.
+          + `${serializeThemeableBorderXml('insideH', entry.borders.insideH)}${serializeThemeableBorderXml('insideV', entry.borders.insideV)}`
+          + `${serializeThemeableBorderXml('tl2br', entry.borders.tlToBr)}${serializeThemeableBorderXml('tr2bl', entry.borders.blToTr)}</a:tcBdr>`
         : ''
       const fill = entry.fill ? `<a:fill>${serializeFillXml(entry.fill)}</a:fill>` : ''
       const cellStyle = borders || fill ? `<a:tcStyle>${borders}${fill}</a:tcStyle>` : ''

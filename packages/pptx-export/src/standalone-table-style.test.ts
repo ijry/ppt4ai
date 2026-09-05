@@ -135,4 +135,28 @@ describe('standalone table style export', () => {
     expect(imported.tableStyles?.['style-1']?.regions?.wholeTable?.borders?.insideH).toEqual({ color: { type: 'srgb', v: 'AAAAAA' }, width: 6350, style: 'solid' })
     expect(imported.tableStyles?.['style-1']?.regions?.wholeTable?.borders?.insideV).toEqual({ color: { type: 'srgb', v: 'BBBBBB' }, width: 6350, style: 'dash' })
   })
+
+  it('writes the cell and style diagonals and reads them back', async () => {
+    const style = fullStyle()
+    style.regions!.wholeTable!.borders!.tlToBr = { color: { type: 'srgb', v: 'FF00FF' }, width: 12700, style: 'solid' }
+    style.regions!.wholeTable!.borders!.blToTr = { color: { type: 'srgb', v: '00FFFF' }, style: 'dash' }
+    const document = styledDocument({ 'style-1': style })
+    const table = document.elements.table_1
+    if (table?.kind !== 'table') throw new Error('fixture table missing')
+    table.rows[0]!.cells[0]!.borders = { tlToBr: { color: { type: 'srgb', v: '112233' }, width: 6350, style: 'solid' } }
+    const bytes = await createPptx(document)
+    const parts = await partsOf(bytes)
+
+    expect(parts.get('ppt/tableStyles.xml')).toContain('<a:tl2br><a:ln w="12700"><a:solidFill><a:srgbClr val="FF00FF"/></a:solidFill></a:ln></a:tl2br>'
+      + '<a:tr2bl><a:ln><a:solidFill><a:srgbClr val="00FFFF"/></a:solidFill><a:prstDash val="dash"/></a:ln></a:tr2bl></a:tcBdr>')
+    expect(parts.get('ppt/slides/slide1.xml')).toContain('<a:lnTlToBr w="6350"><a:solidFill><a:srgbClr val="112233"/></a:solidFill></a:lnTlToBr>')
+
+    const imported = await importPptx(bytes)
+    const importedTable = imported.elements.el_1
+
+    expect(imported.tableStyles?.['style-1']?.regions?.wholeTable?.borders?.tlToBr).toEqual({ color: { type: 'srgb', v: 'FF00FF' }, width: 12700, style: 'solid' })
+    expect(imported.tableStyles?.['style-1']?.regions?.wholeTable?.borders?.blToTr).toEqual({ color: { type: 'srgb', v: '00FFFF' }, style: 'dash' })
+    expect(importedTable?.kind === 'table' ? importedTable.rows[0]?.cells[0]?.borders?.tlToBr : undefined)
+      .toEqual({ color: { type: 'srgb', v: '112233' }, width: 6350, style: 'solid' })
+  })
 })

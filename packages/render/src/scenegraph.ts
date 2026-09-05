@@ -286,7 +286,7 @@ function mergeLevelDefaults(
 
 function resolveBorderColors(borders: TableCellBorders, context: SceneThemeContext): Partial<Record<keyof TableCellBorders, ResolvedColor>> | undefined {
   const colors: Partial<Record<keyof TableCellBorders, ResolvedColor>> = {}
-  for (const side of ['left', 'right', 'top', 'bottom'] as const) {
+  for (const side of ['left', 'right', 'top', 'bottom', 'tlToBr', 'blToTr'] as const) {
     const color = borders[side] ? resolveColor(borders[side].color, context.theme, context.colorMap) : undefined
     if (color) colors[side] = color
   }

@@ -530,6 +530,10 @@ export interface TableCellBorders {
   right?: TableBorder
   top?: TableBorder
   bottom?: TableBorder
+  /** `a:lnTlToBr` on a cell, `a:tl2br` in a style: the top-left to bottom-right diagonal. */
+  tlToBr?: TableBorder
+  /** `a:lnBlToTr` on a cell, `a:tr2bl` in a style: the bottom-left to top-right diagonal. */
+  blToTr?: TableBorder
 }
 
 export type TableStyleRegionName =
@@ -1216,6 +1220,9 @@ function regionBordersForCell(borders: TableStyleBorders | undefined, position: 
     ...(borders.right ? { right: structuredClone(borders.right) } : {}),
     ...(borders.top ? { top: structuredClone(borders.top) } : {}),
     ...(borders.bottom ? { bottom: structuredClone(borders.bottom) } : {}),
+    // A diagonal describes the cell itself, so every cell in the region gets it — no position dispatch.
+    ...(borders.tlToBr ? { tlToBr: structuredClone(borders.tlToBr) } : {}),
+    ...(borders.blToTr ? { blToTr: structuredClone(borders.blToTr) } : {}),
   }
   if (borders.insideH) {
     if (!position.firstRow) sides.top = structuredClone(borders.insideH)
@@ -1817,7 +1824,7 @@ function validateFill(value: unknown, path: string, errors: string[]): void {
   if (gradient !== undefined) validateGradient(gradient, `${path}.gradient`, errors)
 }
 
-function validateTableCellBorders(value: unknown, path: string, errors: string[], sides: readonly string[] = ['left', 'right', 'top', 'bottom']): void {
+function validateTableCellBorders(value: unknown, path: string, errors: string[], sides: readonly string[] = ['left', 'right', 'top', 'bottom', 'tlToBr', 'blToTr']): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     errors.push(`${path} must be an object`)
     return
@@ -1827,7 +1834,7 @@ function validateTableCellBorders(value: unknown, path: string, errors: string[]
 }
 
 /** A region may also state the two interior lines; a cell's own borders may not. */
-const tableStyleBorderSides = ['left', 'right', 'top', 'bottom', 'insideH', 'insideV'] as const
+const tableStyleBorderSides = ['left', 'right', 'top', 'bottom', 'tlToBr', 'blToTr', 'insideH', 'insideV'] as const
 
 function validateTableStyleRegion(value: unknown, path: string, errors: string[]): void {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {

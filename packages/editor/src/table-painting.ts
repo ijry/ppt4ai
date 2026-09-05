@@ -11,7 +11,8 @@ type TableContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 type BorderSide = keyof TableCellBorders
 
 const DEFAULT_BORDER_WIDTH = 12700
-const borderSides: BorderSide[] = ['left', 'right', 'top', 'bottom']
+/** The diagonals come last, so they sit on top of the four sides rather than under them. */
+const borderSides: BorderSide[] = ['left', 'right', 'top', 'bottom', 'tlToBr', 'blToTr']
 
 function finite(value: number, name: string): number {
   if (!Number.isFinite(value)) throw new Error(`${name} must be finite`)
@@ -106,6 +107,10 @@ function borderPoints(bounds: Rect, side: BorderSide): [number, number, number, 
   if (side === 'left') return [bounds.x, bounds.y, bounds.x, bounds.y + bounds.h]
   if (side === 'right') return [bounds.x + bounds.w, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h]
   if (side === 'top') return [bounds.x, bounds.y, bounds.x + bounds.w, bounds.y]
+  // The diagonals cross the cell's own rect, which for a merged cell is the whole merged block — the
+  // split header a spanning cell with a diagonal is drawn for.
+  if (side === 'tlToBr') return [bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h]
+  if (side === 'blToTr') return [bounds.x, bounds.y + bounds.h, bounds.x + bounds.w, bounds.y]
   return [bounds.x, bounds.y + bounds.h, bounds.x + bounds.w, bounds.y + bounds.h]
 }
 

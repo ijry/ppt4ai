@@ -334,14 +334,19 @@ function parseTableBorder(line: XmlNode | undefined): TableBorder | undefined {
 
 function parseTableCellBorders(properties: XmlNode): TableCellBorders | undefined {
   const borders: TableCellBorders = {}
-  const left = parseTableBorder(child(properties, 'lnL'))
-  const right = parseTableBorder(child(properties, 'lnR'))
-  const top = parseTableBorder(child(properties, 'lnT'))
-  const bottom = parseTableBorder(child(properties, 'lnB'))
-  if (left) borders.left = left
-  if (right) borders.right = right
-  if (top) borders.top = top
-  if (bottom) borders.bottom = bottom
+  // `a:tcPr` names its two diagonals `lnTlToBr`/`lnBlToTr`; a style calls the same pair `tl2br`/`tr2bl`.
+  const sides: Array<[keyof TableCellBorders, string]> = [
+    ['left', 'lnL'],
+    ['right', 'lnR'],
+    ['top', 'lnT'],
+    ['bottom', 'lnB'],
+    ['tlToBr', 'lnTlToBr'],
+    ['blToTr', 'lnBlToTr'],
+  ]
+  for (const [side, element] of sides) {
+    const border = parseTableBorder(child(properties, element))
+    if (border) borders[side] = border
+  }
   return Object.keys(borders).length === 0 ? undefined : borders
 }
 
@@ -597,6 +602,9 @@ function parseStyleBorders(node: XmlNode | undefined): TableStyleBorders | undef
     // The interior lines exist only in the style vocabulary; a cell's `a:tcPr` has no counterpart.
     ['insideH', 'insideH', undefined],
     ['insideV', 'insideV', undefined],
+    // The diagonals do exist on a cell, under different names — the model keeps one pair for both.
+    ['tlToBr', 'tl2br', 'lnTlToBr'],
+    ['blToTr', 'tr2bl', 'lnBlToTr'],
   ]
   const borders: TableStyleBorders = {}
   for (const [side, themeable, flat] of sides) {

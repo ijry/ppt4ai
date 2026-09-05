@@ -12,7 +12,7 @@ export interface TableLayoutCell {
 }
 
 export interface TableLayoutBorder {
-  side: 'left' | 'right' | 'top' | 'bottom'
+  side: 'left' | 'right' | 'top' | 'bottom' | 'tlToBr' | 'blToTr'
   from: number
   to: number
   border: TableBorder
@@ -26,6 +26,11 @@ export interface TableLayout {
   borders: TableLayoutBorder[]
 }
 
+/**
+ * The diagonals are absent on purpose: an entry here is a segment along one axis (`from`/`to` on the
+ * other coordinate), which a corner-to-corner line has no form for. Painting reads a cell's own borders
+ * and its rect, so it draws the diagonals without needing an entry.
+ */
 const borderSides: Array<keyof TableCellBorders> = ['left', 'right', 'top', 'bottom']
 
 function cumulativeOffsets(values: number[], origin: number): number[] {

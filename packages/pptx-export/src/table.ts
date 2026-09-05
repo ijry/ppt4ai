@@ -28,10 +28,13 @@ function serializeBorder(name: string, border: TableBorder | undefined): string 
 
 function serializeBorders(borders: TableCellBorders | undefined): string {
   if (!borders) return ''
+  // `CT_TableCellProperties` puts the two diagonals after the four sides.
   return serializeBorder('lnL', borders.left)
     + serializeBorder('lnR', borders.right)
     + serializeBorder('lnT', borders.top)
     + serializeBorder('lnB', borders.bottom)
+    + serializeBorder('lnTlToBr', borders.tlToBr)
+    + serializeBorder('lnBlToTr', borders.blToTr)
 }
 
 /**
