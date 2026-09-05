@@ -33,7 +33,7 @@
 
 幻灯片那一侧照这句话修好了，master/layout 这一侧从没修——**同一处伤只包了一半**。占位符的 `defaults.fill` 走的是导入端 `parseShapeFill` → `parseDirectFill`，与元素完全同一个解析器，所以渐变、图案本来就在模型里；只有写回这一端读不出来，于是每次导出都判「变了」，再按它唯一会写的形状写成纯色。
 
-`rewriteMasterXml` 在 `writeback.ts:1722` 是**无条件**调用的，所以这不是「编辑了占位符才发生」，而是任何一次经过写回的导出都发生。
+`rewriteMasterXml` 在 `writeback.ts` 的 `rewritePart` 循环里 是**无条件**调用的，所以这不是「编辑了占位符才发生」，而是任何一次经过写回的导出都发生。
 
 ## 4. 关键决策
 
