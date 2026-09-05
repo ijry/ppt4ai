@@ -1,4 +1,4 @@
-import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type DashSegment, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AdjustValue, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type DashSegment, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 
@@ -1307,6 +1307,28 @@ function parsePreset(shape: XmlNode): PresetGeometry {
   return preset && isOoxmlToken(preset) ? preset : 'rect'
 }
 
+/**
+ * `a:prstGeom/a:avLst`. Read only from the preset geometry: `a:custGeom` has its own `a:avLst` and
+ * `a:gdLst`, and those belong with the formula language the custom path parser does not read either.
+ *
+ * An empty `<a:avLst/>` and no list at all mean the same thing — use the defaults — so both leave the
+ * field absent, which is also what makes the sourceless export write the empty list it always wrote.
+ */
+function parseAdjustValues(shape: XmlNode): AdjustValue[] | undefined {
+  const geometry = findDescendants(shape, 'prstGeom')[0]
+  const list = geometry && child(geometry, 'avLst')
+  if (!list) return undefined
+  const values: AdjustValue[] = []
+  for (const node of list.children) {
+    if (localName(node.name) !== 'gd') continue
+    const name = attribute(node, 'name')?.trim()
+    const formula = attribute(node, 'fmla')?.trim()
+    if (!name || !formula) continue
+    values.push({ name, formula })
+  }
+  return values.length > 0 ? values : undefined
+}
+
 /** Only set when the source declares geometry, so a plain text box does not gain a preset it never had. */
 function parseOptionalPreset(shape: XmlNode): PresetGeometry | undefined {
   return findDescendants(shape, 'prstGeom')[0] ? parsePreset(shape) : undefined
@@ -1613,6 +1635,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     if (textCompound) element.strokeCompound = textCompound
     const textAlign = parseStrokeAlign(line)
     if (textAlign) element.strokeAlign = textAlign
+    const textAdjust = parseAdjustValues(shape)
+    if (textAdjust) element.adjustValues = textAdjust
     const textShadow = parseOuterShadow(shape)
     if (textShadow) element.shadow = textShadow
     const textGeometry = parseCustomGeometry(shape)
@@ -1648,6 +1672,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   if (shapeCompound) element.strokeCompound = shapeCompound
   const shapeAlign = parseStrokeAlign(shapeLine)
   if (shapeAlign) element.strokeAlign = shapeAlign
+  const shapeAdjust = parseAdjustValues(shape)
+  if (shapeAdjust) element.adjustValues = shapeAdjust
   const shapeShadow = parseOuterShadow(shape)
   if (shapeShadow) element.shadow = shapeShadow
   const shapeGeometry = parseCustomGeometry(shape)

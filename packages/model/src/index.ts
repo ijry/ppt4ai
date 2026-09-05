@@ -7,6 +7,23 @@
 export type PresetGeometry = string
 
 /**
+ * One `a:gd` of an `a:prstGeom/a:avLst`: a preset shape's adjust value, held so a sourceless export
+ * stops replacing a shape the user reshaped with its default form.
+ *
+ * The formula is kept as written rather than parsed. Entries here are conventionally `val N`, but
+ * `a:gd/@fmla` is the same attribute type `a:gdLst` uses, and that language has a dozen other forms
+ * (multiply-divide, `pin`, `at2`, …) — parsing to a number would silently lose whatever is not `val`,
+ * which is the failure this slice exists to fix. Painting does not read these yet; the ratio each preset
+ * applies them with is not verifiable in this environment.
+ */
+export interface AdjustValue {
+  /** `@name`, e.g. `adj`, `adj1`, `adj2`. */
+  name: string
+  /** `@fmla`, e.g. `val 25000`. */
+  formula: string
+}
+
+/**
  * One `a:custGeom` command. `arc` keeps `a:arcTo`'s own shape — radii plus start and swing angles in
  * 60000ths of a degree — because the centre it needs comes from the pen position, which only the path
  * builder knows.
@@ -575,6 +592,8 @@ export interface ShapeElement {
   strokeCompound?: StrokeCompound
   /** `a:ln/@algn`. Held verbatim; painting centres every stroke. */
   strokeAlign?: StrokeAlign
+  /** `a:prstGeom/a:avLst`. Held verbatim so the file keeps them; painting does not read them yet. */
+  adjustValues?: AdjustValue[]
   styleRef?: ShapeStyleReference
   placeholder?: string
 }
@@ -620,6 +639,8 @@ export interface TextElement {
   strokeCompound?: StrokeCompound
   /** `a:ln/@algn`. Held verbatim; painting centres every stroke. */
   strokeAlign?: StrokeAlign
+  /** `a:prstGeom/a:avLst`. Held verbatim so the file keeps them; painting does not read them yet. */
+  adjustValues?: AdjustValue[]
   styleRef?: ShapeStyleReference
   placeholder?: string
 }
@@ -2425,6 +2446,23 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.strokeAlign !== undefined && !strokeAligns.has(element.strokeAlign)) {
       errors.push(`elements.${elementId}.strokeAlign must be ctr or in`)
+    }
+    if ((element.kind === 'shape' || element.kind === 'text') && element.adjustValues !== undefined) {
+      if (!Array.isArray(element.adjustValues)) {
+        errors.push(`elements.${elementId}.adjustValues must be an array`)
+      } else {
+        element.adjustValues.forEach((adjust, index) => {
+          const path = `elements.${elementId}.adjustValues[${index}]`
+          if (!adjust || typeof adjust !== 'object') {
+            errors.push(`${path} must be an object`)
+            return
+          }
+          if (!isOoxmlToken(adjust.name)) errors.push(`${path}.name must be a non-empty string`)
+          if (typeof adjust.formula !== 'string' || adjust.formula.trim() === '') {
+            errors.push(`${path}.formula must be a non-empty string`)
+          }
+        })
+      }
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.strokeWidth !== undefined) {
       validateFiniteNumber(element.strokeWidth, `elements.${elementId}.strokeWidth`, errors, (number) => Number.isInteger(number) && number >= 0, 'must be a non-negative integer')

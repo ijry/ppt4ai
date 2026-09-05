@@ -6,6 +6,7 @@ import {
   DEFAULT_THEME_STYLE_COUNT,
   DEFAULT_THEME_STYLE_FILL,
   type Color,
+  type AdjustValue,
   type ColorMap,
   type DashSegment,
   type ElementDefaults,
@@ -456,9 +457,20 @@ function serializeTransformAttributes(element: { rotation?: number; flipH?: bool
   ])
 }
 
-/** The preset is an arbitrary `prst` word now, so it is escaped like any other model string. */
-function serializeGeometry(preset: ShapeElement['preset']): string {
-  return `<a:prstGeom prst="${escapeXml(preset)}"><a:avLst/></a:prstGeom>`
+/**
+ * The preset is an arbitrary `prst` word now, so it is escaped like any other model string.
+ *
+ * The adjust values were written as an empty `<a:avLst/>` until they were modeled, which turned a shape
+ * the user had reshaped back into its default form. An absent list still writes the empty element: that
+ * is what Office writes for a shape using its defaults.
+ */
+function serializeGeometry(preset: ShapeElement['preset'], adjustValues?: readonly AdjustValue[]): string {
+  const guides = (adjustValues ?? [])
+    .map((adjust) => `<a:gd name="${escapeXml(adjust.name)}" fmla="${escapeXml(adjust.formula)}"/>`)
+    .join('')
+  // Self-closing when there is nothing inside, so a shape with no adjust values keeps the bytes it had.
+  const list = guides === '' ? '<a:avLst/>' : `<a:avLst>${guides}</a:avLst>`
+  return `<a:prstGeom prst="${escapeXml(preset)}">${list}</a:prstGeom>`
 }
 
 /**
@@ -584,7 +596,7 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   // One fill node per shape: the picture replaces the colour, the way the scene and the command do.
   const pictureFill = serializePictureFillXml(element, pictureRelationshipId)
   const fill = pictureFill === '' ? serializeFillXml(element.fill) : pictureFill
-  const geometry = element.customGeometry ? serializeCustomGeometry(element.customGeometry) : serializeGeometry(preset)
+  const geometry = element.customGeometry ? serializeCustomGeometry(element.customGeometry) : serializeGeometry(preset, element.adjustValues)
   const shapeProperties = `<p:spPr>${serializeShapeTransform(element)}${geometry}${fill}${line}${serializeShadowXml(element.shadow)}</p:spPr>`
   const textBody = isText
     ? serializeTextBodyXml(element.body ?? { paragraphs: [{ runs: element.text ? [{ text: element.text }] : [] }] })
