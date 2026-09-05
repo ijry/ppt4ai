@@ -62,7 +62,7 @@
 
 **替换阴影会丢掉它未建模的属性**：`sx`/`sy`/`kx`/`ky`/`algn`/`rotWithShape` 不在模型里，因此一旦该节点被重写就不再出现。不碰阴影则完全不受影响。
 
-**`customGeometry` 仍写不回去**：理由见决策 3。
+**`customGeometry` 仍写不回去**——**已在 `5bf6c71` 修掉**，而决策 3 给的理由是错的：它假设「按模型重写整个 `a:custGeom`」，而本刀自己的做法（只替换最窄的节点）恰好就是答案。见 [2026-09-05-custom-geometry-writeback-design.md](./2026-09-05-custom-geometry-writeback-design.md)。
 
 ## 8. 实现记录（2026-09-05）
 
