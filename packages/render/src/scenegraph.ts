@@ -354,13 +354,15 @@ function shapeStrokeGradient(element: { stroke?: Fill }, context: SceneThemeCont
  * theme's. Falling back whole would knock every such outline back to a hairline.
  */
 function shapeStroke(
-  element: { strokeWidth?: number; strokeStyle?: StrokeStyle; styleRef?: ShapeStyleReference },
+  element: { strokeWidth?: number; strokeStyle?: StrokeStyle; strokeCap?: StrokeCap; strokeJoin?: StrokeJoin; styleRef?: ShapeStyleReference },
   context: SceneThemeContext,
-): { width?: number; style?: StrokeStyle } {
+): { width?: number; style?: StrokeStyle; cap?: StrokeCap; join?: StrokeJoin } {
   const themeLine = resolveStyleLineStroke(element.styleRef?.line, context.theme)
   const width = element.strokeWidth ?? themeLine?.width
   const style = element.strokeStyle ?? themeLine?.style
-  return { ...(width === undefined ? {} : { width }), ...(style === undefined ? {} : { style }) }
+  const cap = element.strokeCap ?? themeLine?.cap
+  const join = element.strokeJoin ?? themeLine?.join
+  return { ...(width === undefined ? {} : { width }), ...(style === undefined ? {} : { style }), ...(cap === undefined ? {} : { cap }), ...(join === undefined ? {} : { join }) }
 }
 
 /**
@@ -441,8 +443,8 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   const stroke = shapeStroke(element, context)
   if (stroke.width !== undefined) node.strokeWidth = stroke.width
   if (stroke.style !== undefined) node.strokeStyle = stroke.style
-  if (element.strokeCap !== undefined) node.strokeCap = element.strokeCap
-  if (element.strokeJoin !== undefined) node.strokeJoin = element.strokeJoin
+  if (stroke.cap !== undefined) node.strokeCap = stroke.cap
+  if (stroke.join !== undefined) node.strokeJoin = stroke.join
   const shadow = shapeShadow(element, context)
   if (shadow) node.shadow = shadow
   const transform = elementTransform(element)
@@ -491,8 +493,8 @@ function createTextNode(
   const stroke = shapeStroke(element, context)
   if (stroke.width !== undefined) node.strokeWidth = stroke.width
   if (stroke.style !== undefined) node.strokeStyle = stroke.style
-  if (element.strokeCap !== undefined) node.strokeCap = element.strokeCap
-  if (element.strokeJoin !== undefined) node.strokeJoin = element.strokeJoin
+  if (stroke.cap !== undefined) node.strokeCap = stroke.cap
+  if (stroke.join !== undefined) node.strokeJoin = stroke.join
   const shadow = shapeShadow(element, context)
   if (shadow) node.shadow = shadow
   const transform = elementTransform(element)

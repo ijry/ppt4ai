@@ -233,7 +233,9 @@ function themeStyleFillXml(entry: ThemeStyleEntry): string {
  */
 function themeLineStyleXml(entry: ThemeLineStyleEntry): string {
   const dash = entry?.style && entry.style !== 'solid' ? `<a:prstDash val="${entry.style}"/>` : ''
-  return `<a:ln${attrs([['w', entry?.width]])}>${themeStyleFillXml(entry)}${dash}</a:ln>`
+  const cap = entry?.cap ? ` cap="${entry.cap}"` : ''
+  const join = entry?.join ? `<a:${entry.join}/>` : ''
+  return `<a:ln${attrs([['w', entry?.width]])}${cap}>${themeStyleFillXml(entry)}${dash}${join}</a:ln>`
 }
 
 /**

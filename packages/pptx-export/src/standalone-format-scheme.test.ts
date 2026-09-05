@@ -99,6 +99,27 @@ describe('standalone format scheme serialization', () => {
       + '<a:gs pos="100000"><a:schemeClr val="phClr"/></a:gs>'
       + '</a:gsLst><a:lin ang="5400000" scaled="0"/></a:gradFill>')
   })
+
+  /**
+   * `cap` is an attribute of `a:ln` while the corner is a child element, and `CT_LineProperties` puts
+   * the corner after `a:prstDash`. The element-level stroke has written both since `6888114`; a theme
+   * entry can now say the same, so a shape taking its outline from `lnRef` inherits them.
+   */
+  it('writes the cap attribute and the corner element of an entry', () => {
+    const xml = formatSchemeXml(themeWith({
+      lineStyles: [{ ...phClr, width: 6350, style: 'dash', cap: 'rnd', join: 'bevel' }],
+    }))
+
+    expect(xml).toContain('<a:ln w="6350" cap="rnd"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill>'
+      + '<a:prstDash val="dash"/><a:bevel/></a:ln>')
+  })
+
+  it('writes neither when the entry states neither', () => {
+    const xml = formatSchemeXml(themeWith({ lineStyles: [{ ...phClr, width: 6350 }] }))
+
+    expect(xml).toContain('<a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>')
+    expect(xml).not.toContain('cap=')
+  })
 })
 
 const document: Ppt4aiDocument = {
@@ -134,7 +155,7 @@ const document: Ppt4aiDocument = {
   themes: {
     'theme-1': themeWith({
       fillStyles: [phClr, null],
-      lineStyles: [{ ...phClr, width: 6350 }, { ...phClr, width: 12700, style: 'dash' }],
+      lineStyles: [{ ...phClr, width: 6350 }, { ...phClr, width: 12700, style: 'dash', cap: 'sq', join: 'round' }],
       backgroundStyles: [phClr],
     }),
   },
@@ -149,7 +170,10 @@ describe('standalone format scheme round trip', () => {
     const scheme = Object.values((await reimported()).themes ?? {})[0]?.formatScheme
 
     expect(scheme?.fillStyles?.slice(0, 2)).toEqual([phClr, null])
-    expect(scheme?.lineStyles?.slice(0, 2)).toEqual([{ ...phClr, width: 6350 }, { ...phClr, width: 12700, style: 'dash' }])
+    expect(scheme?.lineStyles?.slice(0, 2)).toEqual([
+      { ...phClr, width: 6350 },
+      { ...phClr, width: 12700, style: 'dash', cap: 'sq', join: 'round' },
+    ])
     expect(scheme?.backgroundStyles?.[0]).toEqual(phClr)
   })
 
@@ -163,7 +187,8 @@ describe('standalone format scheme round trip', () => {
 
     expect(resolveStyleFill(shape.styleRef?.fill, theme)).toEqual({ rgb: '4472C4', alpha: 100000 })
     expect(resolveStyleLine(shape.styleRef?.line, theme)).toEqual({ rgb: '4472C4', alpha: 100000 })
-    expect(resolveStyleLineStroke(shape.styleRef?.line, theme)).toEqual({ width: 12700, style: 'dash' })
+    expect(resolveStyleLineStroke(shape.styleRef?.line, theme))
+      .toEqual({ width: 12700, style: 'dash', cap: 'sq', join: 'round' })
   })
 
   /** The 1001 offset lives on the reference side only, so the list itself stays 1-based. */

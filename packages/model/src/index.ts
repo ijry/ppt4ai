@@ -146,6 +146,10 @@ export interface ThemeLineStyle extends Fill {
   width?: number
   /** `a:ln/a:prstDash`, narrowed the same way element strokes are. */
   style?: StrokeStyle
+  /** `a:ln/@cap`, the same three words an element stroke carries. */
+  cap?: StrokeCap
+  /** The `a:round`/`a:bevel`/`a:miter` child, as on an element stroke. */
+  join?: StrokeJoin
 }
 
 export type ThemeLineStyleEntry = ThemeLineStyle | null
@@ -1032,12 +1036,14 @@ export function resolveStyleEffect(
 export function resolveStyleLineStroke(
   reference: StyleReference | undefined,
   theme?: Theme,
-): { width?: number; style?: StrokeStyle } | undefined {
+): { width?: number; style?: StrokeStyle; cap?: StrokeCap; join?: StrokeJoin } | undefined {
   const entry = styleEntryAt(reference, theme?.formatScheme?.lineStyles)
   if (!entry) return undefined
   const stroke = {
     ...(entry.width === undefined ? {} : { width: entry.width }),
     ...(entry.style === undefined ? {} : { style: entry.style }),
+    ...(entry.cap === undefined ? {} : { cap: entry.cap }),
+    ...(entry.join === undefined ? {} : { join: entry.join }),
   }
   return Object.keys(stroke).length > 0 ? stroke : undefined
 }
@@ -1446,6 +1452,12 @@ function validateThemeLineStyleEntries(value: unknown, path: string, errors: str
     }
     if (line.style !== undefined && !strokeStyles.has(line.style as StrokeStyle)) {
       errors.push(`${entryPath}.style must be a supported preset dash token`)
+    }
+    if (line.cap !== undefined && !strokeCaps.has(line.cap as StrokeCap)) {
+      errors.push(`${entryPath}.cap must be a supported cap token`)
+    }
+    if (line.join !== undefined && !strokeJoins.has(line.join as StrokeJoin)) {
+      errors.push(`${entryPath}.join must be a supported join token`)
     }
   })
 }

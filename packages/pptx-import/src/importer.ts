@@ -232,7 +232,9 @@ function parseThemeLineStyleEntries(list: XmlNode | undefined): ThemeLineStyleEn
     if (!color) return null
     const width = parseLineWidth(node)
     const style = parseDashStyle(node)
-    return { color, ...(width === undefined ? {} : { width }), ...(style === 'solid' ? {} : { style }) }
+    const cap = parseStrokeCap(node)
+    const join = parseStrokeJoin(node)
+    return { color, ...(width === undefined ? {} : { width }), ...(style === 'solid' ? {} : { style }), ...(cap === undefined ? {} : { cap }), ...(join === undefined ? {} : { join }) }
   })
   return entries.length > 0 ? entries : undefined
 }

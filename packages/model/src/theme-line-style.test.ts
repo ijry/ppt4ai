@@ -90,4 +90,33 @@ describe('theme line style validation', () => {
   it('accepts a null entry', () => {
     expect(errorsFor([null])).toEqual([])
   })
+
+  /** The element stroke has carried `cap`/`join` since `6888114`; a theme entry can now say the same. */
+  it('accepts every cap word and rejects a word that is not one', () => {
+    for (const cap of ['flat', 'rnd', 'sq'] as const) {
+      expect(errorsFor([{ color: { type: 'srgb', v: '4472C4' }, cap }])).toEqual([])
+    }
+    expect(errorsFor([{ color: { type: 'srgb', v: '4472C4' }, cap: 'pointy' }]))
+      .toContain('themes.theme-1.formatScheme.lineStyles[0].cap must be a supported cap token')
+  })
+
+  it('accepts every join word and rejects a word that is not one', () => {
+    for (const join of ['round', 'bevel', 'miter'] as const) {
+      expect(errorsFor([{ color: { type: 'srgb', v: '4472C4' }, join }])).toEqual([])
+    }
+    expect(errorsFor([{ color: { type: 'srgb', v: '4472C4' }, join: 'mitre' }]))
+      .toContain('themes.theme-1.formatScheme.lineStyles[0].join must be a supported join token')
+  })
+
+  it('accepts cap and join alongside the width and the dash', () => {
+    expect(errorsFor([{ color: { type: 'srgb', v: '4472C4' }, width: 12700, style: 'dash', cap: 'rnd', join: 'miter' }]))
+      .toEqual([])
+  })
+
+  it('reports the entry index of an unusable cap', () => {
+    expect(errorsFor([
+      { color: { type: 'srgb', v: '4472C4' }, cap: 'flat' },
+      { color: { type: 'srgb', v: '4472C4' }, cap: 'pointy' },
+    ])).toContain('themes.theme-1.formatScheme.lineStyles[1].cap must be a supported cap token')
+  })
 })
