@@ -90,7 +90,7 @@ export interface AdjustValue {
 
 ## 7. 实现记录（2026-09-05）
 
-实现提交 `待填`。按设计执行，两处值得记：
+实现提交 `4d2a1e8`。按设计执行，两处值得记：
 
 **空列表必须写成自闭合的 `<a:avLst/>`**。第一版实现无条件写 `<a:avLst>${guides}</a:avLst>`，没有可调值时得到 `<a:avLst></a:avLst>`——语义相同、字节不同，于是**两个既有测试立刻标红**（`preset-geometry.test.ts` 与 `standalone-placeholder-defaults.test.ts` 都逐字断言 `<a:avLst/>`）。这不是测试挑剔：这个项目在意字节稳定与最小 diff，让每个形状的输出无谓变化是真的回退。修法是 guides 为空时走自闭合分支。
 
