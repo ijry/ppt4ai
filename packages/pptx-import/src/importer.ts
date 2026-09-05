@@ -1735,6 +1735,14 @@ function parseDefaults(shape: XmlNode): [string, ElementDefaults] | undefined {
   if (miterLimit !== undefined) defaults.strokeMiterLimit = miterLimit
   const adjustValues = parseAdjustValues(shape)
   if (adjustValues) defaults.adjustValues = adjustValues
+  const shadow = parseOuterShadow(shape)
+  if (shadow) defaults.shadow = shadow
+  const customGeometry = parseCustomGeometry(shape)
+  if (customGeometry) defaults.customGeometry = customGeometry
+  // The theme references belong here too: an inheriting shape resolves its fill and line through them,
+  // and `a:effectRef` is the other half of how a placeholder states a shadow.
+  const styleRef = parseShapeStyleReference(shape)
+  if (styleRef) defaults.styleRef = styleRef
   const body = parseTextBody(shape)
   // `text` stays alongside `body`: master/layout writeback compares against it in its no-body path.
   if (body) defaults.body = body

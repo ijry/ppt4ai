@@ -370,7 +370,10 @@ function serializePlaceholderShapeXml(placeholder: string, defaults: ElementDefa
   const transform = defaults.bounds
     ? `<a:xfrm${attrs([['rot', defaults.rotation]])}>${serializeTransformContents(defaults.bounds)}</a:xfrm>`
     : ''
-  const geometry = defaults.preset ? serializeGeometry(defaults.preset, defaults.adjustValues) : ''
+  // Custom geometry replaces the preset, the same precedence `serializeShapeXml` uses.
+  const geometry = defaults.customGeometry
+    ? serializeCustomGeometry(defaults.customGeometry)
+    : defaults.preset ? serializeGeometry(defaults.preset, defaults.adjustValues) : ''
   // Written whenever any outline field is set, not only when there is a colour: a placeholder may state a
   // width and take its colour from `lnRef`, and the old colour-only condition dropped everything else.
   const hasLine = defaults.stroke !== undefined
@@ -392,7 +395,9 @@ function serializePlaceholderShapeXml(placeholder: string, defaults: ElementDefa
       + `${serializeDashXml(defaults.strokeStyle)}`
       + `${serializeJoinXml(defaults.strokeJoin, defaults.strokeMiterLimit)}</a:ln>`
     : ''
-  const shapeProperties = `<p:spPr>${transform}${geometry}${serializeFillXml(defaults.fill)}${line}</p:spPr>`
+  const shapeProperties = `<p:spPr>${transform}${geometry}${serializeFillXml(defaults.fill)}${line}`
+    + `${serializeShadowXml(defaults.shadow)}</p:spPr>`
+    + serializeShapeStyleXml(defaults.styleRef)
   // `body` wins over the legacy flat `text`, the rule elements already follow; the importer derives
   // `text` back from whichever was written.
   const body = defaults.body ?? { paragraphs: [{ runs: defaults.text ? [{ text: defaults.text }] : [] }] }

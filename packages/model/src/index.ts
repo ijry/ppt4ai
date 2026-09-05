@@ -841,6 +841,12 @@ export interface ElementDefaults {
   strokeAlign?: StrokeAlign
   strokeMiterLimit?: number
   adjustValues?: AdjustValue[]
+  /** `a:effectLst/a:outerShdw`, the same one an element carries. */
+  shadow?: OuterShadow
+  /** `a:custGeom`. Present means it replaces `preset` for drawing, as on an element. */
+  customGeometry?: CustomGeometry
+  /** `<p:style>`. Carries the theme references an inheriting shape resolves its fill and line through. */
+  styleRef?: ShapeStyleReference
   text?: string
   body?: TextBody
   listStyle?: LevelDefaults[]
