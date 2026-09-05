@@ -72,7 +72,18 @@ export function serializeColorXml(color: Color, prefix = 'a:'): string {
 export function serializeFillXml(fill: Fill | undefined): string {
   if (!fill) return ''
   const gradient = fill.gradient
-  if (!gradient) return `<a:solidFill>${serializeColorXml(fill.color)}</a:solidFill>`
+  if (!gradient) {
+    // `a:pattFill` is the same `EG_FillProperties` choice as the other two, so exactly one is written.
+    // A gradient still wins when a hand-built model states both, which is the precedence painting uses.
+    const pattern = fill.pattern
+    if (pattern) {
+      return `<a:pattFill${attrs([['prst', pattern.preset]])}>`
+        + `<a:fgClr>${serializeColorXml(pattern.foreground)}</a:fgClr>`
+        + `<a:bgClr>${serializeColorXml(pattern.background)}</a:bgClr>`
+        + '</a:pattFill>'
+    }
+    return `<a:solidFill>${serializeColorXml(fill.color)}</a:solidFill>`
+  }
   const stops = gradient.stops
     .map((stop) => `<a:gs${attrs([['pos', stop.pos]])}>${serializeColorXml(stop.color)}</a:gs>`)
     .join('')

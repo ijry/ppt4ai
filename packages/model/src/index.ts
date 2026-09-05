@@ -304,6 +304,44 @@ export type GradientPath = 'circle' | 'rect' | 'shape'
 export interface Fill {
   color: Color
   gradient?: Gradient
+  pattern?: PatternFill
+}
+
+/**
+ * `a:pattFill` — one of the 54 `ST_PresetPatternVal` words plus a foreground and a background colour.
+ *
+ * The enclosing `Fill`'s own `color` carries the **foreground** colour, so a consumer that only reads
+ * `color` paints the foreground rather than nothing. That mirrors what `gradient` does with its first
+ * stop, and it is the whole reason a patterned shape stops being invisible without the paint paths
+ * being touched.
+ */
+export interface PatternFill {
+  /** `@prst`, kept verbatim — see `PresetPattern`. */
+  preset: PresetPattern
+  /** `a:fgClr`, also mirrored into the enclosing `Fill.color`. */
+  foreground: Color
+  /** `a:bgClr`. Stored but not painted until a tile exists; see `PAINTED_PRESET_PATTERNS`. */
+  background: Color
+}
+
+/**
+ * `a:pattFill/@prst` verbatim. Open like `PresetGeometry` and for the same reason: the enumeration is
+ * long, versioned, and not verifiable here, while rewriting the word damages the user's file.
+ */
+export type PresetPattern = string
+
+/**
+ * The `prst` words that paint as a real tile. Empty for now — every pattern paints as its foreground
+ * colour, because a tile needs `createPattern` and one of the three paint paths runs in a worker with
+ * no canvas API. This constant is where that follow-up slice lands.
+ */
+export const PAINTED_PRESET_PATTERNS: readonly string[] = []
+
+/** A pattern with both colours already resolved through the theme and colour map. */
+export interface ResolvedPattern {
+  preset: PresetPattern
+  foreground: ResolvedColor
+  background: ResolvedColor
 }
 
 /**
@@ -1003,6 +1041,29 @@ export function resolveStyleFillGradient(
     ...(gradient.path === undefined ? {} : { path: gradient.path }),
     ...(gradient.fillToRect === undefined ? {} : { fillToRect: structuredClone(gradient.fillToRect) }),
   }
+}
+
+/**
+ * The pattern of the `a:fillStyleLst` entry a `fillRef` points at, with `phClr` substituted in both
+ * colours the way the gradient entries do it. Office's own entries use `phClr` for the foreground, so
+ * skipping the substitution would resolve to no colour and drop the pattern.
+ */
+export function resolveStyleFillPattern(
+  reference: StyleReference | undefined,
+  theme?: Theme,
+  colorMap: ColorMap = DEFAULT_COLOR_MAP,
+): ResolvedPattern | undefined {
+  const entry = styleEntryAt(reference, theme?.formatScheme?.fillStyles)
+  const pattern = entry?.pattern
+  if (!pattern) return undefined
+  const resolveSlot = (color: Color): ResolvedColor | undefined => {
+    const substituted = substitutePlaceholderColor(color, reference?.color)
+    return substituted ? resolveColorSource(substituted, theme, colorMap, new Set<string>(), 0) : undefined
+  }
+  const foreground = resolveSlot(pattern.foreground)
+  const background = resolveSlot(pattern.background)
+  if (!foreground || !background) return undefined
+  return { preset: pattern.preset, foreground, background }
 }
 
 /**
@@ -1836,6 +1897,22 @@ function validateFill(value: unknown, path: string, errors: string[]): void {
   validateColor(colorValue, `${path}.color`, errors)
   const gradient = (value as Record<string, unknown>).gradient
   if (gradient !== undefined) validateGradient(gradient, `${path}.gradient`, errors)
+  const pattern = (value as Record<string, unknown>).pattern
+  if (pattern !== undefined) validatePatternFill(pattern, `${path}.pattern`, errors)
+}
+
+function validatePatternFill(value: unknown, path: string, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`${path} must be an object`)
+    return
+  }
+  const pattern = value as Record<string, unknown>
+  if (!isOoxmlToken(pattern.preset)) errors.push(`${path}.preset must be a non-empty string`)
+  for (const slot of ['foreground', 'background'] as const) {
+    const color = pattern[slot]
+    if (!color || typeof color !== 'object' || Array.isArray(color)) errors.push(`${path}.${slot} must be an object`)
+    else validateColor(color as Record<string, unknown>, `${path}.${slot}`, errors)
+  }
 }
 
 function validateTableCellBorders(value: unknown, path: string, errors: string[], sides: readonly string[] = ['left', 'right', 'top', 'bottom', 'tlToBr', 'blToTr']): void {

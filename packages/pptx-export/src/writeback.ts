@@ -291,7 +291,17 @@ function gradientsEqual(left: Fill['gradient'], right: Fill['gradient']): boolea
 }
 
 function fillsEqual(left: Fill | undefined, right: Fill | undefined): boolean {
-  return colorsEqual(left?.color, right?.color) && gradientsEqual(left?.gradient, right?.gradient)
+  return colorsEqual(left?.color, right?.color)
+    && gradientsEqual(left?.gradient, right?.gradient)
+    && patternsEqual(left?.pattern, right?.pattern)
+}
+
+/** Both absent counts as equal; otherwise the preset and both colours have to match. */
+function patternsEqual(left: Fill['pattern'], right: Fill['pattern']): boolean {
+  if (!left || !right) return !left && !right
+  return left.preset === right.preset
+    && colorsEqual(left.foreground, right.foreground)
+    && colorsEqual(left.background, right.background)
 }
 
 function sourceShapeProperties(element: XmlElement): XmlElement | undefined {

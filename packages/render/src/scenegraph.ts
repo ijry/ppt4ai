@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createCustomPath, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureStretch, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFillPattern, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureStretch, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedPattern, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeCap, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -44,6 +44,8 @@ export interface SceneShapeNode {
   resolvedFillColor?: ResolvedColor
   /** Present only for a linear gradient fill; `resolvedFillColor` stays set as the flat fallback. */
   resolvedFillGradient?: ResolvedGradient
+  /** Present only for an `a:pattFill`; `resolvedFillColor` stays set to the foreground as the fallback. */
+  resolvedFillPattern?: ResolvedPattern
   resolvedStrokeColor?: ResolvedColor
   /** Present only for a linear gradient outline; `resolvedStrokeColor` stays set as the flat fallback. */
   resolvedStrokeGradient?: ResolvedGradient
@@ -88,6 +90,7 @@ export interface SceneTextNode {
   shadow?: ResolvedShadow
   resolvedFillColor?: ResolvedColor
   resolvedFillGradient?: ResolvedGradient
+  resolvedFillPattern?: ResolvedPattern
   resolvedStrokeColor?: ResolvedColor
   resolvedStrokeGradient?: ResolvedGradient
   strokeWidth?: number
@@ -181,6 +184,20 @@ function resolvedFillGradient(fill: Fill | undefined, context: SceneThemeContext
     ...(gradient.path === undefined ? {} : { path: gradient.path }),
     ...(gradient.fillToRect === undefined ? {} : { fillToRect: structuredClone(gradient.fillToRect) }),
   }
+}
+
+/**
+ * Both pattern colours resolved through the theme, so a `phClr` in a theme `fillStyleLst` entry lands
+ * as a real colour. Either colour failing to resolve drops the pattern — the node keeps its resolved
+ * fill colour, which is the foreground, so it paints flat rather than not at all.
+ */
+function resolvedFillPattern(fill: Fill | undefined, context: SceneThemeContext): ResolvedPattern | undefined {
+  const pattern = fill?.pattern
+  if (!pattern) return undefined
+  const foreground = resolveColor(pattern.foreground, context.theme, context.colorMap)
+  const background = resolveColor(pattern.background, context.theme, context.colorMap)
+  if (!foreground || !background) return undefined
+  return { preset: pattern.preset, foreground, background }
 }
 
 /**
@@ -339,6 +356,12 @@ function shapeFillGradient(element: { fill?: Fill; styleRef?: ShapeStyleReferenc
     ?? resolveStyleFillGradient(element.styleRef?.fill, context.theme, context.colorMap)
 }
 
+/** Symmetric with `shapeFillGradient`: direct formatting first, then the theme entry. */
+function shapeFillPattern(element: { fill?: Fill; styleRef?: ShapeStyleReference }, context: SceneThemeContext): ResolvedPattern | undefined {
+  return resolvedFillPattern(element.fill, context)
+    ?? resolveStyleFillPattern(element.styleRef?.fill, context.theme, context.colorMap)
+}
+
 function shapeStrokeColor(element: { stroke?: Fill; styleRef?: ShapeStyleReference }, context: SceneThemeContext): ResolvedColor | undefined {
   return resolvedFillColor(element.stroke, context) ?? resolveStyleLine(element.styleRef?.line, context.theme, context.colorMap)
 }
@@ -437,6 +460,8 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   if (fillColor) node.resolvedFillColor = fillColor
   const fillGradient = pictureFill ? undefined : shapeFillGradient(element, context)
   if (fillGradient) node.resolvedFillGradient = fillGradient
+  const fillPattern = pictureFill ? undefined : shapeFillPattern(element, context)
+  if (fillPattern) node.resolvedFillPattern = fillPattern
   if (strokeColor) node.resolvedStrokeColor = strokeColor
   const strokeGradient = shapeStrokeGradient(element, context)
   if (strokeGradient) node.resolvedStrokeGradient = strokeGradient
@@ -487,6 +512,8 @@ function createTextNode(
   if (fillColor) node.resolvedFillColor = fillColor
   const fillGradient = pictureFill ? undefined : shapeFillGradient(element, context)
   if (fillGradient) node.resolvedFillGradient = fillGradient
+  const fillPattern = pictureFill ? undefined : shapeFillPattern(element, context)
+  if (fillPattern) node.resolvedFillPattern = fillPattern
   if (strokeColor) node.resolvedStrokeColor = strokeColor
   const strokeGradient = shapeStrokeGradient(element, context)
   if (strokeGradient) node.resolvedStrokeGradient = strokeGradient

@@ -445,7 +445,8 @@ function parseFillNode(node: XmlNode | undefined): Fill | undefined {
     const color = parseColor(node)
     return color ? { color } : undefined
   }
-  return name === 'gradFill' ? parseGradientNode(node) : undefined
+  if (name === 'gradFill') return parseGradientNode(node)
+  return name === 'pattFill' ? parsePatternFillNode(node) : undefined
 }
 
 function parseDirectFill(node: XmlNode | undefined): Fill | undefined {
@@ -456,7 +457,22 @@ function parseDirectFill(node: XmlNode | undefined): Fill | undefined {
     if (color) return { color }
   }
   const gradient = child(node, 'gradFill')
-  return gradient ? parseGradientNode(gradient) : undefined
+  if (gradient) return parseGradientNode(gradient)
+  return parsePatternFillNode(child(node, 'pattFill'))
+}
+
+/**
+ * `a:pattFill`. The `Fill`'s own `color` takes the foreground, so a shape whose pattern cannot be
+ * tiled yet still paints — before this the whole fill was dropped and the shape came out invisible.
+ * Either colour missing makes the pattern unusable, so the fill is dropped rather than half-built.
+ */
+function parsePatternFillNode(node: XmlNode | undefined): Fill | undefined {
+  if (!node) return undefined
+  const preset = attribute(node, 'prst')
+  const foreground = parseColor(child(node, 'fgClr'))
+  const background = parseColor(child(node, 'bgClr'))
+  if (!preset || !foreground || !background) return undefined
+  return { color: foreground, pattern: { preset, foreground, background } }
 }
 
 function shapeProperties(shape: XmlNode): XmlNode | undefined {

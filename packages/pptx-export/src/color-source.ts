@@ -49,6 +49,7 @@ export function sourceFill(fillNode: XmlElement | undefined): Fill | undefined {
     const color = sourceColor(fillNode)
     return color ? { color } : undefined
   }
+  if (fillNode.localName === 'pattFill') return sourcePatternFill(fillNode)
   if (fillNode.localName !== 'gradFill') return undefined
   const linear = fillNode.children.find((child) => child.localName === 'lin')
   if (!linear) return undefined
@@ -72,4 +73,17 @@ export function sourceFill(fillNode: XmlElement | undefined): Fill | undefined {
       ...(scaled === undefined ? {} : { scaled: scaled === '1' || scaled === 'true' }),
     },
   }
+}
+
+/**
+ * Mirrors the importer's `parsePatternFillNode`. Without it an untouched `a:pattFill` compared as "no
+ * fill" the moment the importer learned to read patterns, so editing anything else on the shape
+ * rewrote the fill node and dropped whatever the model does not express — an `extLst`, say.
+ */
+function sourcePatternFill(fillNode: XmlElement): Fill | undefined {
+  const preset = fillNode.attributes.prst
+  const foreground = sourceColor(fillNode.children.find((child) => child.localName === 'fgClr'))
+  const background = sourceColor(fillNode.children.find((child) => child.localName === 'bgClr'))
+  if (!preset || !foreground || !background) return undefined
+  return { color: foreground, pattern: { preset, foreground, background } }
 }
