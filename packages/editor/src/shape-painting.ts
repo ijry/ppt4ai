@@ -46,6 +46,18 @@ export function canvasLineJoin(join: StrokeJoin | undefined): CanvasLineJoin {
 }
 
 /**
+ * `a:miter/@lim` is a percentage of the line width (100000 is 100%); canvas's `miterLimit` is the ratio
+ * of miter length to line width. Same reference length, so the conversion is the percentage itself.
+ *
+ * Canvas's default is 10, which is `lim="1000000"` — that is what an absent limit returns, so a shape
+ * that says nothing keeps the behaviour it had. Whether both specs mean the full width rather than half
+ * of it is not verifiable here; if a reader shows otherwise this constant is the only thing to change.
+ */
+export function canvasMiterLimit(limit: number | undefined): number {
+  return limit !== undefined && limit > 0 ? limit / 100000 : 10
+}
+
+/**
  * Canvas dash pattern for a stroke style, in the same units as the line width so a thick dash keeps
  * its proportions. Exported because table borders paint the same styles and had their own copy.
  *
@@ -239,6 +251,7 @@ export function paintPathFills(
     strokeStyle?: StrokeStyle | { custom: DashSegment[] }
     strokeCap?: StrokeCap
     strokeJoin?: StrokeJoin
+    strokeMiterLimit?: number
   },
 ): void {
   const fill = colors.fill ? colorStyle(colors.fill) : undefined
@@ -282,6 +295,7 @@ export function paintPathFills(
     // Always set: an unset cap or join keeps whatever the previous element left on the context.
     context.lineCap = canvasLineCap(colors.strokeCap)
     context.lineJoin = canvasLineJoin(colors.strokeJoin)
+    context.miterLimit = canvasMiterLimit(colors.strokeMiterLimit)
     context.setLineDash(dashPattern(colors.strokeStyle ?? 'solid', width))
     context.stroke()
   }
@@ -490,6 +504,7 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
         context.lineWidth = width
         context.lineCap = canvasLineCap(node.strokeCap)
         context.lineJoin = canvasLineJoin(node.strokeJoin)
+        context.miterLimit = canvasMiterLimit(node.strokeMiterLimit)
         context.setLineDash(dashPattern(node.strokeStyle ?? 'solid', width))
         context.stroke()
       }

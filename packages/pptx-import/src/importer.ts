@@ -236,7 +236,8 @@ function parseThemeLineStyleEntries(list: XmlNode | undefined): ThemeLineStyleEn
     const join = parseStrokeJoin(node)
     const compound = parseStrokeCompound(node)
     const align = parseStrokeAlign(node)
-    return { color, ...(width === undefined ? {} : { width }), ...(style === 'solid' ? {} : { style }), ...(cap === undefined ? {} : { cap }), ...(join === undefined ? {} : { join }), ...(compound === undefined ? {} : { compound }), ...(align === undefined ? {} : { align }) }
+    const miterLimit = parseStrokeMiterLimit(node)
+    return { color, ...(width === undefined ? {} : { width }), ...(style === 'solid' ? {} : { style }), ...(cap === undefined ? {} : { cap }), ...(join === undefined ? {} : { join }), ...(compound === undefined ? {} : { compound }), ...(align === undefined ? {} : { align }), ...(miterLimit === undefined ? {} : { miterLimit }) }
   })
   return entries.length > 0 ? entries : undefined
 }
@@ -602,6 +603,16 @@ function parseStrokeCompound(line: XmlNode | undefined): StrokeCompound | undefi
 function parseStrokeAlign(line: XmlNode | undefined): StrokeAlign | undefined {
   const value = line ? attribute(line, 'algn') : undefined
   return value !== undefined && strokeAligns.has(value as StrokeAlign) ? value as StrokeAlign : undefined
+}
+
+/**
+ * `a:miter/@lim`. Only `a:miter` carries it, so a rounded or bevelled corner never has one. An unusable
+ * value is ignored rather than stored, the rule `parseLineWidth` follows.
+ */
+function parseStrokeMiterLimit(line: XmlNode | undefined): number | undefined {
+  const miter = line && child(line, 'miter')
+  const limit = miter ? parseNumber(attribute(miter, 'lim')) : undefined
+  return limit !== undefined && limit > 0 ? limit : undefined
 }
 
 /** The corner is a child element rather than an attribute, so its name is the value. */
@@ -1635,6 +1646,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
     if (textCompound) element.strokeCompound = textCompound
     const textAlign = parseStrokeAlign(line)
     if (textAlign) element.strokeAlign = textAlign
+    const textMiterLimit = parseStrokeMiterLimit(line)
+    if (textMiterLimit !== undefined) element.strokeMiterLimit = textMiterLimit
     const textAdjust = parseAdjustValues(shape)
     if (textAdjust) element.adjustValues = textAdjust
     const textShadow = parseOuterShadow(shape)
@@ -1672,6 +1685,8 @@ function parseElement(shape: XmlNode, id: string, requireBounds: boolean): Eleme
   if (shapeCompound) element.strokeCompound = shapeCompound
   const shapeAlign = parseStrokeAlign(shapeLine)
   if (shapeAlign) element.strokeAlign = shapeAlign
+  const shapeMiterLimit = parseStrokeMiterLimit(shapeLine)
+  if (shapeMiterLimit !== undefined) element.strokeMiterLimit = shapeMiterLimit
   const shapeAdjust = parseAdjustValues(shape)
   if (shapeAdjust) element.adjustValues = shapeAdjust
   const shapeShadow = parseOuterShadow(shape)

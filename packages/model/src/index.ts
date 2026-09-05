@@ -182,6 +182,8 @@ export interface ThemeLineStyle extends Fill {
   compound?: StrokeCompound
   /** `a:ln/@algn`, as on an element stroke. */
   align?: StrokeAlign
+  /** `a:miter/@lim`, as on an element stroke. */
+  miterLimit?: number
 }
 
 export type ThemeLineStyleEntry = ThemeLineStyle | null
@@ -592,6 +594,11 @@ export interface ShapeElement {
   strokeCompound?: StrokeCompound
   /** `a:ln/@algn`. Held verbatim; painting centres every stroke. */
   strokeAlign?: StrokeAlign
+  /**
+   * `a:miter/@lim`, a percentage of the line width where 100000 is 100%. The file's own unit is kept,
+   * the way `strokeWidth` keeps EMU; the drawing layer divides it into canvas's ratio.
+   */
+  strokeMiterLimit?: number
   /** `a:prstGeom/a:avLst`. Held verbatim so the file keeps them; painting does not read them yet. */
   adjustValues?: AdjustValue[]
   styleRef?: ShapeStyleReference
@@ -639,6 +646,11 @@ export interface TextElement {
   strokeCompound?: StrokeCompound
   /** `a:ln/@algn`. Held verbatim; painting centres every stroke. */
   strokeAlign?: StrokeAlign
+  /**
+   * `a:miter/@lim`, a percentage of the line width where 100000 is 100%. The file's own unit is kept,
+   * the way `strokeWidth` keeps EMU; the drawing layer divides it into canvas's ratio.
+   */
+  strokeMiterLimit?: number
   /** `a:prstGeom/a:avLst`. Held verbatim so the file keeps them; painting does not read them yet. */
   adjustValues?: AdjustValue[]
   styleRef?: ShapeStyleReference
@@ -1182,7 +1194,7 @@ export function resolveStyleEffect(
 export function resolveStyleLineStroke(
   reference: StyleReference | undefined,
   theme?: Theme,
-): { width?: number; style?: StrokeStyle | { custom: DashSegment[] }; cap?: StrokeCap; join?: StrokeJoin; compound?: StrokeCompound; align?: StrokeAlign } | undefined {
+): { width?: number; style?: StrokeStyle | { custom: DashSegment[] }; cap?: StrokeCap; join?: StrokeJoin; compound?: StrokeCompound; align?: StrokeAlign; miterLimit?: number } | undefined {
   const entry = styleEntryAt(reference, theme?.formatScheme?.lineStyles)
   if (!entry) return undefined
   const stroke = {
@@ -1192,6 +1204,7 @@ export function resolveStyleLineStroke(
     ...(entry.join === undefined ? {} : { join: entry.join }),
     ...(entry.compound === undefined ? {} : { compound: entry.compound }),
     ...(entry.align === undefined ? {} : { align: entry.align }),
+    ...(entry.miterLimit === undefined ? {} : { miterLimit: entry.miterLimit }),
   }
   return Object.keys(stroke).length > 0 ? stroke : undefined
 }
@@ -1636,6 +1649,9 @@ function validateThemeLineStyleEntries(value: unknown, path: string, errors: str
     }
     if (line.align !== undefined && !strokeAligns.has(line.align as StrokeAlign)) {
       errors.push(`${entryPath}.align must be ctr or in`)
+    }
+    if (line.miterLimit !== undefined) {
+      validateFiniteNumber(line.miterLimit, `${entryPath}.miterLimit`, errors, (number) => number > 0, 'must be a positive number')
     }
   })
 }
@@ -2446,6 +2462,9 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.strokeAlign !== undefined && !strokeAligns.has(element.strokeAlign)) {
       errors.push(`elements.${elementId}.strokeAlign must be ctr or in`)
+    }
+    if ((element.kind === 'shape' || element.kind === 'text') && element.strokeMiterLimit !== undefined) {
+      validateFiniteNumber(element.strokeMiterLimit, `elements.${elementId}.strokeMiterLimit`, errors, (number) => number > 0, 'must be a positive number')
     }
     if ((element.kind === 'shape' || element.kind === 'text') && element.adjustValues !== undefined) {
       if (!Array.isArray(element.adjustValues)) {

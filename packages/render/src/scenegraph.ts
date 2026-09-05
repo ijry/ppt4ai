@@ -58,6 +58,8 @@ export interface SceneShapeNode {
   strokeCompound?: StrokeCompound
   /** `a:ln/@algn`, same: held for the file, not yet honoured by paint. */
   strokeAlign?: StrokeAlign
+  /** `a:miter/@lim` as the file's percentage; the drawing layer converts it to canvas's ratio. */
+  strokeMiterLimit?: number
   transform?: ElementTransform
 }
 
@@ -105,6 +107,8 @@ export interface SceneTextNode {
   strokeCompound?: StrokeCompound
   /** `a:ln/@algn`, same: held for the file, not yet honoured by paint. */
   strokeAlign?: StrokeAlign
+  /** `a:miter/@lim` as the file's percentage; the drawing layer converts it to canvas's ratio. */
+  strokeMiterLimit?: number
   transform?: ElementTransform
 }
 
@@ -385,9 +389,9 @@ function shapeStrokeGradient(element: { stroke?: Fill }, context: SceneThemeCont
  * theme's. Falling back whole would knock every such outline back to a hairline.
  */
 function shapeStroke(
-  element: { strokeWidth?: number; strokeStyle?: StrokeStyle | { custom: DashSegment[] }; strokeCap?: StrokeCap; strokeJoin?: StrokeJoin; strokeCompound?: StrokeCompound; strokeAlign?: StrokeAlign; styleRef?: ShapeStyleReference },
+  element: { strokeWidth?: number; strokeStyle?: StrokeStyle | { custom: DashSegment[] }; strokeCap?: StrokeCap; strokeJoin?: StrokeJoin; strokeCompound?: StrokeCompound; strokeAlign?: StrokeAlign; strokeMiterLimit?: number; styleRef?: ShapeStyleReference },
   context: SceneThemeContext,
-): { width?: number; style?: StrokeStyle | { custom: DashSegment[] }; cap?: StrokeCap; join?: StrokeJoin; compound?: StrokeCompound; align?: StrokeAlign } {
+): { width?: number; style?: StrokeStyle | { custom: DashSegment[] }; cap?: StrokeCap; join?: StrokeJoin; compound?: StrokeCompound; align?: StrokeAlign; miterLimit?: number } {
   const themeLine = resolveStyleLineStroke(element.styleRef?.line, context.theme)
   const width = element.strokeWidth ?? themeLine?.width
   const style = element.strokeStyle ?? themeLine?.style
@@ -395,7 +399,8 @@ function shapeStroke(
   const join = element.strokeJoin ?? themeLine?.join
   const compound = element.strokeCompound ?? themeLine?.compound
   const align = element.strokeAlign ?? themeLine?.align
-  return { ...(width === undefined ? {} : { width }), ...(style === undefined ? {} : { style }), ...(cap === undefined ? {} : { cap }), ...(join === undefined ? {} : { join }), ...(compound === undefined ? {} : { compound }), ...(align === undefined ? {} : { align }) }
+  const miterLimit = element.strokeMiterLimit ?? themeLine?.miterLimit
+  return { ...(width === undefined ? {} : { width }), ...(style === undefined ? {} : { style }), ...(cap === undefined ? {} : { cap }), ...(join === undefined ? {} : { join }), ...(compound === undefined ? {} : { compound }), ...(align === undefined ? {} : { align }), ...(miterLimit === undefined ? {} : { miterLimit }) }
 }
 
 /**
@@ -482,6 +487,7 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   if (stroke.join !== undefined) node.strokeJoin = stroke.join
   if (stroke.compound !== undefined) node.strokeCompound = stroke.compound
   if (stroke.align !== undefined) node.strokeAlign = stroke.align
+  if (stroke.miterLimit !== undefined) node.strokeMiterLimit = stroke.miterLimit
   const shadow = shapeShadow(element, context)
   if (shadow) node.shadow = shadow
   const transform = elementTransform(element)
@@ -536,6 +542,7 @@ function createTextNode(
   if (stroke.join !== undefined) node.strokeJoin = stroke.join
   if (stroke.compound !== undefined) node.strokeCompound = stroke.compound
   if (stroke.align !== undefined) node.strokeAlign = stroke.align
+  if (stroke.miterLimit !== undefined) node.strokeMiterLimit = stroke.miterLimit
   const shadow = shapeShadow(element, context)
   if (shadow) node.shadow = shadow
   const transform = elementTransform(element)

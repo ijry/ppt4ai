@@ -22,6 +22,7 @@ import {
   type SlideBackground,
   type SlideLayout,
   type SlideMaster,
+  type StrokeJoin,
   type StrokeStyle,
   type TableElement,
   type TableStyle,
@@ -236,9 +237,19 @@ function themeStyleFillXml(entry: ThemeStyleEntry): string {
  */
 function themeLineStyleXml(entry: ThemeLineStyleEntry): string {
   const dash = serializeDashXml(entry?.style)
-  const join = entry?.join ? `<a:${entry.join}/>` : ''
+  const join = serializeJoinXml(entry?.join, entry?.miterLimit)
   const openAttrs = attrs([['w', entry?.width], ['cap', entry?.cap], ['cmpd', entry?.compound], ['algn', entry?.align]])
   return `<a:ln${openAttrs}>${themeStyleFillXml(entry)}${dash}${join}</a:ln>`
+}
+
+/**
+ * The corner element, whose name is the model value. `a:miter` is the only one that takes `@lim`, so a
+ * limit on a rounded or bevelled corner has nowhere to go and is dropped with it.
+ */
+function serializeJoinXml(join: StrokeJoin | undefined, miterLimit: number | undefined): string {
+  if (!join) return ''
+  if (join !== 'miter') return `<a:${join}/>`
+  return `<a:miter${attrs([['lim', miterLimit]])}/>`
 }
 
 /**
@@ -589,7 +600,7 @@ export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: 
   // `a:custDash` is the other half of that choice, so exactly one of the two is written.
   const dash = serializeDashXml(element.strokeStyle)
   // The corner follows the dash in the ECMA-376 sequence, and its element name is the model value.
-  const join = element.strokeJoin ? `<a:${element.strokeJoin}/>` : ''
+  const join = serializeJoinXml(element.strokeJoin, element.strokeMiterLimit)
   const line = element.stroke
     ? `<a:ln${attrs([['w', element.strokeWidth], ['cap', element.strokeCap], ['cmpd', element.strokeCompound], ['algn', element.strokeAlign]])}>${serializeFillXml(element.stroke)}${dash}${join}</a:ln>`
     : ''

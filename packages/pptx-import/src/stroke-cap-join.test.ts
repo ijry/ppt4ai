@@ -46,12 +46,11 @@ describe('stroke join on import', () => {
     expect(await firstElement(`<a:ln w="76200">${navy}</a:ln>`)).not.toHaveProperty('strokeJoin')
   })
 
-  /** `a:miter/@lim` is not modeled, so the corner type survives but the limit does not. */
-  it('reads a miter corner while dropping its limit', async () => {
+  /** The limit was dropped until it was modeled; now the corner and its limit both survive. */
+  it('reads a miter corner together with its limit', async () => {
     const element = await firstElement(`<a:ln w="76200">${navy}<a:miter lim="800000"/></a:ln>`)
 
-    expect(element).toMatchObject({ strokeJoin: 'miter' })
-    expect(JSON.stringify(element)).not.toContain('800000')
+    expect(element).toMatchObject({ strokeJoin: 'miter', strokeMiterLimit: 800000 })
   })
 
   it('reads cap and join together on a shape that carries text', async () => {
