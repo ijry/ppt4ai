@@ -619,7 +619,10 @@ function shadowReplacements(xml: string, sourceElement: XmlElement, shadow: Oute
   // `serializeShadowXml` wraps the shadow in its own `a:effectLst`; only the inner node is wanted when a
   // list is already there.
   const inner = serialized.slice(serialized.indexOf('<a:outerShdw'), serialized.lastIndexOf('</a:effectLst>'))
-  if (outer) return [{ start: outer.start, end: outer.end, value: inner }]
+  // An existing node is patched rather than replaced: `sx`/`sy`/`kx`/`ky`/`algn`/`rotWithShape` are not
+  // modeled, and rewriting the node is what used to lose them. Same move as replacing only `a:outerShdw`
+  // instead of the whole `a:effectLst`, one level further in.
+  if (outer) return shadowNodePatches(xml, outer, existing, shadow)
   if (effectList) {
     const openingEnd = tagEnd(xml, effectList.start + 1)
     const opening = xml.slice(effectList.start, openingEnd)
@@ -634,6 +637,39 @@ function shadowReplacements(xml: string, sourceElement: XmlElement, shadow: Oute
   if (insertion < properties.start) throw new Error('PPTX export source shape properties malformed')
   return [{ start: insertion, end: insertion, value: serialized }]
 }
+
+/**
+ * The modeled parts of an existing `a:outerShdw`, each patched in place: three attributes through the
+ * same helper `a:ln`'s attributes use, and the colour child replaced only when it actually differs so
+ * that changing a blur radius does not rewrite the colour.
+ */
+function shadowNodePatches(
+  xml: string,
+  outer: XmlElement,
+  existing: OuterShadow | undefined,
+  shadow: OuterShadow,
+): Replacement[] {
+  const replacements: Replacement[] = [
+    ...lineAttributeReplacements(xml, outer, 'blurRad', shadow.blurRadius === undefined ? undefined : String(shadow.blurRadius)),
+    ...lineAttributeReplacements(xml, outer, 'dist', shadow.distance === undefined ? undefined : String(shadow.distance)),
+    ...lineAttributeReplacements(xml, outer, 'dir', shadow.direction === undefined ? undefined : String(shadow.direction)),
+  ]
+  if (!colorsEqual(existing?.color, shadow.color)) {
+    const colorNode = outer.children.find((child) => colorNodeNames.has(child.localName))
+    const value = serializeColorXml(shadow.color)
+    if (colorNode) replacements.push({ start: colorNode.start, end: colorNode.end, value })
+    else {
+      const openingEnd = tagEnd(xml, outer.start + 1)
+      const opening = xml.slice(outer.start, openingEnd)
+      if (opening.endsWith('/>')) {
+        replacements.push({ start: outer.start, end: openingEnd, value: `${opening.slice(0, -2)}>${value}</${outer.name}>` })
+      } else replacements.push({ start: openingEnd, end: openingEnd, value })
+    }
+  }
+  return replacements
+}
+
+const colorNodeNames = new Set(['srgbClr', 'schemeClr', 'prstClr', 'sysClr', 'scrgbClr', 'hslClr'])
 
 function shadowsEqual(left: OuterShadow | undefined, right: OuterShadow | undefined): boolean {
   if (!left || !right) return !left && !right

@@ -118,7 +118,7 @@ describe('outer shadow source writeback', () => {
     expect(xml).not.toContain('outerShdw')
   })
 
-  it('replaces only the shadow node when the model shadow changes', async () => {
+  it('patches the modeled parts of the shadow node when the model shadow changes', async () => {
     const source = sourcePackage()
     const document = await importPptx(source)
     const shape = document.elements.el_1
@@ -127,16 +127,21 @@ describe('outer shadow source writeback', () => {
 
     const xml = await slideOf(await exportPptx(document, source))
 
-    expect(xml).toContain('<a:outerShdw blurRad="12700"><a:srgbClr val="FF0000"/></a:outerShdw>')
+    expect(xml).toContain('blurRad="12700"')
+    expect(xml).toContain('<a:srgbClr val="FF0000"/></a:outerShdw>')
+    // The model no longer carries these two, so their attributes go.
+    expect(xml).not.toContain('dist="38100"')
+    expect(xml).not.toContain('dir="2700000"')
     expect(xml).toContain('<a:glow rad="63500">')
     expect(xml).toContain('data-keep="yes"')
   })
 
   /**
-   * The cost the design records: `sx`/`algn`/`rotWithShape` are not modeled, so replacing the node loses
-   * them. Untouched shadows keep everything, which the byte-identity test above covers.
+   * These used to be lost, because changing a shadow rewrote the whole node. The node is patched in
+   * place now — the same move as replacing only `a:outerShdw` rather than the whole `a:effectLst`, one
+   * level further in — so what the model cannot express survives an edit to what it can.
    */
-  it('loses the shadow attributes the model cannot express when it replaces the node', async () => {
+  it('keeps the shadow attributes the model cannot express', async () => {
     const source = sourcePackage()
     const document = await importPptx(source)
     const shape = document.elements.el_1
@@ -145,7 +150,36 @@ describe('outer shadow source writeback', () => {
 
     const xml = await slideOf(await exportPptx(document, source))
 
-    expect(xml).not.toContain('sx="90000"')
-    expect(xml).not.toContain('rotWithShape')
+    expect(xml).toContain('sx="90000"')
+    expect(xml).toContain('algn="tl"')
+    expect(xml).toContain('rotWithShape="0"')
+  })
+
+  /** Only what changed is touched: a blur edit must not rewrite the colour child. */
+  it('leaves the colour alone when only a measurement changes', async () => {
+    const source = sourcePackage()
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    if (shape?.kind !== 'shape') throw new Error('fixture did not import as a shape')
+    shape.shadow = { ...shape.shadow!, blurRadius: 12700 }
+
+    const xml = await slideOf(await exportPptx(document, source))
+
+    expect(xml).toContain('blurRad="12700"')
+    expect(xml).toContain('<a:srgbClr val="000000"><a:alpha val="40000"/></a:srgbClr>')
+  })
+
+  it('removes an attribute the model no longer carries', async () => {
+    const source = sourcePackage()
+    const document = await importPptx(source)
+    const shape = document.elements.el_1
+    if (shape?.kind !== 'shape') throw new Error('fixture did not import as a shape')
+    shape.shadow = { color: shape.shadow!.color, blurRadius: 50800, direction: 2700000 }
+
+    const xml = await slideOf(await exportPptx(document, source))
+
+    expect(xml).not.toContain('dist=')
+    expect(xml).toContain('blurRad="50800"')
+    expect(xml).toContain('dir="2700000"')
   })
 })

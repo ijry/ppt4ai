@@ -1,6 +1,6 @@
 # 替换阴影时保留未建模的属性
 
-> 状态：待实现
+> 状态：已实现
 > 日期：2026-09-05
 
 ## 1. 目标
@@ -50,3 +50,13 @@ loses the shadow attributes the model cannot express when it replaces the node
 ## 6. 已知限制
 
 **新插入的阴影没有未建模属性可谈**：源包本来没有该节点时写出的就是模型的四项，这不是丢失。
+
+## 7. 实现记录（2026-09-05）
+
+实现提交 `待填`。按设计执行。
+
+**`lineAttributeReplacements` 第二次被跨元素复用**（尖角限制那刀是第一次）：它只依赖元素的 `start` 与 `name`，因此对 `a:outerShdw` 与 `a:ln` 一样成立。名字里的 `line` 现在是历史残留，但改名要动全部调用点、换不到任何东西，所以只在注释里说明它服务哪些元素。
+
+**颜色节点名要列全**：`srgbClr`/`schemeClr`/`prstClr`/`sysClr`/`scrgbClr`/`hslClr` 六个（`hslClr` 模型读不到，但它出现在源包里时也是那一格的占位者，漏掉会让替换插到它旁边而不是换掉它）。
+
+区分力已验证：把节点补丁改回整体替换，九条里一条标红（`keeps the shadow attributes the model cannot express`）——正是当初固定这条限制的那个位置。
