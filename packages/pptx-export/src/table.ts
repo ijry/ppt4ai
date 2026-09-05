@@ -74,12 +74,19 @@ function serializeCellProperties(
   continuation: 'horizontal' | 'vertical' | undefined,
   relationships: TablePictureRelationships | undefined,
 ): string {
+  const cellBodyProperties = attrs([
+    ['marL', cell.cellBodyPr?.insets?.left],
+    ['marT', cell.cellBodyPr?.insets?.top],
+    ['marR', cell.cellBodyPr?.insets?.right],
+    ['marB', cell.cellBodyPr?.insets?.bottom],
+    ['anchor', cell.cellBodyPr?.verticalAlign === 'top' ? 't' : cell.cellBodyPr?.verticalAlign === 'middle' ? 'ctr' : cell.cellBodyPr?.verticalAlign === 'bottom' ? 'b' : undefined],
+  ])
   const properties = attrs([
     ['gridSpan', !continuation && cell.colSpan && cell.colSpan > 1 ? cell.colSpan : undefined],
     ['rowSpan', !continuation && cell.rowSpan && cell.rowSpan > 1 ? cell.rowSpan : undefined],
     ['hMerge', continuation === 'horizontal' ? '1' : undefined],
     ['vMerge', continuation === 'vertical' ? '1' : undefined],
-  ])
+  ]) + cellBodyProperties
   // One fill per cell: the picture replaces the colour, as it does on shapes and slide backgrounds.
   const picture = continuation ? '' : serializeCellPictureFill(cell.pictureFill, relationships)
   const content = continuation ? '' : (picture || serializeFillXml(cell.fill)) + serializeBorders(cell.borders)

@@ -765,6 +765,8 @@ function parseTable(frame: XmlNode, id: string, media?: TableMediaContext): Tabl
       const borders = properties ? parseTableCellBorders(properties) : undefined
       if (fill) cell.fill = fill
       if (borders) cell.borders = borders
+      const cellBodyPr = properties ? parseCellBodyProperties(properties) : undefined
+      if (cellBodyPr) cell.cellBodyPr = cellBodyPr
       const cellPicture = media && properties
         ? parsePictureFillNode(child(properties, 'blipFill'), media.slidePath, media.slideRelations, media.entries, media.reportUnsupportedMedia)
         : undefined
@@ -1453,6 +1455,30 @@ function parseAutofit(bodyProperties: XmlNode): TextAutofit | undefined {
     return scale !== undefined && scale >= 1 ? { type: 'shrink', minFontScale: scale } : { type: 'shrink' }
   }
   return child(bodyProperties, 'spAutoFit') ? { type: 'resize' } : undefined
+}
+
+/**
+ * A cell's own text framing, which OOXML puts on `a:tcPr` rather than on the cell's `a:bodyPr`:
+ * `@marL`/`@marT`/`@marR`/`@marB` are the insets and `@anchor` the vertical alignment. Kept apart from
+ * `body.bodyPr` so each writes back to the element it came from; the scene merges the two for layout.
+ *
+ * Only what the file states reaches the model. `@anchor` absent means `t`, which is what the layout
+ * already does with no vertical alignment, so a cell that says nothing renders exactly as before.
+ * Margins are all-or-none for the same reason `parseBodyProperties` gives — the model has no partial
+ * inset form — and the unstated-margin question is recorded rather than answered with a default.
+ */
+function parseCellBodyProperties(properties: XmlNode): TextBodyProperties | undefined {
+  const cellProperties: TextBodyProperties = {}
+  const margins = (['marL', 'marT', 'marR', 'marB'] as const).map((name) => parseNumber(attribute(properties, name)))
+  const [left, top, right, bottom] = margins
+  if (left !== undefined && top !== undefined && right !== undefined && bottom !== undefined && margins.every((value) => value! >= 0)) {
+    cellProperties.insets = { left, top, right, bottom }
+  }
+  const anchor = attribute(properties, 'anchor')
+  if (anchor === 't') cellProperties.verticalAlign = 'top'
+  else if (anchor === 'ctr') cellProperties.verticalAlign = 'middle'
+  else if (anchor === 'b') cellProperties.verticalAlign = 'bottom'
+  return Object.keys(cellProperties).length > 0 ? cellProperties : undefined
 }
 
 function parseBodyProperties(bodyProperties: XmlNode | undefined): TextBodyProperties | undefined {

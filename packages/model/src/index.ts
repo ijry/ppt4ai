@@ -595,6 +595,8 @@ export interface TableCell {
   borders?: TableCellBorders
   /** `a:tcPr/a:blipFill` — a photo in the cell. Outside `Fill` for the reason `PictureFill` explains. */
   pictureFill?: PictureFill
+  /** `a:tcPr/@marL/@marT/@marR/@marB` and `@anchor` — margins and vertical alignment, distinct from the body's own `bodyPr`. */
+  cellBodyPr?: TextBodyProperties
 }
 
 export interface TableRow {
@@ -1926,6 +1928,20 @@ function validateTableCell(value: unknown, path: string, rowIndex: number, rowCo
   }
   if ('borders' in cell && cell.borders !== undefined) {
     validateTableCellBorders(cell.borders, `${path}.borders`, errors)
+  }
+  if ('cellBodyPr' in cell && cell.cellBodyPr !== undefined) {
+    if (!cell.cellBodyPr || typeof cell.cellBodyPr !== 'object' || Array.isArray(cell.cellBodyPr)) errors.push(`${path}.cellBodyPr must be an object`)
+    else {
+      const bodyPr = cell.cellBodyPr as Record<string, unknown>
+      if ('insets' in bodyPr) {
+        if (!bodyPr.insets || typeof bodyPr.insets !== 'object' || Array.isArray(bodyPr.insets)) errors.push(`${path}.cellBodyPr.insets must be an object`)
+        else {
+          const insets = bodyPr.insets as Record<string, unknown>
+          for (const key of ['left', 'top', 'right', 'bottom']) validateFiniteNumber(insets[key], `${path}.cellBodyPr.insets.${key}`, errors, (number) => number >= 0, 'must be non-negative')
+        }
+      }
+      if ('verticalAlign' in bodyPr && (typeof bodyPr.verticalAlign !== 'string' || !verticalAlignments.has(bodyPr.verticalAlign))) errors.push(`${path}.cellBodyPr.verticalAlign must be top, middle, or bottom`)
+    }
   }
 }
 

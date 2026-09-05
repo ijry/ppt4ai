@@ -242,6 +242,16 @@ function mergeTableTextDefaults(body: TextBody, text: TableStyleText | undefined
   }
 }
 
+/**
+ * A cell's `a:tcPr` framing folded into the body the layout receives. The cell's own `a:bodyPr` wins
+ * where it states something, because it is the more specific of the two; a cell stating neither lays
+ * out exactly as it did before `cellBodyPr` existed.
+ */
+function mergeCellBodyProperties(body: TextBody, cellBodyPr: TextBody['bodyPr'] | undefined): TextBody {
+  if (!cellBodyPr) return body
+  return { ...body, bodyPr: { ...structuredClone(cellBodyPr), ...body.bodyPr } }
+}
+
 function mergeLevelDefaults(
   body: TextBody,
   element: Extract<Element, { kind: 'text' }>,
@@ -507,7 +517,7 @@ function createTableNode(element: Extract<Element, { kind: 'table' }>, context: 
         const fillColor = cellPicture ? undefined : resolvedFillColor(resolvedStyle.fill, context)
         const borderColors = resolveBorderColors(resolvedStyle.borders, context)
         const textStyle = resolveTableTextStyle(resolvedStyle.text, context)
-        const body = mergeTableTextDefaults(cell.body, resolvedStyle.text)
+        const body = mergeCellBodyProperties(mergeTableTextDefaults(cell.body, resolvedStyle.text), sourceCell.cellBodyPr)
         return {
           ...cell,
           resolvedStyle,
