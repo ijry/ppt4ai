@@ -72,6 +72,15 @@ describe('the writeback mirrors agree with the importer', () => {
     expect(sourceColor(node('solidFill'))).toEqual(element.fill?.color)
   })
 
+  /** `@val` is the system colour's name and `@lastClr` its cached value; both sides have to keep both. */
+  it('reads a system colour the same way', async () => {
+    const { element, node } = await bothReadings(slideXml(
+      '<a:solidFill><a:sysClr val="window" lastClr="FFFFFF"><a:lumMod val="75000"/></a:sysClr></a:solidFill>',
+    ))
+
+    expect(sourceColor(node('solidFill'))).toEqual(element.fill?.color)
+  })
+
   it('reads a linear gradient the same way', async () => {
     const { element, node } = await bothReadings(slideXml(
       '<a:gradFill><a:gsLst>'

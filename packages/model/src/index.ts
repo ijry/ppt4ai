@@ -87,6 +87,13 @@ export interface Rect {
 export interface Color {
   type: 'srgb' | 'scheme' | 'preset' | 'system' | 'scrgb'
   v: string
+  /**
+   * `a:sysClr/@val` — the system colour a reader looks up (`window`, `windowText`, …), kept verbatim.
+   * `v` holds `@lastClr`, the cached value, because that is the only thing a canvas can paint. Without
+   * this word every system colour was written back as `windowText`, so a theme's light slot named the
+   * system's dark colour. Meaningless on the other colour types, where it is ignored on the way out.
+   */
+  systemName?: string
   transforms?: ColorTransform[]
 }
 
@@ -1636,6 +1643,11 @@ function validateColor(value: unknown, path: string, errors: string[]): void {
   // can now set an element's paint directly, so a loose value here would reach the canvas.
   else if ((color.type === 'srgb' || color.type === 'system') && !/^[0-9A-Fa-f]{6}$/u.test(color.v)) {
     errors.push(`${path}.v must be six hexadecimal digits`)
+  }
+  // `ST_SystemColorVal` is an enumeration, but the model's job is to keep the word rather than to police
+  // the list — the same stance `isOoxmlToken` documents for every other OOXML enumeration here.
+  if (color.systemName !== undefined && !isOoxmlToken(color.systemName)) {
+    errors.push(`${path}.systemName must be a system color token`)
   }
   if ('transforms' in color && color.transforms !== undefined) {
     if (!Array.isArray(color.transforms)) errors.push(`${path}.transforms must be an array`)

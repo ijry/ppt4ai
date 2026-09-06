@@ -61,18 +61,22 @@
 
 ## 6. 验证
 
-- `packages/pptx-import/src/theme-import.test.ts`（或既有主题导入测试）：`<a:sysClr val="window" lastClr="FFFFFF"/>` → `{type:'system', v:'FFFFFF', systemName:'window'}`
-- `packages/model/src/…`：`validateDocument` 接受合法 token、拒绝空串与带空格的值
+- `packages/model/src/system-color.test.ts`（4 条）：`validateDocument` 接受名字、接受这个 build 没听过的词（枚举不由模型管）、拒绝空串／带空格／非字符串；`resolveColor` 仍按 `v` 的十六进制上色
+- `packages/pptx-import/src/importer.test.ts` 既有一条主题导入的 `dk1` 预期补上 `systemName: 'windowText'`
 - `writeback-mirror-agreement.test.ts`：系统色一条「两边读法一致」
-- `packages/pptx-export/src/system-color.test.ts`：
-  - 无源导出（`createPptx`）带 `systemName` 的 `lt1` → `val="window"`，且 `lastClr` 仍是十六进制
-  - 无源导出不带 `systemName` → 仍写 `windowText`（既有行为不回退）
-  - 主题写回：模型改了 `systemName` → `val` 被改成新词、`lastClr` 不动
-  - 主题写回：模型没有 `systemName` → 源里的 `val` 逐字不动（上一刀的保护不回退）
-  - 占位符写回：`a:solidFill` 里的系统色带名字 → 名字写出
-  - 未编辑的系统色 → 逐字节等于源（源里 `val` 用单引号写，确保这条有区分力）
+- `packages/pptx-export/src/system-color.test.ts`（8 条）：
+  - 无源导出带名字的 `lt1` → `val="window"`，`lastClr` 仍是十六进制
+  - 无源导出不带名字 → 仍写 `windowText`（既有行为不回退）
+  - 主题写回改名字 → `val` 变、`lastClr` 不动
+  - 主题写回模型没名字 → 源里单引号的 `val` 逐字不动（上一刀的保护不回退）
+  - 名字与值都相同 → 逐字节等于源
+  - 只有名字不同 → 那一格被改写
+  - 占位符写回（会把颜色整个重建的那条路）→ 名字写出
+  - 幻灯片形状的 `a:sysClr` 填充在无关文本编辑后逐字节不变（源里用单引号写）
 
-区分力：把 `colorsEqual` 里比较 `systemName` 的那一行删掉 → 「改名字」那条标红；把镜像里读 `val` 的那一行删掉 → 「未编辑逐字节相同」那条标红。
+区分力（两次实测）：删掉 `colorsEqual` 里比较 `systemName` 的那一行 → 2 条标红（改名字的两条）；删掉镜像里读 `@val` 的那一行 → 2 条标红（镜像一致性那条，与形状填充那条）。
+
+**设计里对第二个破坏的预估是错的**：原本写「未编辑逐字节相同那条会标红」，实测**不会**——主题那条走的是打补丁，镜像少读一个字段只会让它多判一次「变了」，而每一格的值本来相同，于是一个字节也不写。真正能抓住它的是幻灯片形状那条：那条路上「变了」会导致颜色子元素被整块重写，源里的单引号因此变成双引号，字节可见地不同。这是同一个教训的第四次出现，测试是照它补上的。
 
 ## 7. 已知限制
 
@@ -81,6 +85,16 @@
 - **transform 子元素上未建模的属性**仍只在 transform 列表不变时保留（上一刀的限制）。
 - **`fmtScheme` 里的颜色写回仍不存在**，因此那里的系统色也谈不上被改写。
 
-## 8. 实现记录
+## 8. 实现记录（2026-09-06）
 
-待填。
+按设计执行，三处值得记：
+
+**决策 5 让上一刀的行为变成了后备而不是被推翻**：`colorValueAttributes` 现在给系统色返回两格——`lastClr` 取模型的值，`val` 取 `systemName ?? 源里的 val ?? 'windowText'`。因此「模型带名字就写名字」与「模型没名字就不碰源」两条同时成立，上一刀那条测试一字未改。
+
+**只有两个地方会静默剥掉新字段，两个都在导出包里**：`theme-writeback.ts` 与 `master-layout-writeback.ts` 的私有 `validateColor` 都是「重建一个 `{type, v, transforms}`」。设计第 4 节点名了它们，实现时确实是这两处——占位符那条测试（`carries the name through the placeholder writeback, which rebuilds the colour`）就是钉这个的。
+
+**区分力预估错了一半，已在第 6 节改正**：删掉镜像里读 `@val` 的那一行，「未编辑逐字节相同」那条**不会**红。打补丁的写回把「多判一次变了」吸收成了「一格都不写」。能抓住它的是幻灯片形状那条路——那里「变了」会整块重写颜色子元素，源里的单引号变成双引号，字节可见地不同。**这是同一个教训的第四次出现**：字节相同要有区分力，必须让「重写」与「不写」在字节上真的不同。
+
+**门禁上踩了一次自己的坑**：`pnpm typecheck` 我用 `grep -c error` 读结果，返回 `1` 被当成了「一行都没有」。`grep -c` 给的是匹配行数，1 就是有错。改成看退出码之后，抓到 `system-color.test.ts` 里一个 `SlideMaster` 上不存在的 `layoutIds` 字段——vitest 不做类型检查，所以测试全绿而 build 会红。
+
+门禁：2109 项测试、全量 typecheck（退出码 0）、全量 build、包边界检查、7 个 e2e 全绿。

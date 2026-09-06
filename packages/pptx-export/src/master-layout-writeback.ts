@@ -172,7 +172,15 @@ function validateColor(value: unknown, kind: string, id: string, field: string):
     }
     if (parsed.length > 0) transforms = parsed
   }
-  return { type: candidate.type as Color['type'], v: normalized, ...(transforms ? { transforms } : {}) }
+  // The system colour's name has to survive this rebuild, or the serializer falls back to `windowText`.
+  const systemName = candidate.systemName
+  if (systemName !== undefined && !isOoxmlToken(systemName)) throw failure(kind, id, `unsupported color ${field}`)
+  return {
+    type: candidate.type as Color['type'],
+    v: normalized,
+    ...(systemName === undefined ? {} : { systemName: systemName as string }),
+    ...(transforms ? { transforms } : {}),
+  }
 }
 
 /**

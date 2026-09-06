@@ -626,7 +626,7 @@ describe('importPptx', () => {
       theme_1: {
         id: 'theme_1',
         colors: {
-          dk1: { type: 'system', v: '202020' },
+          dk1: { type: 'system', v: '202020', systemName: 'windowText' },
           lt1: { type: 'srgb', v: 'FFFFFF' },
           dk2: { type: 'srgb', v: '111111' },
           lt2: { type: 'scrgb', v: '100000,50000,0' },

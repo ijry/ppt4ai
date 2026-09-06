@@ -152,7 +152,10 @@ function parseColor(node: XmlNode | undefined): Color | undefined {
       if (value) color = { type: 'preset', v: value }
     } else if (name === 'sysClr') {
       const value = parseHexColor(attribute(colorNode, 'lastClr'))
-      if (value) color = { type: 'system', v: value }
+      // `@val` names the colour a reader looks up; `@lastClr` is only its cached value. Dropping the name
+      // made every exported system colour say `windowText`, so a light slot pointed at the dark one.
+      const systemName = attribute(colorNode, 'val')?.trim()
+      if (value) color = { type: 'system', v: value, ...(systemName ? { systemName } : {}) }
     } else if (name === 'scrgbClr') {
       const red = parsePercentage(attribute(colorNode, 'r'))
       const green = parsePercentage(attribute(colorNode, 'g'))

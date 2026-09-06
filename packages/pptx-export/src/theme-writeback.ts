@@ -95,10 +95,14 @@ function validateColor(theme: Theme, slot: string, value: unknown): Color {
     if (normalizedValue.length === 0) throw unsupportedColor(theme, slot)
   }
 
+  // The system colour's name rides along, or the serializer falls back to `windowText` and a light slot
+  // ends up naming the dark colour. Rebuilding the colour without it is how a new field goes missing.
+  if (color.systemName !== undefined && !isOoxmlToken(color.systemName)) throw unsupportedColor(theme, slot)
   const transforms = validatedTransforms(theme, slot, color.transforms)
   return {
     type: color.type as Color['type'],
     v: normalizedValue,
+    ...(color.systemName === undefined ? {} : { systemName: color.systemName }),
     ...(transforms ? { transforms } : {}),
   }
 }
@@ -223,9 +227,14 @@ function fontReplacements(xml: string, theme: Theme, scheme: XmlElement): Replac
   return replacements
 }
 
-/** The attribute a colour of this type states its value in, and what it should read. */
-function colorValueAttributes(color: Color): Array<[string, string]> {
-  if (color.type === 'system') return [['lastClr', color.v]]
+/**
+ * The attributes a colour of this type states itself in. A system colour writes its name too when the
+ * model carries one; when it does not, the source's own `val` is left alone rather than guessed at.
+ */
+function colorValueAttributes(color: Color, node: XmlElement): Array<[string, string]> {
+  if (color.type === 'system') {
+    return [['lastClr', color.v], ['val', color.systemName ?? node.attributes.val ?? 'windowText']]
+  }
   if (color.type === 'scrgb') {
     const channels = color.v.split(',')
     return [['r', channels[0] ?? '0'], ['g', channels[1] ?? '0'], ['b', channels[2] ?? '0']]
@@ -244,8 +253,8 @@ const colorElementNames: Readonly<Record<Color['type'], string>> = {
 /**
  * One colour element, patched rather than replaced. Three levels, the same shape the fill patcher
  * settled on: a different kind of colour swaps the element, since `EG_ColorChoice` is a choice; a changed
- * value touches only the attribute carrying it, so `a:sysClr/@val` — a system colour name this project
- * does not model — is not overwritten with a guess; a changed transform list also swaps the children.
+ * value touches only the attributes carrying it, so a system colour's `@val` takes the model's own name
+ * and the source's word survives when the model has none; a changed transform list swaps the children.
  *
  * The transforms go as a block rather than one at a time because the mirror skips a token child whose
  * `val` is out of range, so the i-th child is not the i-th transform, and a type may legally appear twice.
@@ -262,11 +271,7 @@ function colorNodeReplacements(
   if (node.localName !== colorElementNames[color.type]) {
     return [{ start: node.start, end: node.end, value: serializedColor(theme, slot, color, prefix) }]
   }
-  const replacements = colorValueAttributes(color).flatMap(([name, value]) => attributeReplacements(xml, node, name, value))
-  // A `sysClr` whose required `val` the source omitted still gets one, the way the serializer writes it.
-  if (color.type === 'system' && node.attributes.val === undefined) {
-    replacements.push(...attributeReplacements(xml, node, 'val', 'windowText'))
-  }
+  const replacements = colorValueAttributes(color, node).flatMap(([name, value]) => attributeReplacements(xml, node, name, value))
   const transforms = color.transforms ?? []
   const before = existing?.transforms ?? []
   const transformsEqual = before.length === transforms.length

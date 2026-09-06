@@ -57,7 +57,7 @@ export function serializeColorXml(color: Color, prefix = 'a:'): string {
         ? 'prstClr'
         : 'sysClr'
   const colorAttributes = color.type === 'system'
-    ? attrs([['val', 'windowText'], ['lastClr', color.v]])
+    ? attrs([['val', color.systemName ?? 'windowText'], ['lastClr', color.v]])
     : attrs([['val', color.v]])
   return transformXml
     ? `<${prefix}${element}${colorAttributes}>${transformXml}</${prefix}${element}>`

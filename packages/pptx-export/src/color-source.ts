@@ -11,6 +11,7 @@ export const colorChoiceNames = new Set(['srgbClr', 'schemeClr', 'prstClr', 'sys
 export function colorsEqual(left: Color | undefined, right: Color | undefined): boolean {
   if (!left || !right) return left === right
   if (left.type !== right.type || left.v !== right.v) return false
+  if (left.systemName !== right.systemName) return false
   const leftTransforms = left.transforms ?? []
   const rightTransforms = right.transforms ?? []
   return leftTransforms.length === rightTransforms.length
@@ -47,7 +48,10 @@ function colorOfNode(child: XmlElement): Color | undefined {
   } else if (child.localName === 'prstClr' && child.attributes.val) {
     color = { type: 'preset', v: child.attributes.val.trim() }
   } else if (child.localName === 'sysClr' && /^[0-9A-F]{6}$/iu.test(child.attributes.lastClr ?? '')) {
-    color = { type: 'system', v: (child.attributes.lastClr ?? '').toUpperCase() }
+    // `@val` is the system colour's name, `@lastClr` its cached value; the importer keeps both, so the
+    // comparison has to see both or an edited name looks unchanged.
+    const systemName = child.attributes.val?.trim()
+    color = { type: 'system', v: (child.attributes.lastClr ?? '').toUpperCase(), ...(systemName ? { systemName } : {}) }
   } else if (child.localName === 'scrgbClr') {
     const channels = [child.attributes.r, child.attributes.g, child.attributes.b].map((value) => Number(value))
     if (channels.every((value) => Number.isInteger(value) && value >= 0 && value <= 100000)) {
