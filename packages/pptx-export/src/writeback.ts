@@ -12,9 +12,8 @@ import {
 } from './image-writeback.js'
 import { rewritePictureAppearance } from './image-appearance-writeback.js'
 import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } from './dependency-graph.js'
-import { decodeXml, descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
+import { decodeXml, descendants, attributeReplacements, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 import {
-  attributeReplacements,
   childReplacement,
   colorChoiceNames,
   colorsEqual,
@@ -401,27 +400,12 @@ function shapePropertyInsertion(xml: string, properties: XmlElement, value: stri
  * width, zero is an explicit hairline — so a model without a width removes the attribute rather than
  * leaving the source value behind, which would put the file and the model at odds.
  */
+/** The width compares as a number, so a source spelling it with padding is not called a change. */
 function lineWidthReplacements(xml: string, line: XmlElement, width: number | undefined): Replacement[] {
   const source = line.attributes.w
   const sourceWidth = source === undefined ? undefined : Number(source)
-  if (width === undefined && sourceWidth === undefined) return []
-  if (width !== undefined && width === sourceWidth) return []
-  const openingEnd = xml.indexOf('>', line.start)
-  if (openingEnd < 0) throw new Error('PPTX export source line malformed')
-  const opening = xml.slice(line.start, openingEnd)
-  const existing = /\s+w\s*=\s*"[^"]*"/u.exec(opening)
-  if (width === undefined) {
-    if (!existing) return []
-    const start = line.start + existing.index
-    return [{ start, end: start + existing[0].length, value: '' }]
-  }
-  if (existing) {
-    const start = line.start + existing.index
-    return [{ start, end: start + existing[0].length, value: ` w="${width}"` }]
-  }
-  // No `w` yet: it goes right after the element name, where every other attribute writer puts one.
-  const nameEnd = line.start + 1 + line.name.length
-  return [{ start: nameEnd, end: nameEnd, value: ` w="${width}"` }]
+  if (width === sourceWidth) return []
+  return attributeReplacements(xml, line, 'w', width === undefined ? undefined : String(width))
 }
 
 /**

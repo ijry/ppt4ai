@@ -83,6 +83,16 @@
 - **`master-layout-writeback.ts` 仍有第二份属性补丁实现**（决策 5），它是对的，但两份仍会各自漂移。
 - **主题的颜色节点仍整块替换**：`a:sysClr/@val` 会被写成硬编码的 `windowText`，颜色节点上未建模的属性会丢，slot 里放 `a:hslClr` 会得到两个颜色子元素，源包里读不出的颜色让整个导出抛错。四条都已实测，是下一刀。
 
-## 8. 实现记录
+## 8. 实现记录（2026-09-06）
 
-待填。
+实现提交见下一条 `docs:` 补的哈希。按设计执行，两处偏差：
+
+**共享实现顺手修掉了「值不转义」**：`fill-patch.ts` 那一份写值时不转义，主题那一份转义。合并到主题的做法上（`escapeXml`），所以 `prst`/`cap` 这类枚举词行为不变，而带 `&` 的值不会再写出坏 XML。`xml-range.ts` 因此 import `text-xml.ts` —— 两个模块此前都是叶子，方向上不成环。
+
+**「值相同就不写」的判据收成一行**：`value === source` 覆盖了「两边都是 `undefined`」，旧的那句 `value === source || (value === undefined && source === undefined)` 后半段是多余的。注意 `element.attributes[name]` 是扫描器解码过的值，所以比较用未转义的模型值是对的，写出时才转义。
+
+**主题的 `typeface` 比较必须留在调用点**：它按 `.trim()` 比（导入端会 trim），而共享实现按精确字符串比。少了那一行，源里写 `typeface=" 宋体 "` 的主题会被判成变了。既有测试 `returns the exact source when the modeled typefaces match, whitespace aside` 就是钉这个的。
+
+区分力（实测）：把共享实现的引号分支退回只认双引号 → 7 条里 4 条标红，与设计预估一致。
+
+门禁：2083 项测试、全量 typecheck、全量 build、包边界检查、7 个 e2e 全绿。

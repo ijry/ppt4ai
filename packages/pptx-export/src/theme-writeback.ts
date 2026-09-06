@@ -1,7 +1,7 @@
 import { colorTransformValueIsValid, isOoxmlToken, DEFAULT_THEME_COLORS, DEFAULT_THEME_FONTS, type Color, type ColorTransform, type Theme, type ThemeColorSlot, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
 import { serializeColorXml } from './standalone-xml.js'
 import { escapeXml } from './text-xml.js'
-import { descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
+import { descendants, attributeReplacements, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 
 const themeColorSlots = ['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'] as const
 const themeColorSlotSet = new Set<string>(themeColorSlots)
@@ -202,21 +202,6 @@ function validatedTypeface(theme: Theme, slot: ThemeFontSlot, script: ThemeFontS
   return value
 }
 
-/**
- * Rewrites just the quoted value of one attribute. The unmodeled neighbours a real theme carries —
- * `panose`, `pitchFamily`, `charset` — keep their bytes, quote style and order.
- */
-function attributeReplacement(xml: string, element: XmlElement, name: string, value: string): Replacement {
-  const opening = xml.slice(element.start, tagEnd(xml, element.start + 1))
-  const match = new RegExp(`\\s${name}\\s*=\\s*("[^"]*"|'[^']*')`, 'u').exec(opening)
-  if (!match) {
-    const insertAt = element.start + 1 + element.name.length
-    return { start: insertAt, end: insertAt, value: ` ${name}="${escapeXml(value)}"` }
-  }
-  const start = element.start + match.index + match[0].length - match[1]!.length
-  return { start, end: start + match[1]!.length, value: `"${escapeXml(value)}"` }
-}
-
 /** Unknown children — `a:font`, `a:extLst` — sort after every name in the schema sequence. */
 function childRank(order: readonly string[], localName: string): number {
   const index = order.indexOf(localName)
@@ -290,8 +275,10 @@ function fontReplacements(xml: string, theme: Theme, scheme: XmlElement): Replac
         missingScripts.push({ localName: script, xml: fontNodeXml(collectionPrefix, script, typeface) })
         continue
       }
+      // The trimmed comparison is the importer's, so a source that pads a typeface is not a change; the
+      // patcher's own value comparison would call it one.
       if ((node.attributes.typeface ?? '').trim() === typeface) continue
-      replacements.push(attributeReplacement(xml, node, 'typeface', typeface))
+      replacements.push(...attributeReplacements(xml, node, 'typeface', typeface))
     }
     if (missingScripts.length > 0) replacements.push(...insertChildrenXml(xml, collection, themeFontScripts, missingScripts))
   }

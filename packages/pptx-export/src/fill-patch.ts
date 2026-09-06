@@ -1,6 +1,6 @@
 import type { Color, Fill } from '@ppt4ai/model'
 import { serializeColorXml, serializeFillXml } from './standalone-xml.js'
-import { tagEnd, type Replacement, type XmlElement } from './xml-range.js'
+import { attributeReplacements, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 
 /**
  * The comparison and the patching a fill node needs, shared by the two writebacks that own one: the
@@ -100,30 +100,6 @@ export function childReplacement(xml: string, parent: XmlElement, child: XmlElem
     return { start: parent.start, end: openingEnd, value: `${opening.slice(0, -2)}>${value}</${parent.name}>` }
   }
   return { start: openingEnd, end: openingEnd, value }
-}
-
-/**
- * One attribute of an opening tag, patched in place. The whole tag is never rewritten, so the attributes
- * this project does not model stay exactly as the source wrote them. Written for `a:ln` and since reused
- * on `a:outerShdw` and `a:pattFill`, which is why the name says nothing about a line.
- */
-export function attributeReplacements(xml: string, element: XmlElement, name: string, value: string | undefined): Replacement[] {
-  const source = element.attributes[name]
-  if (value === source || (value === undefined && source === undefined)) return []
-  const openingEnd = xml.indexOf('>', element.start)
-  if (openingEnd < 0) throw new Error('PPTX export source line malformed')
-  const existing = new RegExp(`\\s+${name}\\s*=\\s*"[^"]*"`, 'u').exec(xml.slice(element.start, openingEnd))
-  if (value === undefined) {
-    if (!existing) return []
-    const start = element.start + existing.index
-    return [{ start, end: start + existing[0].length, value: '' }]
-  }
-  if (existing) {
-    const start = element.start + existing.index
-    return [{ start, end: start + existing[0].length, value: ` ${name}="${value}"` }]
-  }
-  const nameEnd = element.start + 1 + element.name.length
-  return [{ start: nameEnd, end: nameEnd, value: ` ${name}="${value}"` }]
 }
 
 /**
