@@ -1,38 +1,69 @@
 import { colorTransformValueIsValid, isOoxmlToken, type Color, type Fill, type OuterShadow } from '@ppt4ai/model'
 import type { XmlElement } from './xml-range.js'
 
+/**
+ * Every `EG_ColorChoice` element, `a:hslClr` included even though nothing here can read one: a colour is
+ * found by name in order to be *replaced*, and a colour left beside the new one would break the choice.
+ */
+export const colorChoiceNames = new Set(['srgbClr', 'schemeClr', 'prstClr', 'sysClr', 'scrgbClr', 'hslClr'])
+
+/** Whether the source says what the model says — the other half of the mirror's job. */
+export function colorsEqual(left: Color | undefined, right: Color | undefined): boolean {
+  if (!left || !right) return left === right
+  if (left.type !== right.type || left.v !== right.v) return false
+  const leftTransforms = left.transforms ?? []
+  const rightTransforms = right.transforms ?? []
+  return leftTransforms.length === rightTransforms.length
+    && leftTransforms.every((transform, index) => {
+      const other = rightTransforms[index]
+      return other?.type === transform.type && other.value === transform.value
+    })
+}
 
 /** Mirrors the importer's `parseColor`; see the note in `text-source.ts` on why it is not shared. */
 export function sourceColor(element: XmlElement | undefined): Color | undefined {
+  return sourceColorNode(element)?.color
+}
+
+/**
+ * The colour a wrapper states, together with the node it came from, for the writebacks that patch that
+ * node rather than replace it. The first readable colour wins, which is what the importer's loop does.
+ */
+export function sourceColorNode(element: XmlElement | undefined): { node: XmlElement; color: Color } | undefined {
   if (!element) return undefined
   for (const child of element.children) {
-    let color: Color | undefined
-    if (child.localName === 'srgbClr' && /^[0-9A-F]{6}$/iu.test(child.attributes.val ?? '')) {
-      color = { type: 'srgb', v: (child.attributes.val ?? '').toUpperCase() }
-    } else if (child.localName === 'schemeClr' && child.attributes.val) {
-      color = { type: 'scheme', v: child.attributes.val.trim() }
-    } else if (child.localName === 'prstClr' && child.attributes.val) {
-      color = { type: 'preset', v: child.attributes.val.trim() }
-    } else if (child.localName === 'sysClr' && /^[0-9A-F]{6}$/iu.test(child.attributes.lastClr ?? '')) {
-      color = { type: 'system', v: (child.attributes.lastClr ?? '').toUpperCase() }
-    } else if (child.localName === 'scrgbClr') {
-      const channels = [child.attributes.r, child.attributes.g, child.attributes.b].map((value) => Number(value))
-      if (channels.every((value) => Number.isInteger(value) && value >= 0 && value <= 100000)) {
-        color = { type: 'scrgb', v: channels.join(',') }
-      }
-    }
-    if (!color) continue
-    // Mirrors the importer, including its per-type ranges: comparing a source `satMod` against a model
-    // that dropped it is what used to make an edited colour look unchanged.
-    const transforms = child.children.flatMap((transform) => {
-      if (!isOoxmlToken(transform.localName)) return []
-      if (transform.attributes.val === undefined) return [{ type: transform.localName }]
-      const value = Number(transform.attributes.val)
-      return colorTransformValueIsValid(transform.localName, value) ? [{ type: transform.localName, value }] : []
-    })
-    return transforms.length > 0 ? { ...color, transforms } : color
+    const color = colorOfNode(child)
+    if (color) return { node: child, color }
   }
   return undefined
+}
+
+function colorOfNode(child: XmlElement): Color | undefined {
+  let color: Color | undefined
+  if (child.localName === 'srgbClr' && /^[0-9A-F]{6}$/iu.test(child.attributes.val ?? '')) {
+    color = { type: 'srgb', v: (child.attributes.val ?? '').toUpperCase() }
+  } else if (child.localName === 'schemeClr' && child.attributes.val) {
+    color = { type: 'scheme', v: child.attributes.val.trim() }
+  } else if (child.localName === 'prstClr' && child.attributes.val) {
+    color = { type: 'preset', v: child.attributes.val.trim() }
+  } else if (child.localName === 'sysClr' && /^[0-9A-F]{6}$/iu.test(child.attributes.lastClr ?? '')) {
+    color = { type: 'system', v: (child.attributes.lastClr ?? '').toUpperCase() }
+  } else if (child.localName === 'scrgbClr') {
+    const channels = [child.attributes.r, child.attributes.g, child.attributes.b].map((value) => Number(value))
+    if (channels.every((value) => Number.isInteger(value) && value >= 0 && value <= 100000)) {
+      color = { type: 'scrgb', v: channels.join(',') }
+    }
+  }
+  if (!color) return undefined
+  // Mirrors the importer, including its per-type ranges: comparing a source `satMod` against a model
+  // that dropped it is what used to make an edited colour look unchanged.
+  const transforms = child.children.flatMap((transform) => {
+    if (!isOoxmlToken(transform.localName)) return []
+    if (transform.attributes.val === undefined) return [{ type: transform.localName }]
+    const value = Number(transform.attributes.val)
+    return colorTransformValueIsValid(transform.localName, value) ? [{ type: transform.localName, value }] : []
+  })
+  return transforms.length > 0 ? { ...color, transforms } : color
 }
 
 /**

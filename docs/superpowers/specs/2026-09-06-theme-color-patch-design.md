@@ -64,7 +64,7 @@
 
 ## 6. 验证
 
-`packages/pptx-export/src/theme-color-patch.test.ts`：
+`packages/pptx-export/src/theme-color-patch.test.ts`（13 条）：
 
 - 改颜色 → 只有 `val` 变，`data-keep` 与两个 transform 子元素（含子元素上的 `data-t`）逐字保留
 - 源用单引号写 `val` → 改颜色后仍是单引号，且只有一个 `val`
@@ -72,16 +72,15 @@
 - `a:sysClr` 缺 `val` → 补 `windowText`
 - `a:scrgbClr` 改一个通道 → 另两个与 `data-keep` 不动
 - transform 列表变了 → 子元素整段换掉，颜色元素自己的属性仍在
-- transform 列表清空 → 子元素没了，元素变成自闭合形式之外的空壳（`<a:srgbClr val="…"></a:srgbClr>`）也接受，只断言没有 transform
-- 种类变了（srgb → scheme）→ 元素整块换掉，且色位的 `data-slot` 与兄弟 `a:extLst` 仍在
+- transform 列表清空 → 折回自闭合形式，属性保留
+- 无 `val` 的开关型 transform → 写成 `<a:comp/>`
+- 种类变了（srgb → scheme）→ 元素整块换掉，色位的 `data-slot` 与兄弟 `a:extLst` 仍在
 - 色位里是 `a:hslClr` → 元素被换掉，**色位里只有一个颜色子元素**
-- 源里 `val="zz"` → 不抛，元素被换成模型的颜色
+- 源里 `val="zz"` → 不抛，值被修好且未建模属性保留
 - 自闭合的空色位 `<a:accent1/>` → 展开并写入颜色（既有行为不回退）
-- 未编辑 → 逐字节等于源（源里用单引号与倒序属性写，确保这条有区分力）
+- 未编辑 → 逐字节等于源。源里写 `val='050000'`（与模型同值、但序列化器不会那样拼），所以这条能区分「transform 列表比较坏掉」——否则打补丁的写回在未编辑时几乎必然逐字节相同，这条测试就什么也证明不了
 
-`theme-writeback.test.ts` 三条既有预期按新行为更新：`patches a changed color…`（`customTransform` 现在只在 transform 列表变了时才没）、`resets null colors…`、以及 `a:accent2` 那条插入路径。
-
-区分力：把「种类相同就打补丁」退回整块替换 → 几条标红；把节点查找退回不含 `hslClr` 的名字集合 → `a:hslClr` 那条标红。
+区分力（两次实测）：强制「种类总是不同」（退回整块替换）→ 13 条里 7 条标红；把节点查找退回不含 `hslClr` 的名字集合 → `a:hslClr` 那条标红。
 
 ## 7. 已知限制
 
@@ -90,6 +89,16 @@
 - **`master-layout-writeback.ts` 仍有第二份属性补丁实现**（上一刀的决策 5）。
 - **`fmtScheme` 里的颜色写回仍不存在**：`rewriteThemeXml` 从不访问它，所以那里的颜色既不会被改也不会被写坏（`theme-writeback.test.ts` 已有两条钉着）。
 
-## 8. 实现记录
+## 8. 实现记录（2026-09-06）
 
-待填。
+**没有一条既有测试需要改**。设计里预估 `theme-writeback.test.ts` 三条预期要按新行为更新，实际上打补丁的输出与它们逐字相同——前提是补上了下面这一条。
+
+**清空 transform 时折回自闭合形式**（设计里没有）。第一版把子元素那一段替换成空串，于是 `<a:srgbClr val="4472C4"></a:srgbClr>`：合法、语义相同，但既有预期写的是 `<a:srgbClr val="4472C4"/>`，而且那对空标签本身就是无谓的 churn。改成只把开标签的 `>` 换成 `/>` 并删到 `node.end`，属性一个字节都不碰。设计第 6 节原本还写着「空壳也接受」——那是在给自己留退路，删掉了。
+
+**`colorsEqual` 与 `colorChoiceNames` 的搬家是必要的而不是顺手**：`fill-patch.ts` → `standalone-xml.ts` → `master-layout-writeback.ts` → `fill-patch.ts` 本来就是一个环（早于本条线索），主题写回只需要镜像与比较，不该为此挂上整串。`color-source.ts` 是叶子，两样东西也确实属于镜像契约。
+
+**`parsePercentage` 留在主题里**：它给的是模型侧校验（`validateColor` 检查 `scrgb` 的三个通道），不是读源，所以不随镜像一起走。删掉它是第一版的一个失误，typecheck 当场抓住。
+
+区分力（两次实测）：强制「种类总是不同」→ 7 条标红；节点查找去掉 `hslClr` → 1 条标红。
+
+门禁：2096 项测试、全量 typecheck、全量 build、包边界检查、7 个 e2e 全绿。

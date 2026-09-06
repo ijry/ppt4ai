@@ -1,4 +1,5 @@
 import { colorTransformValueIsValid, isOoxmlToken, DEFAULT_THEME_COLORS, DEFAULT_THEME_FONTS, type Color, type ColorTransform, type Theme, type ThemeColorSlot, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
+import { colorChoiceNames, colorsEqual, sourceColorNode } from './color-source.js'
 import { serializeColorXml } from './standalone-xml.js'
 import { escapeXml } from './text-xml.js'
 import { descendants, attributeReplacements, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
@@ -7,7 +8,6 @@ const themeColorSlots = ['dk1', 'lt1', 'dk2', 'lt2', 'accent1', 'accent2', 'acce
 const themeColorSlotSet = new Set<string>(themeColorSlots)
 const themeFontSlots = ['major', 'minor'] as const
 const themeFontScripts = ['latin', 'ea', 'cs'] as const
-const colorNodeNames = new Set(['srgbClr', 'schemeClr', 'prstClr', 'sysClr', 'scrgbClr'])
 
 function malformedTheme(theme: Theme): Error {
   return new Error(`PPTX export theme source malformed: ${theme.id}`)
@@ -21,82 +21,16 @@ function unsupportedFont(theme: Theme, slot: ThemeFontSlot, script: ThemeFontScr
   return new Error(`PPTX export theme font unsupported: ${theme.id}.${slot}.${script}`)
 }
 
-function parsePercentage(value: string | undefined): number | undefined {
-  if (value === undefined || value.trim() === '') return undefined
-  const number = Number(value)
-  return Number.isFinite(number) && Number.isInteger(number) && number >= 0 && number <= 100000 ? number : undefined
-}
-
 function parseHexColor(value: string | undefined): string | undefined {
   const normalized = value?.trim().toUpperCase()
   return normalized && /^[0-9A-F]{6}$/u.test(normalized) ? normalized : undefined
 }
 
-function parseColor(node: XmlElement): Color | undefined {
-  let color: Color | undefined
-  if (node.localName === 'srgbClr') {
-    const value = parseHexColor(node.attributes.val)
-    if (value) color = { type: 'srgb', v: value }
-  } else if (node.localName === 'schemeClr') {
-    const value = node.attributes.val?.trim()
-    if (value) color = { type: 'scheme', v: value }
-  } else if (node.localName === 'prstClr') {
-    const value = node.attributes.val?.trim()
-    if (value) color = { type: 'preset', v: value }
-  } else if (node.localName === 'sysClr') {
-    const value = parseHexColor(node.attributes.lastClr)
-    if (value) color = { type: 'system', v: value }
-  } else if (node.localName === 'scrgbClr') {
-    const red = parsePercentage(node.attributes.r)
-    const green = parsePercentage(node.attributes.g)
-    const blue = parsePercentage(node.attributes.b)
-    if (red !== undefined && green !== undefined && blue !== undefined) color = { type: 'scrgb', v: `${red},${green},${blue}` }
-  }
-  if (!color) return undefined
-  // The same rule the importer's `parseColorTransforms` uses, so a source `satMod` or a valueless
-  // `a:comp` is read rather than dropped — dropping it made an untouched theme colour compare changed.
-  const transforms: ColorTransform[] = []
-  for (const child of node.children) {
-    if (!isOoxmlToken(child.localName)) continue
-    const raw = child.attributes.val
-    if (raw === undefined) {
-      transforms.push({ type: child.localName })
-      continue
-    }
-    const value = Number(raw)
-    if (raw.trim() !== '' && Number.isInteger(value) && colorTransformValueIsValid(child.localName, value)) {
-      transforms.push({ type: child.localName, value })
-    }
-  }
-  return transforms.length > 0 ? { ...color, transforms } : color
-}
-
-interface SourceColor {
-  node?: XmlElement
-  color?: Color
-  invalidKnownNode: boolean
-}
-
-function sourceColor(slot: XmlElement): SourceColor {
-  let invalidKnownNode = false
-  for (const child of slot.children) {
-    if (!colorNodeNames.has(child.localName)) continue
-    const color = parseColor(child)
-    if (color) return { node: child, color, invalidKnownNode }
-    invalidKnownNode = true
-  }
-  return { invalidKnownNode }
-}
-
-function colorsEqual(left: Color, right: Color): boolean {
-  if (left.type !== right.type || left.v !== right.v) return false
-  const leftTransforms = left.transforms ?? []
-  const rightTransforms = right.transforms ?? []
-  return leftTransforms.length === rightTransforms.length
-    && leftTransforms.every((transform, index) => {
-      const other = rightTransforms[index]
-      return other?.type === transform.type && other.value === transform.value
-    })
+/** A `scrgbClr` channel, on the model's own terms: a thousandth of a percent, integral and in range. */
+function parsePercentage(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === '') return undefined
+  const number = Number(value)
+  return Number.isFinite(number) && Number.isInteger(number) && number >= 0 && number <= 100000 ? number : undefined
 }
 
 function isXmlCharacterAllowed(codePoint: number): boolean {
@@ -289,6 +223,77 @@ function fontReplacements(xml: string, theme: Theme, scheme: XmlElement): Replac
   return replacements
 }
 
+/** The attribute a colour of this type states its value in, and what it should read. */
+function colorValueAttributes(color: Color): Array<[string, string]> {
+  if (color.type === 'system') return [['lastClr', color.v]]
+  if (color.type === 'scrgb') {
+    const channels = color.v.split(',')
+    return [['r', channels[0] ?? '0'], ['g', channels[1] ?? '0'], ['b', channels[2] ?? '0']]
+  }
+  return [['val', color.v]]
+}
+
+const colorElementNames: Readonly<Record<Color['type'], string>> = {
+  srgb: 'srgbClr',
+  scheme: 'schemeClr',
+  preset: 'prstClr',
+  system: 'sysClr',
+  scrgb: 'scrgbClr',
+}
+
+/**
+ * One colour element, patched rather than replaced. Three levels, the same shape the fill patcher
+ * settled on: a different kind of colour swaps the element, since `EG_ColorChoice` is a choice; a changed
+ * value touches only the attribute carrying it, so `a:sysClr/@val` — a system colour name this project
+ * does not model — is not overwritten with a guess; a changed transform list also swaps the children.
+ *
+ * The transforms go as a block rather than one at a time because the mirror skips a token child whose
+ * `val` is out of range, so the i-th child is not the i-th transform, and a type may legally appear twice.
+ */
+function colorNodeReplacements(
+  xml: string,
+  theme: Theme,
+  slot: ThemeColorSlot,
+  node: XmlElement,
+  existing: Color | undefined,
+  color: Color,
+  prefix: string,
+): Replacement[] {
+  if (node.localName !== colorElementNames[color.type]) {
+    return [{ start: node.start, end: node.end, value: serializedColor(theme, slot, color, prefix) }]
+  }
+  const replacements = colorValueAttributes(color).flatMap(([name, value]) => attributeReplacements(xml, node, name, value))
+  // A `sysClr` whose required `val` the source omitted still gets one, the way the serializer writes it.
+  if (color.type === 'system' && node.attributes.val === undefined) {
+    replacements.push(...attributeReplacements(xml, node, 'val', 'windowText'))
+  }
+  const transforms = color.transforms ?? []
+  const before = existing?.transforms ?? []
+  const transformsEqual = before.length === transforms.length
+    && transforms.every((transform, index) => before[index]?.type === transform.type && before[index]?.value === transform.value)
+  if (transformsEqual) return replacements
+  const value = transforms.map((transform) => serializeColorTransform(prefix, transform)).join('')
+  const first = node.children[0]
+  if (!first) {
+    if (value === '') return replacements
+    return [...replacements, isSelfClosing(xml, node)
+      ? expandSelfClosing(xml, node, value)
+      : { start: closingStart(xml, node), end: closingStart(xml, node), value }]
+  }
+  // An emptied colour collapses back to the self-closing form rather than leaving `<a:srgbClr …></a:srgbClr>`,
+  // and only the opening tag's `>` is touched, so its attributes keep their bytes.
+  if (value === '') {
+    const openingEnd = tagEnd(xml, node.start + 1)
+    return [...replacements, { start: openingEnd - 1, end: node.end, value: '/>' }]
+  }
+  return [...replacements, { start: first.start, end: closingStart(xml, node), value }]
+}
+
+function serializeColorTransform(prefix: string, transform: ColorTransform): string {
+  const attribute = transform.value === undefined ? '' : ` val="${escapeXml(String(transform.value))}"`
+  return `<${prefix}${transform.type}${attribute}/>`
+}
+
 export function rewriteThemeXml(source: string, theme: Theme): string {
   let roots: XmlElement[]
   try {
@@ -317,15 +322,18 @@ export function rewriteThemeXml(source: string, theme: Theme): string {
       continue
     }
 
-    const parsed = sourceColor(sourceSlot)
-    if (parsed.invalidKnownNode && !parsed.color) throw malformedTheme(theme)
+    const parsed = sourceColorNode(sourceSlot)
+    if (parsed && colorsEqual(parsed.color, color)) continue
     const prefix = namespacePrefix(sourceSlot.name)
-    const colorXml = serializedColor(theme, slot, color, prefix)
-    if (parsed.color && colorsEqual(parsed.color, color)) continue
-    if (parsed.node) {
-      replacements.push({ start: parsed.node.start, end: parsed.node.end, value: colorXml })
+    // A colour element already there is patched, whichever of `EG_ColorChoice` it is: replacing the node
+    // costs the attributes this project does not model, and appending beside one it cannot read leaves
+    // two colours inside a single slot, which no reader accepts.
+    const existingNode = parsed?.node ?? sourceSlot.children.find((child) => colorChoiceNames.has(child.localName))
+    if (existingNode) {
+      replacements.push(...colorNodeReplacements(source, theme, slot, existingNode, parsed?.color, color, prefix))
       continue
     }
+    const colorXml = serializedColor(theme, slot, color, prefix)
     if (isSelfClosing(source, sourceSlot)) {
       replacements.push(expandSelfClosing(source, sourceSlot, colorXml))
     } else {

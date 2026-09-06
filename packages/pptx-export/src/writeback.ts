@@ -15,8 +15,6 @@ import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } 
 import { decodeXml, descendants, attributeReplacements, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 import {
   childReplacement,
-  colorChoiceNames,
-  colorsEqual,
   fillNodeNames,
   fillNodeReplacements,
   fillsEqual,
@@ -25,7 +23,7 @@ import {
 } from './fill-patch.js'
 import { rewriteThemeXml } from './theme-writeback.js'
 import { rewriteLayoutXml, rewriteMasterXml, rewriteSlideColorMapXml } from './master-layout-writeback.js'
-import { sourceColor, sourceFill, sourceOuterShadow } from './color-source.js'
+import { colorChoiceNames, colorsEqual, sourceColor, sourceFill, sourceOuterShadow } from './color-source.js'
 import { sourceCustomGeometry } from './geometry-source.js'
 import { sourceTextBody } from './text-source.js'
 

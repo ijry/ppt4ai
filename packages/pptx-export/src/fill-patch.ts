@@ -1,4 +1,5 @@
 import type { Color, Fill } from '@ppt4ai/model'
+import { colorChoiceNames, colorsEqual } from './color-source.js'
 import { serializeColorXml, serializeFillXml } from './standalone-xml.js'
 import { attributeReplacements, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 
@@ -9,24 +10,6 @@ import { attributeReplacements, tagEnd, type Replacement, type XmlElement } from
  */
 
 export const fillNodeNames = new Set(['noFill', 'solidFill', 'gradFill', 'blipFill', 'pattFill', 'grpFill'])
-
-/**
- * Every `EG_ColorChoice` element, `a:hslClr` included even though nothing here can read one: a colour is
- * found by name in order to be *replaced*, and a colour left beside the new one would break the choice.
- */
-export const colorChoiceNames = new Set(['srgbClr', 'schemeClr', 'prstClr', 'sysClr', 'scrgbClr', 'hslClr'])
-
-export function colorsEqual(left: Color | undefined, right: Color | undefined): boolean {
-  if (!left || !right) return left === right
-  if (left.type !== right.type || left.v !== right.v) return false
-  const leftTransforms = left.transforms ?? []
-  const rightTransforms = right.transforms ?? []
-  return leftTransforms.length === rightTransforms.length
-    && leftTransforms.every((transform, index) => {
-      const other = rightTransforms[index]
-      return other?.type === transform.type && other.value === transform.value
-    })
-}
 
 export function gradientsEqual(left: Fill['gradient'], right: Fill['gradient']): boolean {
   if (!left || !right) return left === right
