@@ -1,6 +1,6 @@
 import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type AdjustValue, type CustomGeometry, type DashSegment, type Fill, type GroupElement, type ImageElement, type OuterShadow, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeElement, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
-import { serializeColorXml, serializeCustomGeometry, serializeFillXml, serializeShadowXml, serializeTextBodyXml } from './standalone-xml.js'
+import { serializeColorXml, serializeCustomGeometry, serializeFillXml, serializeShadowXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
 import {
   allocateMediaPath,
@@ -26,6 +26,7 @@ import { rewriteLayoutXml, rewriteMasterXml, rewriteSlideColorMapXml } from './m
 import { colorChoiceNames, colorsEqual, sourceColor, sourceFill, sourceOuterShadow } from './color-source.js'
 import { sourceCustomGeometry } from './geometry-source.js'
 import { sourceTextBody } from './text-source.js'
+import { textBodyReplacements } from './text-body-patch.js'
 
 interface SlideRelationship {
   id: string
@@ -1335,12 +1336,7 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
       if (sourceBodyElement) {
         if (element.kind !== 'text') throw new Error(`PPTX export text source mismatch for element ${element.id}`)
         const body = textBodyForElement(element)
-        // Both sides go through the same serializer, so field order and omission rules normalize
-        // themselves. Comparing against the raw source XML instead would rewrite every txBody,
-        // since the source's own formatting and attribute order will not match ours.
-        if (source.sourceBody === undefined || serializeTextBodyXml(body) !== serializeTextBodyXml(source.sourceBody)) {
-          replacements.push({ start: sourceBodyElement.start, end: sourceBodyElement.end, value: serializeTextBodyXml(body) })
-        }
+        replacements.push(...textBodyReplacements(xml, sourceBodyElement, source.sourceBody, body))
         // A shape with no `a:xfrm` inherits its position, so a moved one needs the node created rather
         // than patched — the two paths are exclusive, since `sourceBounds` is what decides.
         if (sourceBounds(sourceElement) === undefined) {

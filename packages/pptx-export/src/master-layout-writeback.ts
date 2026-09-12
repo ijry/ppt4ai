@@ -9,6 +9,7 @@ import {
   serializeFillPrefixed,
 } from './fill-patch.js'
 import { sourceTextBody } from './text-source.js'
+import { textBodyReplacements } from './text-body-patch.js'
 import { decodeXml, descendants, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
@@ -383,26 +384,21 @@ function strokeReplacements(xml: string, shape: XmlElement, stroke: Fill | undef
   return [{ start: insertion, end: insertion, value: `<${drawingPrefix(shape)}ln>${value}</${drawingPrefix(shape)}ln>` }]
 }
 
-/**
- * A placeholder default body is rewritten only when it differs from the source, compared through the
- * same serializer on both sides -- the same judgement `replaceSlideTables` uses. The old plain-text
- * comparison could not see a formatting change, and unconditionally rewriting would drop whatever
- * the source holds that we do not model (`a:lstStyle`, `a:defRPr`, unknown children).
- */
+/** Existing text bodies use the same part-by-part patch as a slide's own text shape. */
 function textReplacements(xml: string, shape: XmlElement, defaults: ElementDefaults, kind: string, id: string): Replacement[] {
   const hasBody = defaults.body !== undefined
   const hasText = !hasBody && Object.prototype.hasOwnProperty.call(defaults, 'text') && defaults.text !== undefined
   if (!hasBody && !hasText) return []
-  const body = hasBody ? defaults.body! : { paragraphs: [{ runs: defaults.text ? [{ text: defaults.text }] : [] }] }
-  if (hasBody) {
-    const current = sourceTextBody(shape)
-    if (current && serializeTextBodyXml(current) === serializeTextBodyXml(body)) return []
-  } else if (sourceText(shape) === defaults.text) return []
+  if (hasText && sourceText(shape) === defaults.text) return []
+  const current = sourceTextBody(shape)
+  // The sparse legacy text field edits paragraphs, not the placeholder's text-frame properties.
+  const body: TextBody = hasBody ? defaults.body! : {
+    ...(current?.bodyPr ? { bodyPr: current.bodyPr } : {}),
+    paragraphs: [{ runs: defaults.text ? [{ text: defaults.text }] : [] }],
+  }
   const sourceBody = descendants(shape.children, 'txBody')[0]
-  const presentationPrefix = sourceBody ? namespacePrefix(sourceBody.name) : namespacePrefix(shape.name)
-  const drawing = sourceBody?.children.find((child) => child.localName === 'bodyPr' || child.localName === 'p')
-  const value = qualifyTextBody(serializeTextBodyXml(body), presentationPrefix, drawing ? namespacePrefix(drawing.name) : drawingPrefix(shape))
-  if (sourceBody) return [{ start: sourceBody.start, end: sourceBody.end, value }]
+  if (sourceBody) return textBodyReplacements(xml, sourceBody, current, body, drawingPrefix(shape))
+  const value = qualifyTextBody(serializeTextBodyXml(body), namespacePrefix(shape.name), drawingPrefix(shape))
   return [insertElementContent(xml, shape, value, kind, id)]
 }
 
