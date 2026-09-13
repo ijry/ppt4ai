@@ -163,9 +163,8 @@ const matrixTheme = '<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Cu
   + '</a:lnStyleLst></a:fmtScheme></a:themeElements></a:theme>'
 
 /**
- * The width and dash are read into the model but never written back, which only holds because
- * writeback never touches `fmtScheme`. The second entry's `lgDashDot` collapsed to `dash` on
- * import, so emitting the model value here would lose the source's own token.
+ * Fill and background slots now have source writeback; line and effect styles are still deferred.
+ * lgDashDot is modeled verbatim, so this fixture must describe what the importer actually reads.
  */
 describe('rewriteThemeXml format scheme', () => {
   it('leaves the line style list untouched when a colour changes', () => {
@@ -174,8 +173,8 @@ describe('rewriteThemeXml format scheme', () => {
       colors: { accent1: { type: 'srgb', v: 'FF0000' } },
       formatScheme: {
         lineStyles: [
-          { color: { type: 'scheme', v: 'phClr' }, width: 6350 },
-          { color: { type: 'scheme', v: 'phClr' }, width: 12700, style: 'dash' },
+          { color: { type: 'scheme', v: 'phClr' }, width: 6350, cap: 'flat', compound: 'sng', align: 'ctr' },
+          { color: { type: 'scheme', v: 'phClr' }, width: 12700, style: 'lgDashDot' },
         ],
       },
     })
@@ -187,19 +186,19 @@ describe('rewriteThemeXml format scheme', () => {
   })
 
   /**
-   * `satMod` is not in `ColorTransformType`, so the model dropped it on import. Writeback never
-   * visits `fmtScheme`, which is the only reason the source gradient survives it intact.
+   * satMod has been modeled since the transform-token slice. Supplying a model without it is an
+   * edit, not an unchanged import: mirror the current importer to test source preservation.
    */
-  it('leaves a gradient fill entry untouched, unmodeled transforms and all', () => {
+  it('leaves an unedited gradient entry untouched when its modeled transforms match', () => {
     const rewritten = rewriteThemeXml(matrixTheme, {
       id: 'theme_1',
       colors: { accent1: { type: 'srgb', v: 'FF0000' } },
       formatScheme: {
         fillStyles: [{
-          color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'tint', value: 67000 }] },
+          color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'satMod', value: 105000 }, { type: 'tint', value: 67000 }] },
           gradient: {
             stops: [
-              { pos: 0, color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'tint', value: 67000 }] } },
+              { pos: 0, color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'satMod', value: 105000 }, { type: 'tint', value: 67000 }] } },
               { pos: 100000, color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'shade', value: 100000 }] } },
             ],
             angle: 5400000,
@@ -209,11 +208,10 @@ describe('rewriteThemeXml format scheme', () => {
       },
     })
 
-    expect(rewritten).toContain('<a:gradFill rotWithShape="1">')
-    expect(rewritten).toContain('<a:satMod val="105000"/>')
+    expect(rewritten).toBe(matrixTheme.replace('val="336699"', 'val="FF0000"'))
   })
 
-  it('returns the exact source when only the format scheme is modeled', () => {
+  it('returns the exact source when only the deferred line styles are supplied', () => {
     expect(rewriteThemeXml(matrixTheme, {
       id: 'theme_1',
       colors: { accent1: { type: 'srgb', v: '336699' } },

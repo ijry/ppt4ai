@@ -1,5 +1,6 @@
-import { colorTransformValueIsValid, isOoxmlToken, DEFAULT_THEME_COLORS, DEFAULT_THEME_FONTS, type Color, type ColorTransform, type Theme, type ThemeColorSlot, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
-import { colorChoiceNames, colorsEqual, sourceColorNode } from './color-source.js'
+import { colorTransformValueIsValid, isOoxmlToken, DEFAULT_THEME_COLORS, DEFAULT_THEME_FONTS, type Color, type ColorTransform, type Fill, type Theme, type ThemeColorSlot, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
+import { colorChoiceNames, colorsEqual, sourceColorNode, sourceFill } from './color-source.js'
+import { fillNodeNames, fillNodeReplacements, fillsEqual, serializeFillPrefixed } from './fill-patch.js'
 import { serializeColorXml } from './standalone-xml.js'
 import { escapeXml } from './text-xml.js'
 import { descendants, attributeReplacements, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
@@ -105,6 +106,105 @@ function validateColor(theme: Theme, slot: string, value: unknown): Color {
     ...(color.systemName === undefined ? {} : { systemName: color.systemName }),
     ...(transforms ? { transforms } : {}),
   }
+}
+
+function unsupportedFormatFill(theme: Theme, field: string): Error {
+  return new Error('PPTX export theme format fill unsupported: ' + theme.id + '.' + field)
+}
+
+function isPercentage(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100000
+}
+
+/** The same color normalization as clrScheme, also applied to every stop and pattern color. */
+function validateStyleFill(theme: Theme, field: string, value: Fill): Fill {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw unsupportedFormatFill(theme, field)
+  const color = validateColor(theme, field + '.color', value.color)
+  const gradient = value.gradient
+  if (gradient !== undefined) {
+    if (!gradient || typeof gradient !== 'object' || Array.isArray(gradient)
+      || !Array.isArray(gradient.stops) || gradient.stops.length < 2) throw unsupportedFormatFill(theme, field)
+    const stops = gradient.stops.map((stop) => {
+      if (!stop || !isPercentage(stop.pos)) throw unsupportedFormatFill(theme, field)
+      return { pos: stop.pos, color: validateColor(theme, field + '.gradient.stops', stop.color) }
+    })
+    if (gradient.angle !== undefined && !Number.isInteger(gradient.angle)) throw unsupportedFormatFill(theme, field)
+    if (gradient.scaled !== undefined && typeof gradient.scaled !== 'boolean') throw unsupportedFormatFill(theme, field)
+    if (gradient.path !== undefined && !['circle', 'rect', 'shape'].includes(gradient.path)) throw unsupportedFormatFill(theme, field)
+    const rect = gradient.fillToRect
+    if (rect !== undefined) {
+      if (!rect || typeof rect !== 'object' || Array.isArray(rect)) throw unsupportedFormatFill(theme, field)
+      for (const side of ['left', 'top', 'right', 'bottom'] as const) {
+        if (rect[side] !== undefined && !isPercentage(rect[side])) throw unsupportedFormatFill(theme, field)
+      }
+    }
+    return { color, gradient: { ...gradient, stops } }
+  }
+  const pattern = value.pattern
+  if (pattern !== undefined) {
+    if (!pattern || typeof pattern !== 'object' || Array.isArray(pattern) || !isOoxmlToken(pattern.preset)) throw unsupportedFormatFill(theme, field)
+    return {
+      color,
+      pattern: {
+        preset: pattern.preset,
+        foreground: validateColor(theme, field + '.pattern.foreground', pattern.foreground),
+        background: validateColor(theme, field + '.pattern.background', pattern.background),
+      },
+    }
+  }
+  return { color }
+}
+
+/** A kind change must carry a prefix binding that was declared only on the old fill node. */
+function keepFillNamespace(node: XmlElement, replacement: Replacement): Replacement {
+  if (replacement.start !== node.start || replacement.end !== node.end) return replacement
+  const prefix = namespacePrefix(node.name)
+  const declaration = prefix ? 'xmlns:' + prefix.slice(0, -1) : 'xmlns'
+  const namespace = node.attributes[declaration]
+  if (namespace === undefined) return replacement
+  return {
+    ...replacement,
+    value: replacement.value.replace(/^<[^\s/>]+/u, (opening) => opening + ' ' + declaration + '="' + escapeXml(namespace) + '"'),
+  }
+}
+
+/**
+ * Only existing fill/background slots are writable here. Match the importer's all-children indexing:
+ * a picture or unknown child occupies a null slot too, and filtering it out would shift later edits.
+ * Missing/extra entries do not change the list structure. Null clears a readable fill, but cannot
+ * distinguish an imported picture/unknown fill from an intentional edit, so those stay in the source.
+ */
+function formatFillReplacements(source: string, roots: XmlElement[], theme: Theme): Replacement[] {
+  const scheme = descendants(roots, 'fmtScheme')[0]
+  if (!scheme || !theme.formatScheme) return []
+  const replacements: Replacement[] = []
+  for (const [key, tag] of [['fillStyles', 'fillStyleLst'], ['backgroundStyles', 'bgFillStyleLst']] as const) {
+    const entries = theme.formatScheme[key]
+    if (entries === undefined) continue
+    if (!Array.isArray(entries)) throw unsupportedFormatFill(theme, 'formatScheme.' + key)
+    const list = scheme.children.find((child) => child.localName === tag)
+    if (!list) continue
+    for (const [index, node] of list.children.entries()) {
+      const entry = entries[index]
+      if (entry === undefined || !fillNodeNames.has(node.localName)) continue
+      const existing = sourceFill(node)
+      if (entry === null) {
+        if (existing) replacements.push(keepFillNamespace(node, {
+          start: node.start, end: node.end, value: '<' + namespacePrefix(node.name) + 'noFill/>',
+        }))
+        continue
+      }
+      const fill = validateStyleFill(theme, 'formatScheme.' + key + '[' + index + ']', entry)
+      if (fillsEqual(existing, fill)) continue
+      // An imported null has no modeled parts to preserve. An explicit replacement may therefore
+      // rebuild that slot, also avoiding overlapping child insertions into an empty source node.
+      const patches = existing ? fillNodeReplacements(source, node, existing, fill) : [{
+        start: node.start, end: node.end, value: serializeFillPrefixed(fill, namespacePrefix(node.name)),
+      }]
+      replacements.push(...patches.map((replacement) => keepFillNamespace(node, replacement)))
+    }
+  }
+  return replacements
 }
 
 function namespacePrefix(name: string): string {
@@ -366,6 +466,8 @@ export function rewriteThemeXml(source: string, theme: Theme): string {
     if (!fontScheme) throw malformedTheme(theme)
     replacements.push(...fontReplacements(source, theme, fontScheme))
   }
+
+  replacements.push(...formatFillReplacements(source, roots, theme))
 
   return replacements.length > 0 ? replaceRanges(source, replacements) : source
 }

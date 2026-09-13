@@ -4,8 +4,8 @@ import { serializeColorXml, serializeFillXml } from './standalone-xml.js'
 import { attributeReplacements, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 
 /**
- * The comparison and the patching a fill node needs, shared by the two writebacks that own one: the
- * slide's own shapes and a master or layout's placeholder defaults. It lives in its own module because
+ * The comparison and patching a fill node needs, shared by slide shapes, master/layout placeholder
+ * defaults and the theme's fill/background style slots. It lives in its own module because
  * `writeback.ts` imports `master-layout-writeback.ts`, so the shared half cannot sit in either.
  */
 
@@ -109,7 +109,7 @@ export function sameKindFillPatches(xml: string, fillNode: XmlElement, existing:
   const kind = fillKind(fill)
   // A stroke's fill sits inside `a:ln`, and a placeholder's inside a part that may carry another prefix,
   // so every emitted fragment takes the node's own — the reason `serializeFillForLine` exists too.
-  const prefix = namespacePrefix(fillNode.name) || 'a:'
+  const prefix = namespacePrefix(fillNode.name)
   const reprefix = (value: string): string => reprefixed(value, prefix)
 
   if (kind === 'solid') {
@@ -148,8 +148,9 @@ export function sameKindFillPatches(xml: string, fillNode: XmlElement, existing:
     replacements.push(childReplacement(xml, fillNode, named('gsLst'), reprefix(list)))
   }
   // `a:lin` and `a:path` are a choice, so a change of form replaces whichever one is there.
+  // A one-stop source imports as a flat fill, so its old axis is not the new gradient's geometry.
   const wantsPath = gradient.path !== undefined
-  const formChanged = (before?.path !== undefined) !== wantsPath
+  const formChanged = before === undefined || (before.path !== undefined) !== wantsPath
     || (!wantsPath && ((before?.angle ?? 0) !== (gradient.angle ?? 0) || (before?.scaled ?? false) !== (gradient.scaled ?? false)))
     || (wantsPath && (before?.path !== gradient.path || !fillToRectsEqual(before?.fillToRect, gradient.fillToRect)))
   if (formChanged) {
