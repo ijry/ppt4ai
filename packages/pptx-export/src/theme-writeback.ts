@@ -1,6 +1,7 @@
 import { colorTransformValueIsValid, isOoxmlToken, DEFAULT_THEME_COLORS, DEFAULT_THEME_FONTS, type Color, type ColorTransform, type Fill, type Theme, type ThemeColorSlot, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
 import { colorChoiceNames, colorsEqual, sourceColorNode, sourceFill } from './color-source.js'
 import { fillNodeNames, fillNodeReplacements, fillsEqual, serializeFillPrefixed } from './fill-patch.js'
+import { themeLineReplacements, validateLineProperties } from './theme-line-patch.js'
 import { serializeColorXml } from './standalone-xml.js'
 import { escapeXml } from './text-xml.js'
 import { descendants, attributeReplacements, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
@@ -203,6 +204,27 @@ function formatFillReplacements(source: string, roots: XmlElement[], theme: Them
       }]
       replacements.push(...patches.map((replacement) => keepFillNamespace(node, replacement)))
     }
+  }
+  return replacements
+}
+
+/** Line entries keep the same positional map as the imported fill lists, including null slots. */
+function formatLineReplacements(source: string, roots: XmlElement[], theme: Theme): Replacement[] {
+  const scheme = descendants(roots, 'fmtScheme')[0]
+  const entries = theme.formatScheme?.lineStyles
+  if (!scheme || entries === undefined) return []
+  if (!Array.isArray(entries)) throw new Error('PPTX export theme line unsupported: ' + theme.id + '.formatScheme.lineStyles')
+  const list = scheme.children.find((child) => child.localName === 'lnStyleLst')
+  const replacements: Replacement[] = []
+  for (const [index, node] of (list?.children ?? []).entries()) {
+    const entry = entries[index]
+    if (entry === undefined || node.localName !== 'ln') continue
+    const field = 'formatScheme.lineStyles[' + index + ']'
+    const line = entry === null ? null : {
+      ...validateStyleFill(theme, field, entry),
+      ...validateLineProperties(entry, theme.id + '.' + field),
+    }
+    replacements.push(...themeLineReplacements(source, node, line))
   }
   return replacements
 }
@@ -468,6 +490,7 @@ export function rewriteThemeXml(source: string, theme: Theme): string {
   }
 
   replacements.push(...formatFillReplacements(source, roots, theme))
+  replacements.push(...formatLineReplacements(source, roots, theme))
 
   return replacements.length > 0 ? replaceRanges(source, replacements) : source
 }

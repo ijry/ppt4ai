@@ -274,13 +274,13 @@ describe('format scheme writeback boundaries and source preservation', () => {
     expect(rewriteThemeXml(withEmpty, model)).toBe(withEmpty)
   })
 
-  it('does not overwrite unknown slot kinds or touch line and effect entries', async () => {
+  it('keeps unknown fill and effect entries intact while writing a line width edit', async () => {
     const { source, document, scheme } = await fixture()
     scheme.fillStyles![4] = { color: { type: 'srgb', v: 'FF0000' } }
     scheme.lineStyles![0]!.width = 25400
     scheme.effectStyles![0] = { color: { type: 'srgb', v: '000000' }, distance: 20000 }
 
-    expect(await themeOf(await exportPptx(document, source))).toBe(themeXml())
+    expect(await themeOf(await exportPptx(document, source))).toBe(themeXml().replace('w="6350"', 'w="25400"'))
   })
 
   it('uses an existing default namespace rather than inventing an unbound a prefix', async () => {

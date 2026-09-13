@@ -163,7 +163,7 @@ const matrixTheme = '<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Cu
   + '</a:lnStyleLst></a:fmtScheme></a:themeElements></a:theme>'
 
 /**
- * Fill and background slots now have source writeback; line and effect styles are still deferred.
+ * Fill, background and line slots now have source writeback; effect styles are still deferred.
  * lgDashDot is modeled verbatim, so this fixture must describe what the importer actually reads.
  */
 describe('rewriteThemeXml format scheme', () => {
@@ -211,11 +211,11 @@ describe('rewriteThemeXml format scheme', () => {
     expect(rewritten).toBe(matrixTheme.replace('val="336699"', 'val="FF0000"'))
   })
 
-  it('returns the exact source when only the deferred line styles are supplied', () => {
+  it('returns the exact source when only an unchanged prefix of the line list is supplied', () => {
     expect(rewriteThemeXml(matrixTheme, {
       id: 'theme_1',
       colors: { accent1: { type: 'srgb', v: '336699' } },
-      formatScheme: { lineStyles: [{ color: { type: 'scheme', v: 'phClr' }, width: 6350 }] },
+      formatScheme: { lineStyles: [{ color: { type: 'scheme', v: 'phClr' }, width: 6350, cap: 'flat', compound: 'sng', align: 'ctr' }] },
     })).toBe(matrixTheme)
   })
 })
