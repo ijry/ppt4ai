@@ -67,7 +67,7 @@ describe('theme effect styles in standalone generation', () => {
   })
 })
 
-/** Decision 5: a partial model must not rewrite entries that carry effects it cannot express. */
+/** Modeled outer shadows can change without rebuilding the other effects in their source slots. */
 describe('theme effect styles in source writeback', () => {
   const sourceTheme = '<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Custom"><a:accent1><a:srgbClr val="336699"/></a:accent1></a:clrScheme>'
     + '<a:fmtScheme name="Custom"><a:effectStyleLst><a:effectStyle><a:effectLst><a:glow rad="63500"><a:srgbClr val="FF0000"/></a:glow></a:effectLst></a:effectStyle>'
@@ -81,7 +81,11 @@ describe('theme effect styles in source writeback', () => {
     expect(rewritten).toContain(sourceTheme.slice(sourceTheme.indexOf('<a:effectStyleLst>'), sourceTheme.indexOf('</a:effectStyleLst>') + '</a:effectStyleLst>'.length))
   })
 
-  it('returns the source untouched when the model adds effect entries it did not have', () => {
-    expect(rewriteThemeXml(sourceTheme, { id: 'theme_1', colors: {}, formatScheme: theme.formatScheme ?? {} })).toBe(sourceTheme)
+  it('writes the modeled shadow changes while retaining unmodeled effects and shadow attributes', () => {
+    const output = rewriteThemeXml(sourceTheme, { id: 'theme_1', colors: {}, formatScheme: theme.formatScheme ?? {} })
+
+    expect(output).toBe(sourceTheme
+      .replace('<a:outerShdw blurRad="57150"', '<a:outerShdw dist="19050" dir="5400000" blurRad="57150"')
+      .replace('<a:srgbClr val="000000"/>', '<a:srgbClr val="000000"><a:alpha val="63000"/></a:srgbClr>'))
   })
 })

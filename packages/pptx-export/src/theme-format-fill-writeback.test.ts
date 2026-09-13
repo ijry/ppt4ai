@@ -274,13 +274,15 @@ describe('format scheme writeback boundaries and source preservation', () => {
     expect(rewriteThemeXml(withEmpty, model)).toBe(withEmpty)
   })
 
-  it('keeps unknown fill and effect entries intact while writing a line width edit', async () => {
+  it('preserves unknown fill and glow content while writing line and shadow edits', async () => {
     const { source, document, scheme } = await fixture()
     scheme.fillStyles![4] = { color: { type: 'srgb', v: 'FF0000' } }
     scheme.lineStyles![0]!.width = 25400
     scheme.effectStyles![0] = { color: { type: 'srgb', v: '000000' }, distance: 20000 }
 
-    expect(await themeOf(await exportPptx(document, source))).toBe(themeXml().replace('w="6350"', 'w="25400"'))
+    expect(await themeOf(await exportPptx(document, source))).toBe(themeXml()
+      .replace('w="6350"', 'w="25400"')
+      .replace('</d:glow>', '</d:glow><d:outerShdw dist="20000"><d:srgbClr val="000000"/></d:outerShdw>'))
   })
 
   it('uses an existing default namespace rather than inventing an unbound a prefix', async () => {

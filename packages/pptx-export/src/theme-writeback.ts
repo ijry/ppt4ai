@@ -1,6 +1,7 @@
-import { colorTransformValueIsValid, isOoxmlToken, DEFAULT_THEME_COLORS, DEFAULT_THEME_FONTS, type Color, type ColorTransform, type Fill, type Theme, type ThemeColorSlot, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
+import { colorTransformValueIsValid, isOoxmlToken, DEFAULT_THEME_COLORS, DEFAULT_THEME_FONTS, type Color, type ColorTransform, type Fill, type OuterShadow, type Theme, type ThemeColorSlot, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
 import { colorChoiceNames, colorsEqual, sourceColorNode, sourceFill } from './color-source.js'
 import { fillNodeNames, fillNodeReplacements, fillsEqual, serializeFillPrefixed } from './fill-patch.js'
+import { themeEffectReplacements } from './theme-effect-patch.js'
 import { themeLineReplacements, validateLineProperties } from './theme-line-patch.js'
 import { serializeColorXml } from './standalone-xml.js'
 import { escapeXml } from './text-xml.js'
@@ -225,6 +226,39 @@ function formatLineReplacements(source: string, roots: XmlElement[], theme: Them
       ...validateLineProperties(entry, theme.id + '.' + field),
     }
     replacements.push(...themeLineReplacements(source, node, line))
+  }
+  return replacements
+}
+
+function validateStyleShadow(theme: Theme, field: string, value: OuterShadow): OuterShadow {
+  const fail = (name = ''): never => { throw new Error('PPTX export theme effect unsupported: ' + theme.id + '.' + field + name) }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail()
+  const color = validateColor(theme, field + '.color', value.color)
+  for (const key of ['blurRadius', 'distance', 'direction'] as const) {
+    const measurement = value[key]
+    if (measurement !== undefined && (!Number.isInteger(measurement) || (key !== 'direction' && measurement < 0))) fail('.' + key)
+  }
+  return {
+    color,
+    ...(value.blurRadius === undefined ? {} : { blurRadius: value.blurRadius }),
+    ...(value.distance === undefined ? {} : { distance: value.distance }),
+    ...(value.direction === undefined ? {} : { direction: value.direction }),
+  }
+}
+
+/** Preserve the importer's full positional map; unknown and omitted slots are not reinterpreted. */
+function formatEffectReplacements(source: string, roots: XmlElement[], theme: Theme): Replacement[] {
+  const scheme = descendants(roots, 'fmtScheme')[0]
+  const entries = theme.formatScheme?.effectStyles
+  if (!scheme || entries === undefined) return []
+  if (!Array.isArray(entries)) throw new Error('PPTX export theme effect unsupported: ' + theme.id + '.formatScheme.effectStyles')
+  const list = scheme.children.find((child) => child.localName === 'effectStyleLst')
+  const replacements: Replacement[] = []
+  for (const [index, node] of (list?.children ?? []).entries()) {
+    const entry = entries[index]
+    if (entry === undefined || node.localName !== 'effectStyle') continue
+    const shadow = entry === null ? null : validateStyleShadow(theme, 'formatScheme.effectStyles[' + index + ']', entry)
+    replacements.push(...themeEffectReplacements(source, node, shadow))
   }
   return replacements
 }
@@ -491,6 +525,7 @@ export function rewriteThemeXml(source: string, theme: Theme): string {
 
   replacements.push(...formatFillReplacements(source, roots, theme))
   replacements.push(...formatLineReplacements(source, roots, theme))
+  replacements.push(...formatEffectReplacements(source, roots, theme))
 
   return replacements.length > 0 ? replaceRanges(source, replacements) : source
 }

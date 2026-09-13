@@ -163,7 +163,7 @@ const matrixTheme = '<a:theme xmlns:a="a"><a:themeElements><a:clrScheme name="Cu
   + '</a:lnStyleLst></a:fmtScheme></a:themeElements></a:theme>'
 
 /**
- * Fill, background and line slots now have source writeback; effect styles are still deferred.
+ * All four modeled format lists now support source writeback; unmodeled effects remain source-owned.
  * lgDashDot is modeled verbatim, so this fixture must describe what the importer actually reads.
  */
 describe('rewriteThemeXml format scheme', () => {
