@@ -1,9 +1,9 @@
 import { importPptx } from '@ppt4ai/pptx-import'
-import { resolveSlideBackground, resolveStyleFill, resolveStyleLine, resolveStyleLineStroke, type Ppt4aiDocument, type Theme } from '@ppt4ai/model'
+import { resolveSlideBackground, resolveStyleFill, resolveStyleLine, resolveStyleLineStroke, type Ppt4aiDocument, type Theme, type ThemeLineStyleEntry } from '@ppt4ai/model'
 import { describe, expect, it } from 'vitest'
-import { createPptx } from './index.js'
+import { createPptx, exportPptx } from './index.js'
 import { serializeThemeXml } from './standalone-xml.js'
-import { readZipEntries } from './zip.js'
+import { readZipEntries, writeStoredZip } from './zip.js'
 
 const phClr = { color: { type: 'scheme' as const, v: 'phClr' } }
 
@@ -219,5 +219,104 @@ describe('standalone format scheme in the package', () => {
 
     expect(theme).toContain('<a:prstDash val="dash"/>')
     expect(theme).not.toContain('<a:lnStyleLst/>')
+  })
+})
+
+const supportedLineFills: ThemeLineStyleEntry[] = [
+  {
+    color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'satMod', value: 150000 }] },
+    gradient: {
+      stops: [
+        { pos: 0, color: { type: 'scheme', v: 'phClr', transforms: [{ type: 'satMod', value: 150000 }] } },
+        { pos: 100000, color: { type: 'system', v: 'FFFFFF', systemName: 'window', transforms: [{ type: 'alpha', value: 50000 }] } },
+      ],
+      angle: 5400000, scaled: false,
+    },
+    width: 12700, style: 'lgDashDot', cap: 'rnd', join: 'miter', miterLimit: 400000, compound: 'dbl', align: 'in',
+  },
+  null,
+  {
+    color: { type: 'scheme', v: 'phClr' },
+    pattern: { preset: 'pct10', foreground: { type: 'scheme', v: 'phClr' }, background: { type: 'srgb', v: 'FFFFFF' } },
+    width: 25400, style: { custom: [{ dash: 400000, space: 200000 }] }, cap: 'sq', join: 'round', compound: 'thickThin', align: 'ctr',
+  },
+  {
+    color: { type: 'srgb', v: '112233' },
+    gradient: {
+      stops: [{ pos: 0, color: { type: 'srgb', v: '112233' } }, { pos: 100000, color: { type: 'srgb', v: '445566' } }],
+      path: 'circle', fillToRect: { left: 25000, top: 10000, right: 25000, bottom: 10000 },
+    },
+    width: 19050, cap: 'flat', join: 'bevel',
+  },
+]
+
+function nonSolidLineDocument(): Ppt4aiDocument {
+  const result = structuredClone(document)
+  result.themes!['theme-1']!.formatScheme = { lineStyles: structuredClone(supportedLineFills) }
+  const shape = result.elements.el_shape
+  if (shape?.kind !== 'shape') throw new Error('fixture shape is missing')
+  shape.styleRef!.line!.idx = 3
+  return result
+}
+
+function lineListXml(xml: string): string {
+  const start = xml.indexOf('<a:lnStyleLst>')
+  const end = xml.indexOf('</a:lnStyleLst>')
+  if (start < 0 || end < 0) throw new Error('theme line list is missing')
+  return xml.slice(start, end + '</a:lnStyleLst>'.length)
+}
+
+describe('non-solid theme lines survive import and another standalone generation', () => {
+  // The source serializer already writes these fills; an importer that only sees solidFill nulls them.
+  it.each([
+    { kind: 'linear gradient', index: 0 },
+    { kind: 'pattern', index: 2 },
+    { kind: 'radial gradient', index: 3 },
+  ])('keeps the $kind and its line properties through both imports', async ({ index }) => {
+    const first = await importPptx(await createPptx(nonSolidLineDocument()))
+    expect(Object.values(first.themes ?? {})[0]?.formatScheme?.lineStyles?.[index]).toEqual(supportedLineFills[index])
+
+    const second = await importPptx(await createPptx(first))
+    expect(Object.values(second.themes ?? {})[0]?.formatScheme?.lineStyles?.[index]).toEqual(supportedLineFills[index])
+  })
+
+  it('does not turn the valid lines into noFill on the second export', async () => {
+    const first = await createPptx(nonSolidLineDocument())
+    const second = await createPptx(await importPptx(first))
+
+    expect(lineListXml(await themePartOf(second))).toBe(lineListXml(await themePartOf(first)))
+  })
+
+  it('keeps a line reference after a null slot on the same patterned line after two generations', async () => {
+    const first = await importPptx(await createPptx(nonSolidLineDocument()))
+    const second = await importPptx(await createPptx(first))
+    const theme = Object.values(second.themes ?? {})[0]
+    const lines = theme?.formatScheme?.lineStyles
+    expect(lines).toHaveLength(4)
+    expect(lines?.[1]).toBeNull()
+    const slide = second.slides[second.slideOrder[0]!]
+    const shape = second.elements[slide?.elementIds[0] ?? '']
+    if (shape?.kind !== 'shape') throw new Error('reimported shape is missing')
+    expect(shape.styleRef?.line?.idx).toBe(3)
+    expect(resolveStyleLine(shape.styleRef?.line, theme)).toEqual({ rgb: '4472C4', alpha: 100000 })
+    expect(resolveStyleLineStroke(shape.styleRef?.line, theme)).toEqual({
+      width: 25400, style: { custom: [{ dash: 400000, space: 200000 }] }, cap: 'sq', join: 'round', compound: 'thickThin', align: 'ctr',
+    })
+  })
+
+  it('leaves source-only line attributes intact when an unrelated theme color changes', async () => {
+    const parts = await readZipEntries(await createPptx(nonSolidLineDocument()))
+    const themePart = parts.find((entry) => entry.name === 'ppt/theme/theme1.xml')!
+    const originalTheme = new TextDecoder().decode(themePart.data)
+      .replace('<a:ln w="12700"', "<a:ln data-line='keep' w='012700'")
+    themePart.data = new TextEncoder().encode(originalTheme)
+    const source = writeStoredZip(parts)
+    const imported = await importPptx(source)
+    const theme = Object.values(imported.themes ?? {})[0]!
+    theme.colors.accent1 = { type: 'srgb', v: 'FF0000' }
+
+    const output = await exportPptx(imported, source)
+
+    expect(await themePartOf(output)).toBe(originalTheme.replace('val="4472C4"', 'val="FF0000"'))
   })
 })

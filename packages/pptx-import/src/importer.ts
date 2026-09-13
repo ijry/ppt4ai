@@ -227,12 +227,16 @@ function parseThemeEffectStyleEntries(list: XmlNode | undefined): ThemeEffectSty
   return entries.length > 0 ? entries : undefined
 }
 
-/** `a:lnStyleLst` entries wrap their fill in `a:ln`, which also carries the width and the dash. */
+/**
+ * Theme lines use the same solid/gradient/pattern fill parser as direct outlines. Keep the whole Fill,
+ * not just its color: otherwise a non-solid line loses its fill and every line property on import.
+ * Unreadable fills still occupy null slots so subsequent lnRef indexes do not move.
+ */
 function parseThemeLineStyleEntries(list: XmlNode | undefined): ThemeLineStyleEntry[] | undefined {
   if (!list) return undefined
   const entries: ThemeLineStyleEntry[] = list.children.map((node) => {
-    const color = parseColor(child(node, 'solidFill'))
-    if (!color) return null
+    const fill = parseDirectFill(node)
+    if (!fill) return null
     const width = parseLineWidth(node)
     const style = parseDashStyle(node)
     const cap = parseStrokeCap(node)
@@ -240,7 +244,7 @@ function parseThemeLineStyleEntries(list: XmlNode | undefined): ThemeLineStyleEn
     const compound = parseStrokeCompound(node)
     const align = parseStrokeAlign(node)
     const miterLimit = parseStrokeMiterLimit(node)
-    return { color, ...(width === undefined ? {} : { width }), ...(style === 'solid' ? {} : { style }), ...(cap === undefined ? {} : { cap }), ...(join === undefined ? {} : { join }), ...(compound === undefined ? {} : { compound }), ...(align === undefined ? {} : { align }), ...(miterLimit === undefined ? {} : { miterLimit }) }
+    return { ...fill, ...(width === undefined ? {} : { width }), ...(style === 'solid' ? {} : { style }), ...(cap === undefined ? {} : { cap }), ...(join === undefined ? {} : { join }), ...(compound === undefined ? {} : { compound }), ...(align === undefined ? {} : { align }), ...(miterLimit === undefined ? {} : { miterLimit }) }
   })
   return entries.length > 0 ? entries : undefined
 }
