@@ -1150,8 +1150,25 @@ export function resolveStyleFillGradient(
   theme?: Theme,
   colorMap: ColorMap = DEFAULT_COLOR_MAP,
 ): ResolvedGradient | undefined {
-  const entry = styleEntryAt(reference, theme?.formatScheme?.fillStyles)
-  const gradient = entry?.gradient
+  return resolveStyleGradient(reference, theme?.formatScheme?.fillStyles, theme, colorMap)
+}
+
+/** The lnRef gradient uses the same placeholder substitution and color map as a fillRef gradient. */
+export function resolveStyleLineGradient(
+  reference: StyleReference | undefined,
+  theme?: Theme,
+  colorMap: ColorMap = DEFAULT_COLOR_MAP,
+): ResolvedGradient | undefined {
+  return resolveStyleGradient(reference, theme?.formatScheme?.lineStyles, theme, colorMap)
+}
+
+function resolveStyleGradient(
+  reference: StyleReference | undefined,
+  entries: ThemeStyleEntry[] | undefined,
+  theme: Theme | undefined,
+  colorMap: ColorMap,
+): ResolvedGradient | undefined {
+  const gradient = styleEntryAt(reference, entries)?.gradient
   if (!gradient) return undefined
   const stops = gradient.stops.flatMap((stop) => {
     const substituted = substitutePlaceholderColor(stop.color, reference?.color)

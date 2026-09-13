@@ -88,8 +88,8 @@ describe('gradient stroke in the scene graph', () => {
     expect(node.resolvedStrokeColor).toEqual({ rgb: '203864', alpha: 100000 })
   })
 
-  /** Theme line entries carry no gradient, so a shape styled only by lnRef has none either. */
-  it('carries no gradient from a theme line reference', () => {
+  /** A solid theme entry still supplies no gradient, even though gradient line entries now can. */
+  it('carries no gradient from a solid theme line reference', () => {
     const withTheme = documentWith({
       id: 'el_shape', kind: 'shape', preset: 'rect', bounds,
       styleRef: { line: { idx: 1, color: { type: 'scheme', v: 'accent1' } } },

@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createCustomPath, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFillPattern, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type DashSegment, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureStretch, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedPattern, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFillPattern, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineGradient, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type DashSegment, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureStretch, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedPattern, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -378,9 +378,11 @@ function shapeStrokeColor(element: { stroke?: Fill; styleRef?: ShapeStyleReferen
   return resolvedFillColor(element.stroke, context) ?? resolveStyleLine(element.styleRef?.line, context.theme, context.colorMap)
 }
 
-/** Symmetric with `shapeFillGradient`; theme line entries carry no gradient, so there is no fallback. */
-function shapeStrokeGradient(element: { stroke?: Fill }, context: SceneThemeContext): ResolvedGradient | undefined {
-  return resolvedFillGradient(element.stroke, context)
+/** A direct stroke fill replaces the theme fill, even when it is solid or cannot resolve a gradient. */
+function shapeStrokeGradient(element: { stroke?: Fill; styleRef?: ShapeStyleReference }, context: SceneThemeContext): ResolvedGradient | undefined {
+  return element.stroke !== undefined
+    ? resolvedFillGradient(element.stroke, context)
+    : resolveStyleLineGradient(element.styleRef?.line, context.theme, context.colorMap)
 }
 
 /**
