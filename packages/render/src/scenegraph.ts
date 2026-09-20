@@ -159,6 +159,7 @@ export interface SceneTableLayoutCell extends TableLayoutCell {
   pictureFill?: ScenePictureFill
   resolvedStyle: ResolvedTableCellStyle
   resolvedFillColor?: ResolvedColor
+  resolvedFillPattern?: ResolvedPattern
   resolvedBorderColors?: Partial<Record<keyof TableCellBorders, ResolvedColor>>
   resolvedTextStyle?: SceneResolvedTableTextStyle
 }
@@ -583,6 +584,7 @@ function createTableNode(element: Extract<Element, { kind: 'table' }>, context: 
         const cellPicture = scenePictureFill(sourceCell, assets)
         // A picture in the cell is the cell's fill, so no colour paints under it — the rule shapes follow.
         const fillColor = cellPicture ? undefined : resolvedFillColor(resolvedStyle.fill, context)
+        const fillPattern = cellPicture ? undefined : resolvedFillPattern(resolvedStyle.fill, context)
         const borderColors = resolveBorderColors(resolvedStyle.borders, context)
         const textStyle = resolveTableTextStyle(resolvedStyle.text, context)
         const body = mergeCellBodyProperties(mergeTableTextDefaults(cell.body, resolvedStyle.text), sourceCell.cellBodyPr)
@@ -592,6 +594,7 @@ function createTableNode(element: Extract<Element, { kind: 'table' }>, context: 
           textLayout: toSceneTextLayout(layoutText({ bounds: cell.bounds, body }), context),
           ...(cellPicture ? { pictureFill: cellPicture } : {}),
           ...(fillColor ? { resolvedFillColor: fillColor } : {}),
+          ...(fillPattern ? { resolvedFillPattern: fillPattern } : {}),
           ...(borderColors ? { resolvedBorderColors: borderColors } : {}),
           ...(textStyle ? { resolvedTextStyle: textStyle } : {}),
         }

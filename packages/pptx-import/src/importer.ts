@@ -839,7 +839,10 @@ function parseTable(frame: XmlNode, id: string, media?: TableMediaContext): Tabl
       }
       const body = parseTextBody(cellNode) ?? { paragraphs: [{ runs: [] }] }
       const cell: TableCell = { column, body }
-      const fill = properties ? parseFill(properties) : undefined
+      // `a:tcPr` holds the same `EG_FillProperties` choice a shape does, so a cell fill goes through
+      // the direct-fill parser rather than the solid-only one — otherwise a pattern or gradient cell
+      // fill was dropped and the cell came out with no fill at all.
+      const fill = properties ? parseDirectFill(properties) : undefined
       const borders = properties ? parseTableCellBorders(properties) : undefined
       if (fill) cell.fill = fill
       if (borders) cell.borders = borders
@@ -2140,3 +2143,4 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
   document.source.modelFingerprint = fingerprintDocument(document)
   return document
 }
+
