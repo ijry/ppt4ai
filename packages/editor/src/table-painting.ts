@@ -2,7 +2,7 @@ import type { Rect, ResolvedColor, TableBorder, TableCellBorders } from '@ppt4ai
 import type { SceneTableLayoutCell, SceneTableNode } from '@ppt4ai/render'
 import type { DecodedImage } from './image-canvas-renderer'
 import { withRotation } from './rotation-transform'
-import { dashPattern, paintPatternFill, paintPictureFill } from './shape-painting'
+import { dashPattern, fillGradient, paintPatternFill, paintPictureFill } from './shape-painting'
 import { paintTextLayout, type TextPageMapping } from './text-painting'
 
 export interface TablePageMapping extends TextPageMapping {}
@@ -90,10 +90,17 @@ function paintCellFill(
     if (painted) return
   }
   if (!cell.resolvedFillColor) return
-  const style = colorState(cell.resolvedFillColor, 'table fill color')
   const bounds = mappedRect(cell.bounds, mapping)
-  context.fillStyle = style.color
-  context.globalAlpha = style.alpha
+  // A gradient fills the cell rectangle over the mapped box, the same axis the shape painter uses; the
+  // resolved colour (the first stop) stays the flat fallback for a cell that resolves no gradient.
+  if (cell.resolvedFillGradient) {
+    context.fillStyle = fillGradient(context, cell.resolvedFillGradient, bounds)
+    context.globalAlpha = 1
+  } else {
+    const style = colorState(cell.resolvedFillColor, 'table fill color')
+    context.fillStyle = style.color
+    context.globalAlpha = style.alpha
+  }
   context.beginPath()
   context.rect(bounds.x, bounds.y, bounds.w, bounds.h)
   context.fill()

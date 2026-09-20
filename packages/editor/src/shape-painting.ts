@@ -188,7 +188,7 @@ function mapRect(bounds: Rect, mapping: ShapePageMapping): Rect {
  *
  * Alpha rides on the stop colour rather than `globalAlpha`, since stops can differ in transparency.
  */
-function fillGradient(context: ShapeContext, gradient: ResolvedGradient, bounds: Rect): CanvasGradient {
+export function fillGradient(context: ShapeContext, gradient: ResolvedGradient, bounds: Rect): CanvasGradient {
   const canvasGradient = gradient.path
     ? radialGradient(context, gradient, bounds)
     : linearGradient(context, gradient, bounds)
