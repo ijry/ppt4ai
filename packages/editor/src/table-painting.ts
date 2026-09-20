@@ -2,7 +2,7 @@ import type { Rect, ResolvedColor, TableBorder, TableCellBorders } from '@ppt4ai
 import type { SceneTableLayoutCell, SceneTableNode } from '@ppt4ai/render'
 import type { DecodedImage } from './image-canvas-renderer'
 import { withRotation } from './rotation-transform'
-import { dashPattern, paintPictureFill } from './shape-painting'
+import { dashPattern, paintPatternFill, paintPictureFill } from './shape-painting'
 import { paintTextLayout, type TextPageMapping } from './text-painting'
 
 export interface TablePageMapping extends TextPageMapping {}
@@ -75,6 +75,19 @@ function paintCellFill(
       { type: 'close' },
     ], mapping, bounds, cell.pictureFill, picture)
     return
+  }
+  // A pattern paints its own two colours over the cell rectangle, the same way a shape's a:pattFill does,
+  // and replaces the flat fill. A preset with no geometry falls through to the flat colour below.
+  if (cell.resolvedFillPattern) {
+    const bounds = mappedRect(cell.bounds, mapping)
+    const painted = paintPatternFill(context, cell.resolvedFillPattern, [
+      { type: 'move', x: cell.bounds.x, y: cell.bounds.y },
+      { type: 'line', x: cell.bounds.x + cell.bounds.w, y: cell.bounds.y },
+      { type: 'line', x: cell.bounds.x + cell.bounds.w, y: cell.bounds.y + cell.bounds.h },
+      { type: 'line', x: cell.bounds.x, y: cell.bounds.y + cell.bounds.h },
+      { type: 'close' },
+    ], mapping, bounds)
+    if (painted) return
   }
   if (!cell.resolvedFillColor) return
   const style = colorState(cell.resolvedFillColor, 'table fill color')
