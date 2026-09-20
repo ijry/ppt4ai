@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createCustomPath, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFillPattern, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineGradient, resolveStyleLinePattern, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type DashSegment, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureStretch, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedPattern, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveSlideBackgroundPattern, resolveStyleFill, resolveStyleFillGradient, resolveStyleFillPattern, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineGradient, resolveStyleLinePattern, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type DashSegment, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureStretch, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedPattern, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -15,6 +15,8 @@ export interface SceneGraph {
   background?: ResolvedColor
   /** Present only for a linear gradient background; `background` stays set as the flat fallback. */
   backgroundGradient?: ResolvedGradient
+  /** Present only for a pattern-fill background; `background` stays set as the flat fallback. */
+  backgroundPattern?: ResolvedPattern
   /** A photo background (`p:bg/a:blipFill`); painting draws it across the page before any node. */
   backgroundPicture?: ScenePictureFill
 }
@@ -764,6 +766,7 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
   const background = resolveSlideBackground(slide, layout, master, theme, context.colorMap)
   const backgroundFill = slide.background?.fill ?? layout?.background?.fill ?? master?.background?.fill
   const backgroundGradient = backgroundFill?.gradient ? resolvedFillGradient(backgroundFill, context) : undefined
+  const backgroundPattern = resolveSlideBackgroundPattern(slide, layout, master, theme, context.colorMap)
   // The whole `p:bg` replaces its inherited counterpart in OOXML, so the picture comes from the first
   // background in the chain that declares one — the same order `resolveSlideBackground` walks.
   const declared = slide.background ?? layout?.background ?? master?.background
@@ -775,6 +778,7 @@ export function documentToSceneGraph(value: Ppt4aiDocument): SceneGraph {
     nodes,
     ...(background ? { background } : {}),
     ...(backgroundGradient ? { backgroundGradient } : {}),
+    ...(backgroundPattern ? { backgroundPattern } : {}),
     ...(backgroundPicture ? { backgroundPicture } : {}),
     ...(groups.length > 0 ? { groups } : {}),
   }

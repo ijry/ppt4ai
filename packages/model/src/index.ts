@@ -1291,6 +1291,30 @@ export function resolveSlideBackground(
   if (!reference || reference.idx < 1001) return undefined
   return resolveStyleEntry({ ...reference, idx: reference.idx - 1000 }, theme?.formatScheme?.backgroundStyles, theme, colorMap)
 }
+/**
+ * The effective background's pattern. The same nearest-`p:bg` rule as `resolveSlideBackground`
+ * applies, and a gradient on that fill wins over a simultaneously present pattern.
+ */
+export function resolveSlideBackgroundPattern(
+  slide: Slide | undefined,
+  layout?: SlideLayout,
+  master?: SlideMaster,
+  theme?: Theme,
+  colorMap: ColorMap = DEFAULT_COLOR_MAP,
+): ResolvedPattern | undefined {
+  const background = slide?.background ?? layout?.background ?? master?.background
+  if (!background) return undefined
+  if (background.fill) {
+    if (background.fill.gradient) return undefined
+    return resolveStylePattern(undefined, background.fill.pattern, theme, colorMap)
+  }
+  const reference = background.styleRef
+  if (!reference || reference.idx < 1001) return undefined
+  const adjusted = { ...reference, idx: reference.idx - 1000 }
+  const entry = styleEntryAt(adjusted, theme?.formatScheme?.backgroundStyles)
+  if (entry?.gradient) return undefined
+  return resolveStylePattern(adjusted, entry?.pattern, theme, colorMap)
+}
 
 const themeFontReferences: Readonly<Record<string, { slot: ThemeFontSlot; script: ThemeFontScript }>> = {
   '+mj-lt': { slot: 'major', script: 'latin' },
