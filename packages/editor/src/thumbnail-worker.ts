@@ -3,7 +3,7 @@ import { gradientAxis, gradientFocus } from '@ppt4ai/geometry'
 import type { SceneGraph, SceneImageNode, SceneShapeNode, SceneTableNode, SceneTextNode } from '@ppt4ai/render'
 import { decodeBrowserImage } from './browser-image-decoder'
 import { paintImageNode } from './image-painting'
-import { paintPictureFill, paintShapeNode, type ShapePageMapping } from './shape-painting'
+import { paintPatternFill, paintPictureFill, paintShapeNode, type ShapePageMapping } from './shape-painting'
 import { paintTableNode } from './table-painting'
 import { paintTextNode } from './text-painting'
 import type { DecodedImage, ImageDecoder, ImageLoadRequest } from './image-canvas-renderer'
@@ -217,14 +217,28 @@ export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): 
       const background = request.scene.background
       if (background) {
         const bgBounds = { x: mapping.offsetX, y: mapping.offsetY, w: request.scene.page.w * mapping.scale, h: request.scene.page.h * mapping.scale }
-        if (request.scene.backgroundGradient) {
-          context.fillStyle = createBackgroundGradient(context, request.scene.backgroundGradient, bgBounds)
-        } else {
-          context.fillStyle = `#${background.rgb.toUpperCase()}`
-          context.globalAlpha = background.alpha / 100000
+        // A pattern paints its own two colours over the page and replaces the flat fill; a preset
+        // with no geometry falls through to the flat colour, exactly as the canvas renderer does.
+        const page = { x: 0, y: 0, w: request.scene.page.w, h: request.scene.page.h }
+        const paintedPattern = request.scene.backgroundPattern
+          ? paintPatternFill(context, request.scene.backgroundPattern, [
+              { type: 'move', x: 0, y: 0 },
+              { type: 'line', x: page.w, y: 0 },
+              { type: 'line', x: page.w, y: page.h },
+              { type: 'line', x: 0, y: page.h },
+              { type: 'close' },
+            ], mapping, mapBounds(page, mapping))
+          : false
+        if (!paintedPattern) {
+          if (request.scene.backgroundGradient) {
+            context.fillStyle = createBackgroundGradient(context, request.scene.backgroundGradient, bgBounds)
+          } else {
+            context.fillStyle = `#${background.rgb.toUpperCase()}`
+            context.globalAlpha = background.alpha / 100000
+          }
+          context.fillRect(bgBounds.x, bgBounds.y, bgBounds.w, bgBounds.h)
+          context.globalAlpha = 1
         }
-        context.fillRect(bgBounds.x, bgBounds.y, bgBounds.w, bgBounds.h)
-        context.globalAlpha = 1
       }
       for (const node of request.scene.nodes) {
         if (isCancelled(request.requestId)) return

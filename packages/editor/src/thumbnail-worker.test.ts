@@ -46,6 +46,7 @@ class FakeContext {
     this.events.push(['fillText', text, x, y, this.font, this.fillStyle, this.globalAlpha])
   }
   clip(): void {}
+  fillRect(...args: unknown[]): void { this.events.push(['fillRect', this.fillStyle, this.globalAlpha, ...args]) }
   drawImage(...args: unknown[]): void {
     this.draws.push(args)
     this.events.push(['drawImage'])
@@ -632,5 +633,51 @@ describe('thumbnail worker runtime', () => {
     expect(result.result.skippedNodeIds).toEqual(['missing', 'bad'])
     expect(result.result.drawnNodeIds).toEqual(['good'])
     expect(result.result.issues.map((entry) => entry.code)).toEqual(['missing-asset', 'decode-failed'])
+  })
+})
+
+describe('thumbnail worker background pattern', () => {
+  it('paints both pattern colours over the page and skips the flat fill', async () => {
+    const harness = createHarness()
+    harness.runtime.handleMessage({
+      type: 'render',
+      requestId: 42,
+      scene: {
+        slideId: 'slide-1',
+        page: { w: 1000, h: 500 },
+        background: { rgb: '4472C4', alpha: 100000 },
+        backgroundPattern: {
+          preset: 'pct25',
+          foreground: { rgb: '203864', alpha: 100000 },
+          background: { rgb: 'FFFFFF', alpha: 100000 },
+        },
+        nodes: [],
+      },
+      viewport: { width: 200, height: 100 },
+    })
+    await vi.waitFor(() => expect(harness.messages.some((message) => message.type === 'render-result')).toBe(true))
+
+    const fills = harness.canvas.context.events.filter(([type]) => type === 'fillRect')
+    // The pattern paints its own background then its foreground; the flat '#4472C4' fill never runs.
+    expect(fills.map(([, style]) => style)).toEqual(['#FFFFFF', '#203864'])
+  })
+
+  it('paints the flat colour when the scene carries no pattern', async () => {
+    const harness = createHarness()
+    harness.runtime.handleMessage({
+      type: 'render',
+      requestId: 43,
+      scene: {
+        slideId: 'slide-1',
+        page: { w: 1000, h: 500 },
+        background: { rgb: '4472C4', alpha: 100000 },
+        nodes: [],
+      },
+      viewport: { width: 200, height: 100 },
+    })
+    await vi.waitFor(() => expect(harness.messages.some((message) => message.type === 'render-result')).toBe(true))
+
+    const fills = harness.canvas.context.events.filter(([type]) => type === 'fillRect')
+    expect(fills.map(([, style]) => style)).toEqual(['#4472C4'])
   })
 })

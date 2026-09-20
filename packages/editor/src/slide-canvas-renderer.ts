@@ -2,7 +2,7 @@ import type { AssetAdapter, Rect, ResolvedColor, ResolvedGradient } from '@ppt4a
 import { gradientAxis, gradientFocus } from '@ppt4ai/geometry'
 import type { PathCommand } from '@ppt4ai/geometry'
 import type { SceneGraph, SceneImageNode, SceneNode } from '@ppt4ai/render'
-import { paintPictureFill, paintShapeNode } from './shape-painting'
+import { paintPatternFill, paintPictureFill, paintShapeNode } from './shape-painting'
 import { paintTableNode } from './table-painting'
 import { paintTextNode } from './text-painting'
 import { createImageNodeLoader, type DecodedImage, type ImageDecoder, type ImageLoadOutcome } from './image-canvas-renderer'
@@ -123,6 +123,24 @@ function paintPageBackgroundPicture(
   paintPictureFill(context, path, { scale, offsetX: 0, offsetY: 0 }, mapBounds(bounds, scale), fill, image)
 }
 
+/** The page box as a path, so the shared pattern painter tiles it exactly as it tiles a shape. */
+function paintPageBackgroundPattern(
+  context: CanvasRenderingContext2D,
+  scene: SceneGraph,
+  scale: number,
+  pattern: NonNullable<SceneGraph['backgroundPattern']>,
+): boolean {
+  const bounds = { x: 0, y: 0, w: scene.page.w, h: scene.page.h }
+  const path: PathCommand[] = [
+    { type: 'move', x: 0, y: 0 },
+    { type: 'line', x: bounds.w, y: 0 },
+    { type: 'line', x: bounds.w, y: bounds.h },
+    { type: 'line', x: 0, y: bounds.h },
+    { type: 'close' },
+  ]
+  return paintPatternFill(context, pattern, path, { scale, offsetX: 0, offsetY: 0 }, mapBounds(bounds, scale))
+}
+
 export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; decoder?: ImageDecoder }): SlideCanvasRenderer {
   const imageLoader = createImageNodeLoader(options)
   let disposed = false
@@ -166,14 +184,21 @@ export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; deco
       // The page fill goes down first, in the same space the node painters draw in.
       if (scene.background) {
         const mappedBounds = { x: 0, y: 0, w: scene.page.w * scale, h: scene.page.h * scale }
-        if (scene.backgroundGradient) {
-          context.fillStyle = createBackgroundGradient(context, scene.backgroundGradient, mappedBounds)
-        } else {
-          context.fillStyle = `#${scene.background.rgb.toUpperCase()}`
-          context.globalAlpha = scene.background.alpha / 100000
+        // A pattern paints its own two colours over the page, so it replaces the flat fill rather
+        // than layering over it. A preset with no geometry falls through to the flat colour below.
+        const paintedPattern = scene.backgroundPattern
+          ? paintPageBackgroundPattern(context, scene, scale, scene.backgroundPattern)
+          : false
+        if (!paintedPattern) {
+          if (scene.backgroundGradient) {
+            context.fillStyle = createBackgroundGradient(context, scene.backgroundGradient, mappedBounds)
+          } else {
+            context.fillStyle = `#${scene.background.rgb.toUpperCase()}`
+            context.globalAlpha = scene.background.alpha / 100000
+          }
+          context.fillRect(0, 0, mappedBounds.w, mappedBounds.h)
+          context.globalAlpha = 1
         }
-        context.fillRect(0, 0, mappedBounds.w, mappedBounds.h)
-        context.globalAlpha = 1
       }
       for (const node of scene.nodes) {
         if (viewport.signal?.aborted) break
