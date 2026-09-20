@@ -28,6 +28,30 @@ function colorStyle(color: ResolvedColor): { style: string; alpha: number } {
 }
 
 /**
+ * The existing pctNN fill approximation: foreground at coverage * alpha over the background.
+ * Collapse those two source-over layers to one stroke so edges, dashes and shadows are drawn once.
+ * This is a smooth color approximation, not a dither or a texture clipped to the shape interior.
+ */
+function percentagePatternStroke(pattern: ResolvedPattern | undefined): { style: string; alpha: number } | undefined {
+  if (!pattern) return undefined
+  const coverage = patternCoverage(pattern.preset)
+  if (coverage === undefined) return undefined
+  const foreground = colorStyle(pattern.foreground)
+  const background = colorStyle(pattern.background)
+  // Keep weights in the model's 100000-based units to avoid pct90's 25.5 becoming 25.499999... .
+  const foregroundWeight = pattern.foreground.alpha * coverage
+  const backgroundWeight = pattern.background.alpha * (100000 - foregroundWeight) / 100000
+  const total = foregroundWeight + backgroundWeight
+  if (total === 0) return { style: '#000000', alpha: 0 }
+  const rgb = [1, 3, 5].map((offset) => {
+    const front = Number.parseInt(foreground.style.slice(offset, offset + 2), 16)
+    const back = Number.parseInt(background.style.slice(offset, offset + 2), 16)
+    return Math.round((front * foregroundWeight + back * backgroundWeight) / total).toString(16).padStart(2, '0')
+  }).join('').toUpperCase()
+  return { style: '#' + rgb, alpha: total / 100000 }
+}
+
+/**
  * Canvas dash pattern for a stroke style, in the same units as the line width so a thick dash keeps
  * its proportions. Exported because table borders paint the same three styles and had their own copy.
  */
@@ -246,6 +270,7 @@ export function paintPathFills(
     shadow?: ResolvedShadow
     stroke?: ResolvedColor
     strokeGradient?: ResolvedGradient
+    strokePattern?: ResolvedPattern
     strokeBounds?: Rect
     strokeWidth?: number
     strokeStyle?: StrokeStyle | { custom: DashSegment[] }
@@ -255,7 +280,7 @@ export function paintPathFills(
   },
 ): void {
   const fill = colors.fill ? colorStyle(colors.fill) : undefined
-  const stroke = colors.stroke ? colorStyle(colors.stroke) : undefined
+  const stroke = percentagePatternStroke(colors.strokePattern) ?? (colors.stroke ? colorStyle(colors.stroke) : undefined)
   const gradient = colors.fillGradient && colors.fillBounds
     ? fillGradient(context, colors.fillGradient, mapRect(colors.fillBounds, mapping))
     : undefined
@@ -464,7 +489,7 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
   try {
     validateMapping(mapping)
     const fill = node.resolvedFillColor ? colorStyle(node.resolvedFillColor) : undefined
-    const stroke = node.resolvedStrokeColor ? colorStyle(node.resolvedStrokeColor) : undefined
+    const stroke = percentagePatternStroke(node.resolvedStrokePattern) ?? (node.resolvedStrokeColor ? colorStyle(node.resolvedStrokeColor) : undefined)
     const bounds = mapRect(node.bounds, mapping)
 
     withFlipAndRotation(context, bounds, node.transform, () => {

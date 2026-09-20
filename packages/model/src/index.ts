@@ -1195,8 +1195,25 @@ export function resolveStyleFillPattern(
   theme?: Theme,
   colorMap: ColorMap = DEFAULT_COLOR_MAP,
 ): ResolvedPattern | undefined {
-  const entry = styleEntryAt(reference, theme?.formatScheme?.fillStyles)
-  const pattern = entry?.pattern
+  return resolveStylePattern(reference, styleEntryAt(reference, theme?.formatScheme?.fillStyles)?.pattern, theme, colorMap)
+}
+
+/** Line patterns share placeholder substitution with fills; a gradient wins if both are supplied. */
+export function resolveStyleLinePattern(
+  reference: StyleReference | undefined,
+  theme?: Theme,
+  colorMap: ColorMap = DEFAULT_COLOR_MAP,
+): ResolvedPattern | undefined {
+  const entry = styleEntryAt(reference, theme?.formatScheme?.lineStyles)
+  return entry?.gradient ? undefined : resolveStylePattern(reference, entry?.pattern, theme, colorMap)
+}
+
+function resolveStylePattern(
+  reference: StyleReference | undefined,
+  pattern: Fill['pattern'],
+  theme: Theme | undefined,
+  colorMap: ColorMap,
+): ResolvedPattern | undefined {
   if (!pattern) return undefined
   const resolveSlot = (color: Color): ResolvedColor | undefined => {
     const substituted = substitutePlaceholderColor(color, reference?.color)

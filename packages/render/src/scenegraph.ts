@@ -1,6 +1,6 @@
 import { boundsCentre, cascadeTransform, createCustomPath, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
-import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFillPattern, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineGradient, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type DashSegment, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureStretch, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedPattern, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
+import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveStyleFill, resolveStyleFillGradient, resolveStyleFillPattern, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineGradient, resolveStyleLinePattern, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type DashSegment, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureStretch, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedPattern, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
 
 export interface SceneGraph {
@@ -49,6 +49,8 @@ export interface SceneShapeNode {
   resolvedStrokeColor?: ResolvedColor
   /** Present only for a linear gradient outline; `resolvedStrokeColor` stays set as the flat fallback. */
   resolvedStrokeGradient?: ResolvedGradient
+  /** Pattern colors remain separate; the painter blends supported percentage presets only. */
+  resolvedStrokePattern?: ResolvedPattern
   /** `a:ln/@w` in EMU, carried through so paint can set a real line width. */
   strokeWidth?: number
   strokeStyle?: StrokeStyle | { custom: DashSegment[] }
@@ -99,6 +101,8 @@ export interface SceneTextNode {
   resolvedFillPattern?: ResolvedPattern
   resolvedStrokeColor?: ResolvedColor
   resolvedStrokeGradient?: ResolvedGradient
+  /** Pattern colors remain separate; the painter blends supported percentage presets only. */
+  resolvedStrokePattern?: ResolvedPattern
   strokeWidth?: number
   strokeStyle?: StrokeStyle | { custom: DashSegment[] }
   strokeCap?: StrokeCap
@@ -385,6 +389,12 @@ function shapeStrokeGradient(element: { stroke?: Fill; styleRef?: ShapeStyleRefe
     : resolveStyleLineGradient(element.styleRef?.line, context.theme, context.colorMap)
 }
 
+/** Direct stroke fills take precedence even if a pattern cannot resolve; gradients win over patterns. */
+function shapeStrokePattern(element: { stroke?: Fill; styleRef?: ShapeStyleReference }, context: SceneThemeContext): ResolvedPattern | undefined {
+  if (element.stroke !== undefined) return element.stroke.gradient ? undefined : resolvedFillPattern(element.stroke, context)
+  return resolveStyleLinePattern(element.styleRef?.line, context.theme, context.colorMap)
+}
+
 /**
  * `spPr/a:ln` and `p:style/a:lnRef` merge per property in OOXML: a direct line overrides only what
  * it declares, so a shape that recoloured its outline without restating the width still gets the
@@ -482,6 +492,8 @@ function createShapeNode(element: Extract<Element, { kind: 'shape' }>, context: 
   if (strokeColor) node.resolvedStrokeColor = strokeColor
   const strokeGradient = shapeStrokeGradient(element, context)
   if (strokeGradient) node.resolvedStrokeGradient = strokeGradient
+  const strokePattern = shapeStrokePattern(element, context)
+  if (strokePattern) node.resolvedStrokePattern = strokePattern
   const stroke = shapeStroke(element, context)
   if (stroke.width !== undefined) node.strokeWidth = stroke.width
   if (stroke.style !== undefined) node.strokeStyle = stroke.style
@@ -537,6 +549,8 @@ function createTextNode(
   if (strokeColor) node.resolvedStrokeColor = strokeColor
   const strokeGradient = shapeStrokeGradient(element, context)
   if (strokeGradient) node.resolvedStrokeGradient = strokeGradient
+  const strokePattern = shapeStrokePattern(element, context)
+  if (strokePattern) node.resolvedStrokePattern = strokePattern
   const stroke = shapeStroke(element, context)
   if (stroke.width !== undefined) node.strokeWidth = stroke.width
   if (stroke.style !== undefined) node.strokeStyle = stroke.style

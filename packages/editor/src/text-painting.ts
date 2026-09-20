@@ -219,6 +219,7 @@ export function paintTextNode(context: TextContext, node: SceneTextNode, mapping
         ...(node.pictureFill && picture ? { picture } : {}),
         ...(node.resolvedStrokeColor ? { stroke: node.resolvedStrokeColor } : {}),
         ...(node.resolvedStrokeGradient ? { strokeGradient: node.resolvedStrokeGradient, strokeBounds: node.bounds } : {}),
+        ...(node.resolvedStrokePattern ? { strokePattern: node.resolvedStrokePattern } : {}),
         ...(node.strokeWidth === undefined ? {} : { strokeWidth: node.strokeWidth }),
         ...(node.strokeStyle === undefined ? {} : { strokeStyle: node.strokeStyle }),
         ...(node.strokeCap === undefined ? {} : { strokeCap: node.strokeCap }),
