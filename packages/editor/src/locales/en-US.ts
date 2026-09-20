@@ -75,6 +75,7 @@ const enUS = {
       clear: 'Inherit',
       inherited: 'Inherited from the layout or master',
       gradient: 'Gradient background — picking a color replaces it',
+      pattern: 'Pattern background — picking a color replaces it',
       styleRef: 'Theme background style — picking a color replaces it',
     },
     theme: {

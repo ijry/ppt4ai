@@ -41,7 +41,8 @@
 
 ## 5. 已知限制
 
-- 图案背景没有 engine 命令与面板，只读（与平色/渐变背景一样，背景编辑整体未做）。
+- 图案背景的**编辑面板已接通读取端**：`SlideBackgroundPanel` 现认 `pattern` 一类（`slideBackgroundModel` 多收一个 `resolvedPattern`，直接与继承的图案都归为 `pattern`），面板显示「图案背景 —— 选择颜色会替换它」的说明，playground `App.vue` 把 `scene.backgroundPattern` 喂进模型。**仍只能"用纯色替换图案"**：没有创作图案本身的控件（与渐变、`bgRef` 一样，选色即替换），这是背景编辑面板的整体形态。
 - 母版/版式的图片背景仍写不出（与本刀无关，见继承图片背景那刀的限制）。
 - 图案背景的无源写回已验证逐字节可逆（`pattern-background-writeback.test.ts`）：导入把 `p:bg` 的 `a:pattFill` 读成背景 fill，未编辑时逐字节相同，编辑无关元素时 `p:bgPr` 内的图案（含未建模 `a:extLst`）原样保留 —— 无需改生产代码，`parseBackground` 早已走 `parseDirectFill`、`sourceFill`/`backgroundReplacements` 早已认 `pattFill`。
+
 

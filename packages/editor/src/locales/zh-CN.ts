@@ -75,6 +75,7 @@ const zhCN = {
       clear: '继承',
       inherited: '继承自版式或母版',
       gradient: '渐变背景 —— 选择颜色会替换它',
+      pattern: '图案背景 —— 选择颜色会替换它',
       styleRef: '主题背景样式 —— 选择颜色会替换它',
     },
     theme: {

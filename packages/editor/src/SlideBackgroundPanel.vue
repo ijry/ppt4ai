@@ -9,6 +9,7 @@ const { t } = useI18n()
 
 const note = computed(() => {
   if (props.model.kind === 'gradient') return t('panel.slideBackground.gradient')
+  if (props.model.kind === 'pattern') return t('panel.slideBackground.pattern')
   if (props.model.kind === 'styleRef') return t('panel.slideBackground.styleRef')
   return props.model.inherited ? t('panel.slideBackground.inherited') : ''
 })

@@ -85,6 +85,7 @@ const slideBackground = computed(() => {
     resolvedScene?.background,
     resolvedScene?.backgroundGradient,
     slideId !== undefined,
+    resolvedScene?.backgroundPattern,
   )
 })
 

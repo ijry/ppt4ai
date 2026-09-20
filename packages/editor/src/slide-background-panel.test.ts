@@ -44,6 +44,28 @@ describe('slide background panel model', () => {
     expect(slideBackgroundModel(undefined, navy, ramp).kind).toBe('gradient')
   })
 
+  /** A pattern is not a swatch either: reporting its foreground as a colour would let the panel silently drop the tiling. */
+  it('reports a pattern background as a pattern rather than a colour', () => {
+    const pattern: SlideBackground = {
+      fill: {
+        color: { type: 'srgb', v: '1F3864' },
+        pattern: {
+          preset: 'ltHorz',
+          foreground: { type: 'srgb', v: '1F3864' },
+          background: { type: 'srgb', v: 'FFFFFF' },
+        },
+      },
+    }
+
+    expect(slideBackgroundModel(pattern, navy).kind).toBe('pattern')
+  })
+
+  /** An inherited pattern counts too, the same way an inherited gradient does. */
+  it('reports an inherited pattern as a pattern', () => {
+    const resolvedPattern = { preset: 'ltHorz' as const, foreground: navy, background: { rgb: 'FFFFFF', alpha: 100000 } }
+    expect(slideBackgroundModel(undefined, navy, undefined, true, resolvedPattern).kind).toBe('pattern')
+  })
+
   it('passes the active flag through for a host with no slide', () => {
     expect(slideBackgroundModel(undefined, undefined, undefined, false).active).toBe(false)
   })

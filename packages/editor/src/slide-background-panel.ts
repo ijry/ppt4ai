@@ -1,11 +1,11 @@
-import type { Color, ResolvedColor, ResolvedGradient, SlideBackground } from '@ppt4ai/model'
+import type { Color, ResolvedColor, ResolvedGradient, ResolvedPattern, SlideBackground } from '@ppt4ai/model'
 
 /**
  * What the panel can say about the background it is looking at. `color` is the *resolved* colour — the
  * one on screen, which may come from the layout or the master — while `own` decides whether there is
  * anything on this slide to clear.
  */
-export type SlideBackgroundKind = 'color' | 'gradient' | 'styleRef' | 'none'
+export type SlideBackgroundKind = 'color' | 'gradient' | 'pattern' | 'styleRef' | 'none'
 
 export interface SlideBackgroundPanelModel {
   readonly active: boolean
@@ -33,11 +33,17 @@ function hexFromResolved(color: ResolvedColor | undefined): string {
  * placeholder colour: a swatch cannot express either, and claiming it can is the same lie the outline
  * dropdown used to tell about `lgDashDot`.
  */
-function kindOf(background: SlideBackground | undefined, resolvedGradient: ResolvedGradient | undefined): SlideBackgroundKind {
+function kindOf(
+  background: SlideBackground | undefined,
+  resolvedGradient: ResolvedGradient | undefined,
+  resolvedPattern: ResolvedPattern | undefined,
+): SlideBackgroundKind {
   if (background?.fill?.gradient || (background === undefined && resolvedGradient)) return 'gradient'
+  if (background?.fill?.pattern || (background === undefined && resolvedPattern)) return 'pattern'
   if (background?.styleRef) return 'styleRef'
   if (background?.fill) return 'color'
-  return resolvedGradient ? 'gradient' : 'none'
+  if (resolvedGradient) return 'gradient'
+  return resolvedPattern ? 'pattern' : 'none'
 }
 
 export function slideBackgroundModel(
@@ -45,12 +51,13 @@ export function slideBackgroundModel(
   resolved: ResolvedColor | undefined,
   resolvedGradient?: ResolvedGradient,
   active = true,
+  resolvedPattern?: ResolvedPattern,
 ): SlideBackgroundPanelModel {
   const own = background !== undefined
   return {
     active,
     color: hexFromResolved(resolved),
-    kind: kindOf(background, resolvedGradient),
+    kind: kindOf(background, resolvedGradient, resolvedPattern),
     own,
     inherited: !own,
   }
