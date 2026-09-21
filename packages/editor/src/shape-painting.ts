@@ -32,7 +32,7 @@ function colorStyle(color: ResolvedColor): { style: string; alpha: number } {
  * Collapse those two source-over layers to one stroke so edges, dashes and shadows are drawn once.
  * This is a smooth color approximation, not a dither or a texture clipped to the shape interior.
  */
-function percentagePatternStroke(pattern: ResolvedPattern | undefined): { style: string; alpha: number } | undefined {
+export function percentagePatternStroke(pattern: ResolvedPattern | undefined): { style: string; alpha: number } | undefined {
   if (!pattern) return undefined
   const coverage = patternCoverage(pattern.preset)
   if (coverage === undefined) return undefined

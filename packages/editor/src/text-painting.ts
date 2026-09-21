@@ -3,7 +3,7 @@ import type { SceneTextLayout, SceneTextLayoutLine, SceneTextLayoutMarker, Scene
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE } from '@ppt4ai/text'
 import type { DecodedImage } from './image-canvas-renderer'
 import { withRotation } from './rotation-transform'
-import { fillGradient, paintPathFills } from './shape-painting'
+import { fillGradient, paintPathFills, percentagePatternStroke } from './shape-painting'
 
 export interface TextPageMapping {
   scale: number
@@ -146,6 +146,14 @@ function paintHorizontalItem(
   const y = mapping.offsetY + line.y * mapping.scale
   // A gradient run fill paints the glyphs with a CanvasGradient over the mapped run box; the flat colour
   // (the first stop) stays set for a run that resolves none, exactly as the shape painter does.
+  // A pattern run fill has no tiled form on a glyph, so a percentage preset paints as its composite
+  // colour (foreground over background at its coverage); a line preset keeps the flat foreground.
+  const runPattern = 'resolvedFillPattern' in item ? item.resolvedFillPattern : undefined
+  const patternComposite = percentagePatternStroke(runPattern)
+  if (patternComposite) {
+    context.fillStyle = patternComposite.style
+    context.globalAlpha = patternComposite.alpha
+  }
   const runGradient = 'resolvedFillGradient' in item ? item.resolvedFillGradient : undefined
   if (runGradient) {
     context.fillStyle = fillGradient(context, runGradient, { x, y, w: item.width * mapping.scale, h: line.height * mapping.scale })

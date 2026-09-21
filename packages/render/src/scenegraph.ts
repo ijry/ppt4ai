@@ -69,8 +69,11 @@ export interface SceneShapeNode {
 
 export interface SceneTextLayoutRun extends TextLayoutRun {
   resolvedColor?: ResolvedColor
-  /** `a:highlight` resolved through the theme: the swatch painted behind the run's glyphs. */
+  /** Present only for a gradient run fill; resolvedColor stays the flat first-stop fallback. */
   resolvedFillGradient?: ResolvedGradient
+  /** Present only for a pattern run fill; painted as a composite colour, not a tiled pattern. */
+  resolvedFillPattern?: ResolvedPattern
+  /** The a:highlight colour resolved through the theme: the swatch painted behind the run glyphs. */
   resolvedHighlight?: ResolvedColor
   resolvedFontFamily?: string
 }
@@ -255,9 +258,10 @@ function toSceneTextLayout(
           const resolvedColor = resolvedFillColor(run.marks?.color, context) ?? styleFallback.color
           const resolvedHighlight = run.marks?.highlight ? resolveColor(run.marks.highlight, context.theme, context.colorMap) : undefined
           const runGradient = resolvedFillGradient(run.marks?.color, context)
+          const runPattern = resolvedFillPattern(run.marks?.color, context)
           const fontFamily = resolvedFontFamily(run.marks, run.script, context)
             ?? (run.marks?.fontFamily ? undefined : styleFallback.fontFamily)
-          return { ...run, ...(resolvedColor ? { resolvedColor } : {}), ...(runGradient ? { resolvedFillGradient: runGradient } : {}), ...(resolvedHighlight ? { resolvedHighlight } : {}), ...(fontFamily ? { resolvedFontFamily: fontFamily } : {}) }
+          return { ...run, ...(resolvedColor ? { resolvedColor } : {}), ...(runGradient ? { resolvedFillGradient: runGradient } : {}), ...(runPattern ? { resolvedFillPattern: runPattern } : {}), ...(resolvedHighlight ? { resolvedHighlight } : {}), ...(fontFamily ? { resolvedFontFamily: fontFamily } : {}) }
         }),
       }
     }),
