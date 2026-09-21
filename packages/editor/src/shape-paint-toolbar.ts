@@ -1,3 +1,4 @@
+import { PAINTED_PRESET_PATTERNS } from '@ppt4ai/model'
 import type { Fill, StrokeStyle } from '@ppt4ai/model'
 
 /** `a:ln/@w` is EMU and one point is 12700 of them; the toolbar shows points. */
@@ -26,6 +27,12 @@ export interface ShapePaintToolbarProps {
   readonly fillGradientStart?: string
   readonly fillGradientEnd?: string
   readonly fillGradientAngle?: number
+  /** True when the fill is an `a:pattFill`, so the swatch says so like the gradient one does. */
+  readonly fillIsPattern?: boolean
+  /** The pattern fill's editor state (preset word, two swatches) when the element carries one. */
+  readonly fillPatternPreset?: string
+  readonly fillPatternForeground?: string
+  readonly fillPatternBackground?: string
   readonly strokeColor?: string
   readonly strokeIsGradient: boolean
   /** Absent means the width is inherited from the theme line styles. */
@@ -68,4 +75,20 @@ export function shapeGradientFrom(startHex: string, endHex: string, angleDegrees
   if (!start || !end || !Number.isFinite(angleDegrees)) return undefined
   const angle = ((Math.round(angleDegrees) % 360) + 360) % 360
   return { color: start, gradient: { stops: [{ pos: 0, color: start }, { pos: 100000, color: end }], angle: angle * 60000 } }
+}
+
+/** The preset words the shape pattern control offers — the ones the painter can draw. */
+export const SHAPE_FILL_PATTERN_PRESETS: readonly string[] = PAINTED_PRESET_PATTERNS
+
+/** A pattern fill from the toolbar's inputs; refuses an unpainted preset or bad swatch, mirrors fg into color. */
+export function shapePatternFrom(preset: string, foregroundHex: string, backgroundHex: string): Fill | undefined {
+  if (!SHAPE_FILL_PATTERN_PRESETS.includes(preset)) return undefined
+  const hex = (value: string): { type: 'srgb'; v: string } | undefined => {
+    const normalized = value.replace(/^#/u, '').toUpperCase()
+    return /^[0-9A-F]{6}$/u.test(normalized) ? { type: 'srgb', v: normalized } : undefined
+  }
+  const foreground = hex(foregroundHex)
+  const background = hex(backgroundHex)
+  if (!foreground || !background) return undefined
+  return { color: foreground, pattern: { preset, foreground, background } }
 }

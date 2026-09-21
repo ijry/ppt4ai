@@ -174,3 +174,17 @@ describe('ShapePaintToolbar fill gradient', () => {
     host.remove()
   })
 })
+
+describe('ShapePaintToolbar fill pattern', () => {
+  it('emits a pattern fill when the preset changes', () => {
+    const { app, host, events } = mountToolbar()
+    const select = host.querySelector('[data-shape-fill-pattern-preset]') as HTMLSelectElement
+    select.value = 'pct25'
+    select.dispatchEvent(new Event('change'))
+
+    const fill = events.fills.at(-1) as { color?: { v?: string }; pattern?: { preset: string } }
+    expect(fill.pattern?.preset).toBe('pct25')
+    app.unmount()
+    host.remove()
+  })
+})

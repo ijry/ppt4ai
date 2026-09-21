@@ -8,6 +8,8 @@ import {
   STROKE_STYLE_OPTIONS,
   strokeStyleOptions,
   shapeGradientFrom,
+  shapePatternFrom,
+  SHAPE_FILL_PATTERN_PRESETS,
   type ShapePaintToolbarEmit,
   type ShapePaintToolbarProps,
 } from './shape-paint-toolbar'
@@ -70,6 +72,25 @@ function fillGradientAngle(event: Event): void {
   if (Number.isFinite(angle)) applyFillGradient(props.fillGradientStart ?? props.fillColor ?? '#FFFFFF', props.fillGradientEnd ?? '#FFFFFF', angle)
 }
 
+const fillPatternPresets = SHAPE_FILL_PATTERN_PRESETS
+
+function applyFillPattern(preset: string, fg: string, bg: string): void {
+  const fill = shapePatternFrom(preset, fg, bg)
+  if (fill) emit('set-fill', fill)
+}
+
+function fillPatternPreset(event: Event): void {
+  applyFillPattern((event.target as HTMLSelectElement).value, props.fillPatternForeground ?? props.fillColor ?? '#FFFFFF', props.fillPatternBackground ?? '#FFFFFF')
+}
+
+function fillPatternForeground(event: Event): void {
+  applyFillPattern(props.fillPatternPreset ?? fillPatternPresets[0]!, (event.target as HTMLInputElement).value, props.fillPatternBackground ?? '#FFFFFF')
+}
+
+function fillPatternBackground(event: Event): void {
+  applyFillPattern(props.fillPatternPreset ?? fillPatternPresets[0]!, props.fillPatternForeground ?? props.fillColor ?? '#FFFFFF', (event.target as HTMLInputElement).value)
+}
+
 function commitWidth(): void {
   const raw = widthPoints.value
   if (raw === '') return
@@ -127,6 +148,34 @@ function setStrokeStyle(event: Event): void {
       :disabled="!props.active"
       :value="props.fillGradientAngle ?? 0"
       @change="fillGradientAngle"
+    >
+    <select
+      class="h-8 border border-slate-300 bg-white px-1 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+      data-shape-fill-pattern-preset
+      :aria-label="t('toolbar.shapePaint.fillPatternPreset')"
+      :disabled="!props.active"
+      :value="props.fillPatternPreset ?? fillPatternPresets[0]"
+      @change="fillPatternPreset"
+    >
+      <option v-for="preset in fillPatternPresets" :key="preset" :value="preset">{{ preset }}</option>
+    </select>
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-shape-fill-pattern-foreground
+      :aria-label="t('toolbar.shapePaint.fillPatternForeground')"
+      :disabled="!props.active"
+      :value="props.fillPatternForeground ?? props.fillColor ?? '#FFFFFF'"
+      @change="fillPatternForeground"
+    >
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-shape-fill-pattern-background
+      :aria-label="t('toolbar.shapePaint.fillPatternBackground')"
+      :disabled="!props.active"
+      :value="props.fillPatternBackground ?? '#FFFFFF'"
+      @change="fillPatternBackground"
     >
     <button
       type="button"
