@@ -108,6 +108,20 @@ const slideBackground = computed(() => {
   return slideBackgroundModel(own, undefined, undefined, true, undefined)
 })
 
+const slideLayoutChoices = computed(() => {
+  const document = activeSlideSnapshot.value.engineState.document
+  const slide = document.slides[document.slideOrder[0] ?? '']
+  const layout = slide?.layoutId ? document.layouts?.[slide.layoutId] : undefined
+  const masterId = slide?.masterId ?? layout?.masterId
+  const layouts = Object.values(document.layouts ?? {}).filter((entry) => entry.masterId === masterId)
+  return { current: slide?.layoutId ?? '', layouts: layouts.map((entry) => ({ id: entry.id, label: entry.id })) }
+})
+
+function setSlideLayout(event: Event): void {
+  const layoutId = (event.target as HTMLSelectElement).value
+  if (layoutId) assetSnapshot.value = assetHost.setSlideLayout(layoutId)
+}
+
 const themeFonts = computed<ThemePanelFontModel[]>(() => {
   const themeId = activeThemeId.value
   const theme = themeId ? activeSlideSnapshot.value.engineState.document.themes?.[themeId] : undefined
@@ -517,6 +531,12 @@ async function uploadFile(event: Event): Promise<void> {
           @insert="insertAsset"
           @replace="replaceAsset"
         />
+        <label v-if="slideLayoutChoices.layouts.length > 1" class="flex items-center gap-2 border border-slate-200 bg-white p-2 text-sm text-slate-700">
+          <span>{{ t('panel.slideLayout.label') }}</span>
+          <select class="h-8 border border-slate-300 bg-white px-1" data-slide-layout-picker :value="slideLayoutChoices.current" @change="setSlideLayout">
+            <option v-for="choice in slideLayoutChoices.layouts" :key="choice.id" :value="choice.id">{{ choice.label }}</option>
+          </select>
+        </label>
         <label class="flex items-center gap-2 border border-slate-200 bg-white p-2 text-sm text-slate-700">
           <span>{{ t('panel.slideBackground.target') }}</span>
           <select v-model="backgroundTarget" class="h-8 border border-slate-300 bg-white px-1" data-slide-background-target>

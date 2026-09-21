@@ -110,7 +110,10 @@ function createDocument(): Ppt4aiDocument {
     slides: { sld_playground: { id: 'sld_playground', elementIds: ['group_demo', 'table_demo'], layoutId: 'lay_playground' } },
     themes: { thm_playground: { id: 'thm_playground', colors: {} } },
     masters: { mst_playground: { id: 'mst_playground', themeId: 'thm_playground' } },
-    layouts: { lay_playground: { id: 'lay_playground', masterId: 'mst_playground' } },
+    layouts: {
+      lay_playground: { id: 'lay_playground', masterId: 'mst_playground' },
+      lay_playground_title: { id: 'lay_playground_title', masterId: 'mst_playground', background: { fill: { color: { type: 'scheme', v: 'accent3' } } } },
+    },
     elements: {
       shape_demo: { id: 'shape_demo', kind: 'shape', bounds: { x: 914400, y: 685800, w: 2743200, h: 1371600 }, preset: 'roundRect', fill: { color: { type: 'scheme', v: 'accent1' } } },
       text_demo: { id: 'text_demo', kind: 'text', bounds: { x: 914400, y: 914400, w: 2743200, h: 457200 }, body: { paragraphs: [{ runs: [{ text: 'PPT4AI 编辑画布', marks: { fontSize: 280000 } }] }] } },

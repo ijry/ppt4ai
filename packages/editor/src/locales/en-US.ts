@@ -119,6 +119,9 @@ const enUS = {
       targetLayout: 'Layout',
       targetMaster: 'Master',
     },
+    slideLayout: {
+      label: 'Layout',
+    },
     theme: {
       title: 'Theme',
       colors: 'Colors',

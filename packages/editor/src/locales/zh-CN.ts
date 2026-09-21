@@ -119,6 +119,9 @@ const zhCN = {
       targetLayout: '版式',
       targetMaster: '母版',
     },
+    slideLayout: {
+      label: '版式',
+    },
     theme: {
       title: '主题',
       colors: '颜色',

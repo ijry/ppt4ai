@@ -104,3 +104,15 @@ describe('playground slide layout switch wiring', () => {
     expect(snapshot.status).toEqual({ kind: 'error', message: 'layout-missing' })
   })
 })
+
+describe('playground slide layout switch (two seeded layouts)', () => {
+  it('switches the active slide between the two layouts under its master', () => {
+    const host = createPlaygroundAssetHost()
+    const before = host.getSnapshot().engineState.document.slides.sld_playground?.layoutId
+    expect(before).toBe('lay_playground')
+
+    const snapshot = host.setSlideLayout('lay_playground_title')
+    expect(snapshot.status).toEqual({ kind: 'success', message: 'slide-layout-updated' })
+    expect(snapshot.engineState.document.slides.sld_playground?.layoutId).toBe('lay_playground_title')
+  })
+})
