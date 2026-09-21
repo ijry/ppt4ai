@@ -3,7 +3,7 @@ import type { SceneTextLayout, SceneTextLayoutLine, SceneTextLayoutMarker, Scene
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE } from '@ppt4ai/text'
 import type { DecodedImage } from './image-canvas-renderer'
 import { withRotation } from './rotation-transform'
-import { paintPathFills } from './shape-painting'
+import { fillGradient, paintPathFills } from './shape-painting'
 
 export interface TextPageMapping {
   scale: number
@@ -144,6 +144,13 @@ function paintHorizontalItem(
   applyTextStyle(context, style)
   const x = mapping.offsetX + item.x * mapping.scale
   const y = mapping.offsetY + line.y * mapping.scale
+  // A gradient run fill paints the glyphs with a CanvasGradient over the mapped run box; the flat colour
+  // (the first stop) stays set for a run that resolves none, exactly as the shape painter does.
+  const runGradient = 'resolvedFillGradient' in item ? item.resolvedFillGradient : undefined
+  if (runGradient) {
+    context.fillStyle = fillGradient(context, runGradient, { x, y, w: item.width * mapping.scale, h: line.height * mapping.scale })
+    context.globalAlpha = 1
+  }
   context.fillText(item.text, x, y)
   const underline = underlinePattern(item.marks?.underline, style.fontPixels)
   if (!underline) return
