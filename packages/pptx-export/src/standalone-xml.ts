@@ -669,7 +669,7 @@ export function serializeTableFrameXml(table: TableElement, shapeId: number, pic
 }
 
 /** `p:bg` comes before `p:spTree` inside `p:cSld`, and `p:bgPr` needs an effect list to be valid. */
-function serializeBackgroundXml(background: SlideBackground | undefined, pictureRelationshipId?: string): string {
+export function serializeBackgroundXml(background: SlideBackground | undefined, pictureRelationshipId?: string): string {
   if (background?.pictureFill && pictureRelationshipId) {
     const fill = background.pictureFill
     const effects = serializeBlipEffectsXml(fill.effects)

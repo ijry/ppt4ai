@@ -1,6 +1,6 @@
 import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type AdjustValue, type CustomGeometry, type DashSegment, type Fill, type GroupElement, type ImageElement, type OuterShadow, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeElement, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
-import { serializeColorXml, serializeCustomGeometry, serializeFillXml, serializeShadowXml } from './standalone-xml.js'
+import { serializeBackgroundXml, serializeColorXml, serializeCustomGeometry, serializeFillXml, serializeShadowXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
 import {
   allocateMediaPath,
@@ -1263,16 +1263,24 @@ function serializeBackgroundNode(prefix: string, background: SlideBackground): s
  * way round) replaces the whole node, and clearing the background deletes it — which is exactly what
  * "inherit from the layout" means in OOXML.
  */
-function backgroundReplacements(xml: string, background: SlideBackground | undefined, backgroundAssetId?: string): Replacement[] {
+function backgroundReplacements(xml: string, background: SlideBackground | undefined, backgroundAssetId?: string, pictureRelationshipId?: string): Replacement[] {
   const roots = scanXml(xml)
   const common = descendants(roots, 'cSld')[0]
   if (!common) return []
   const bg = common.children.find((child) => child.localName === 'bg')
   const existing = sourceBackground(bg, backgroundAssetId)
   if (backgroundsEqual(existing, background)) return []
-  // A picture background cannot be introduced here: it needs a media part and a relationship, and no
-  // command can ask for one. Leaving the source alone is the only choice that does not corrupt it.
-  if (background?.pictureFill) return []
+  // A picture background needs a media part and a relationship; the caller materializes the asset and
+  // passes the relationship id. Without one (the asset could not be resolved) the source is left alone.
+  if (background?.pictureFill) {
+    if (!pictureRelationshipId) return []
+    const value = serializeBackgroundXml(background, pictureRelationshipId)
+    if (!value) return []
+    if (bg) return [{ start: bg.start, end: bg.end, value }]
+    const pictureTree = descendants(roots, 'spTree')[0]
+    if (!pictureTree) return []
+    return [{ start: pictureTree.start, end: pictureTree.start, value }]
+  }
   if (!background) return bg ? [{ start: bg.start, end: bg.end, value: '' }] : []
   const properties = bg?.children.find((child) => child.localName === 'bgPr')
   const fillNode = properties?.children.find((child) => fillNodeNames.has(child.localName))
@@ -1306,13 +1314,13 @@ function tablePictureRelationships(
   return (assetId) => byAsset.get(assetId)
 }
 
-function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: string, scanned: ScannedSlide, imageReplacements: Replacement[], strictIdentity: boolean, slidePath: string, relationships: SlideRelationship[]): string {
+function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: string, scanned: ScannedSlide, imageReplacements: Replacement[], strictIdentity: boolean, slidePath: string, relationships: SlideRelationship[], bgPictureRelationshipId?: string): string {
   const slide = document.slides[slideId]
   if (!slide) throw new Error(`PPTX export document slide missing: ${slideId}`)
   const sourceElements = scanned.elements
   if (slide.elementIds.length < sourceElements.length) throw new Error(`PPTX export element count mismatch for slide ${slideId}`)
 
-  const replacements: Replacement[] = [...imageReplacements, ...backgroundReplacements(xml, slide.background, scanned.backgroundAssetId)]
+  const replacements: Replacement[] = [...imageReplacements, ...backgroundReplacements(xml, slide.background, scanned.backgroundAssetId, bgPictureRelationshipId)]
   for (let index = 0; index < sourceElements.length; index += 1) {
     const source = sourceElements[index]
     const elementId = slide.elementIds[index]
@@ -1457,23 +1465,27 @@ interface ImageWritebackState {
   pendingMedia: ZipEntry[]
 }
 
-async function imageBytes(state: ImageWritebackState, element: ImageElement): Promise<{ path: string; bytes: Uint8Array }> {
-  const existing = state.mediaByAsset.get(element.assetId)
+async function mediaForAsset(state: ImageWritebackState, assetId: string): Promise<{ path: string; bytes: Uint8Array }> {
+  const existing = state.mediaByAsset.get(assetId)
   if (existing) return existing
-  if (!state.adapter) throw new Error(`PPTX export asset adapter missing: ${element.assetId}`)
-  const bytes = await state.adapter.get(element.assetId)
-  if (!bytes) throw new Error(`PPTX export asset bytes missing: ${element.assetId}`)
-  const mimeType = state.assets?.[element.assetId]?.mimeType
-  if (!mimeType) throw new Error(`PPTX export asset metadata missing: ${element.assetId}`)
+  if (!state.adapter) throw new Error(`PPTX export asset adapter missing: ${assetId}`)
+  const bytes = await state.adapter.get(assetId)
+  if (!bytes) throw new Error(`PPTX export asset bytes missing: ${assetId}`)
+  const mimeType = state.assets?.[assetId]?.mimeType
+  if (!mimeType) throw new Error(`PPTX export asset metadata missing: ${assetId}`)
   const bitmap = parseBitmapMetadata(bytes)
-  if (!bitmap || bitmap.mimeType !== mimeType) throw new Error(`PPTX export asset bytes MIME mismatch: ${element.assetId}`)
+  if (!bitmap || bitmap.mimeType !== mimeType) throw new Error(`PPTX export asset bytes MIME mismatch: ${assetId}`)
   const path = allocateMediaPath(state.entryNames, mimeType)
   const result = { path, bytes: new Uint8Array(bytes) }
   state.entryNames.add(path)
-  state.mediaByAsset.set(element.assetId, result)
+  state.mediaByAsset.set(assetId, result)
   state.mediaContentTypes.set(path, mimeType)
   state.pendingMedia.push({ name: path, data: result.bytes })
   return result
+}
+
+async function imageBytes(state: ImageWritebackState, element: ImageElement): Promise<{ path: string; bytes: Uint8Array }> {
+  return mediaForAsset(state, element.assetId)
 }
 
 function rewriteSourceThemes(document: Ppt4aiDocument, entriesByName: Map<string, ZipEntry>): void {
@@ -1717,7 +1729,17 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       pictures.push(serializePictureXml(element, relationshipId, nextShapeId))
       nextShapeId += 1
     }
-    const replacedSlide = replaceSlideTables(document, slideId, slideXml, scanned, imageReplacements, plan.mode === 'reuse', slidePath, slideRelationships)
+    // A picture background that differs from the source needs its media materialized and a fresh
+    // relationship, the same machinery a picture element uses. An unchanged photo keeps the source id.
+    let bgPictureRelationshipId: string | undefined
+    const backgroundAsset = slide.background?.pictureFill?.assetId
+    if (backgroundAsset && backgroundAsset !== scanned.backgroundAssetId) {
+      const bytes = await mediaForAsset(state, backgroundAsset)
+      bgPictureRelationshipId = allocateRelationshipId(relationshipIds)
+      relationshipIds.add(bgPictureRelationshipId)
+      newRelationships.push(serializeImageRelationship(bgPictureRelationshipId, `../media/${bytes.path.slice('ppt/media/'.length)}`))
+    }
+    const replacedSlide = replaceSlideTables(document, slideId, slideXml, scanned, imageReplacements, plan.mode === 'reuse', slidePath, slideRelationships, bgPictureRelationshipId)
     const materializedSlide = appendBeforeSpTreeClose(replacedSlide, pictures)
     const rewrittenSlide = plan.source && slide.colorMapOverride !== undefined
       ? rewriteSlideColorMapXml(materializedSlide, slide.colorMapOverride, slideId)
