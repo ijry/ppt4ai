@@ -921,6 +921,50 @@ export interface Slide {
   source?: SlideSource
 }
 
+/**
+ * A slide's animation timing (`p:timing`), modeled as named presets + parameters rather than keyframes
+ * so it round-trips to pptx. See architecture design §5.1: pptx animations *are* named presets
+ * (`p:cTn` presetClass/presetID/presetSubtype), so the model stores those verbatim for write-back.
+ */
+export type AnimationTrigger = 'onClick' | 'withPrev' | 'afterPrev'
+
+export type AnimationClass = 'entrance' | 'exit' | 'emphasis' | 'motion'
+
+export interface AnimationItem {
+  /** The element this animates. */
+  targetId: string
+  /** `p:cTn/@presetClass`. */
+  class: AnimationClass
+  /** A stable preset name (`fade`, `wipe`, …); the numeric ids below are what write-back actually emits. */
+  preset: string
+  /** `@presetID`, kept for verbatim pptx write-back. */
+  presetId?: number
+  /** `@presetSubtype`, kept for verbatim pptx write-back. */
+  presetSubtype?: number
+  /** Milliseconds. */
+  duration?: number
+  /** Milliseconds before the effect starts. */
+  delay?: number
+  /** Play count; 1 is once. */
+  repeat?: number
+  /** Text build granularity, e.g. `byParagraph`. */
+  buildType?: string
+  /** Preset-specific parameters, e.g. `{ direction: 'fromBottom' }`. Values kept as strings for the file. */
+  params?: Record<string, string>
+}
+
+export interface AnimationBuild {
+  trigger: AnimationTrigger
+  items: AnimationItem[]
+}
+
+export interface SlideTimeline {
+  /** The main click-through sequence. */
+  mainSeq: AnimationBuild[]
+  /** Click-object / media triggers; each build names the shape that triggers it. */
+  interactiveSeq?: AnimationBuild[]
+}
+
 export interface Ppt4aiDocument {
   format: 'ppt4ai'
   version: 1
@@ -937,6 +981,8 @@ export interface Ppt4aiDocument {
   layouts?: Record<string, SlideLayout>
   masters?: Record<string, SlideMaster>
   themes?: Record<string, Theme>
+  /** Per-slide animation timelines, keyed by slide id. */
+  animations?: Record<string, SlideTimeline>
   source?: {
     entries: Record<string, string>
     packageFingerprint?: string
@@ -2399,6 +2445,44 @@ export function validateTextBody(value: unknown): TextModelValidation {
   return errors.length === 0 ? { valid: true } : { valid: false, errors }
 }
 
+const animationTriggers = new Set(['onClick', 'withPrev', 'afterPrev'])
+const animationClasses = new Set(['entrance', 'exit', 'emphasis', 'motion'])
+
+function validateAnimationItem(value: unknown, path: string, elements: Record<string, Element>, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) { errors.push(`${path} must be an object`); return }
+  const item = value as Record<string, unknown>
+  if (typeof item.targetId !== 'string' || !elements[item.targetId]) errors.push(`${path}.targetId must reference an element`)
+  if (typeof item.class !== 'string' || !animationClasses.has(item.class)) errors.push(`${path}.class must be an animation class`)
+  if (typeof item.preset !== 'string' || item.preset.length === 0) errors.push(`${path}.preset must be a non-empty string`)
+  for (const key of ['presetId', 'presetSubtype', 'duration', 'delay', 'repeat'] as const) {
+    if (item[key] !== undefined) validateFiniteNumber(item[key], `${path}.${key}`, errors, (n) => n >= 0, 'must be non-negative')
+  }
+  if (item.buildType !== undefined && (typeof item.buildType !== 'string' || item.buildType.length === 0)) errors.push(`${path}.buildType must be a non-empty string`)
+  if (item.params !== undefined) {
+    if (!item.params || typeof item.params !== 'object' || Array.isArray(item.params)) errors.push(`${path}.params must be an object`)
+    else for (const [key, v] of Object.entries(item.params)) if (typeof v !== 'string') errors.push(`${path}.params.${key} must be a string`)
+  }
+}
+
+function validateAnimationBuild(value: unknown, path: string, elements: Record<string, Element>, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) { errors.push(`${path} must be an object`); return }
+  const build = value as Record<string, unknown>
+  if (typeof build.trigger !== 'string' || !animationTriggers.has(build.trigger)) errors.push(`${path}.trigger must be an animation trigger`)
+  if (!Array.isArray(build.items)) errors.push(`${path}.items must be an array`)
+  else build.items.forEach((item, index) => validateAnimationItem(item, `${path}.items[${index}]`, elements, errors))
+}
+
+function validateTimeline(value: unknown, path: string, elements: Record<string, Element>, errors: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) { errors.push(`${path} must be an object`); return }
+  const timeline = value as Record<string, unknown>
+  if (!Array.isArray(timeline.mainSeq)) errors.push(`${path}.mainSeq must be an array`)
+  else timeline.mainSeq.forEach((build, index) => validateAnimationBuild(build, `${path}.mainSeq[${index}]`, elements, errors))
+  if (timeline.interactiveSeq !== undefined) {
+    if (!Array.isArray(timeline.interactiveSeq)) errors.push(`${path}.interactiveSeq must be an array`)
+    else timeline.interactiveSeq.forEach((build, index) => validateAnimationBuild(build, `${path}.interactiveSeq[${index}]`, elements, errors))
+  }
+}
+
 export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
   const errors: string[] = []
 
@@ -2642,6 +2726,14 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
   }
   for (const [elementId, element] of Object.entries(value.elements)) {
     if (element.kind === 'group') visitGroup(elementId)
+  }
+
+  if (value.animations !== undefined) {
+    if (!value.animations || typeof value.animations !== 'object' || Array.isArray(value.animations)) errors.push('animations must be an object')
+    else for (const [slideId, timeline] of Object.entries(value.animations)) {
+      if (!value.slides[slideId]) errors.push(`animations references missing slide: ${slideId}`)
+      validateTimeline(timeline, `animations.${slideId}`, value.elements, errors)
+    }
   }
 
   return errors.length === 0 ? { valid: true } : { valid: false, errors }
