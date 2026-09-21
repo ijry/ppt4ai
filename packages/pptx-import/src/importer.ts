@@ -868,7 +868,10 @@ function parseTable(frame: XmlNode, id: string, media?: TableMediaContext): Tabl
   }
 
   const tableProperties = child(table, 'tblPr')
-  const tableFill = parseFill(tableProperties ?? table)
+  // A table's own fill lives on a:tblPr and is the same EG_FillProperties choice a cell uses, so it goes
+  // through the direct-fill parser rather than the solid-only one — a pattern or gradient table fill was
+  // otherwise dropped or downgraded to its first colour.
+  const tableFill = tableProperties ? parseDirectFill(tableProperties) : undefined
   const style = parseTableStyleReference(tableProperties)
   const rotation = parseRotation(frame)
   return {
