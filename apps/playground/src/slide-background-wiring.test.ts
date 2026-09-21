@@ -156,3 +156,24 @@ describe('playground delete layout wiring', () => {
     expect(host.deleteLayout(current).status).toEqual({ kind: 'error', message: 'layout-delete-failed' })
   })
 })
+
+describe('playground add master wiring', () => {
+  it('duplicates the master with its own layout', () => {
+    const host = createPlaygroundAssetHost()
+    const beforeMasters = Object.keys(host.getSnapshot().engineState.document.masters ?? {}).length
+    const beforeLayouts = Object.keys(host.getSnapshot().engineState.document.layouts ?? {}).length
+
+    const snapshot = host.addMaster('mst_playground')
+    expect(snapshot.status).toEqual({ kind: 'success', message: 'master-added' })
+    const doc = host.getSnapshot().engineState.document
+    expect(Object.keys(doc.masters ?? {}).length).toBe(beforeMasters + 1)
+    expect(Object.keys(doc.layouts ?? {}).length).toBe(beforeLayouts + 1)
+    const added = Object.values(doc.masters ?? {}).find((m) => m.id !== 'mst_playground')!
+    expect(Object.values(doc.layouts ?? {}).some((l) => l.masterId === added.id)).toBe(true)
+  })
+
+  it('reports master-missing for an unknown source master', () => {
+    const host = createPlaygroundAssetHost()
+    expect(host.addMaster('nope').status).toEqual({ kind: 'error', message: 'master-missing' })
+  })
+})

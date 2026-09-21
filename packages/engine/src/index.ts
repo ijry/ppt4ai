@@ -85,6 +85,7 @@ export type EngineCommand =
   | { type: 'setSlideLayout'; slideId: string; layoutId: string }
   | { type: 'addLayout'; sourceLayoutId: string; layoutId?: string }
   | { type: 'deleteLayout'; layoutId: string }
+  | { type: 'addMaster'; sourceMasterId: string; masterId?: string }
   | { type: 'setThemeColor'; themeId: string; slot: ThemeColorSlot; color: Color | null }
   | { type: 'setThemeFont'; themeId: string; slot: ThemeFontSlot; script: ThemeFontScript; typeface: string | null }
   | { type: 'mergeTableCells' }
@@ -626,6 +627,7 @@ export class EditorEngine {
   private redoStack: HistoryEntry[] = []
   private groupSequence = 1
   private layoutSequence = 1
+  private masterSequence = 1
   private readonly options: EngineOptions
 
   constructor(document: Ppt4aiDocument, options: EngineOptions = {}) {
@@ -753,6 +755,10 @@ export class EditorEngine {
       }
       case 'deleteLayout': {
         this.deleteLayout(command.layoutId)
+        break
+      }
+      case 'addMaster': {
+        this.addMaster(command.sourceMasterId, command.masterId)
         break
       }
       case 'setSlideLayout': {
@@ -998,9 +1004,9 @@ export class EditorEngine {
 
   /**
    * Remove a layout. Refused when a slide still uses it (that would orphan the slide's inheritance) or
-   * when it is the master's only layout (a master must keep at least one). On source writeback the
-   * deleted layout simply lingers unused in the output until list/relationship removal lands; standalone
-   * generation drops it because it enumerates the model.
+   * when it is the master's only layout (a master must keep at least one). Standalone generation drops
+   * it (model-authoritative); source writeback keeps the source part, because it cannot tell a deleted
+   * layout from an unreferenced source layout the importer never surfaced (see delete-layout design).
    */
   private deleteLayout(layoutId: string): void {
     const layout = this.document.layouts?.[layoutId]
@@ -1010,6 +1016,40 @@ export class EditorEngine {
     const siblings = Object.values(this.document.layouts ?? {}).filter((entry) => entry.masterId === layout.masterId)
     if (siblings.length <= 1) throw new Error(`cannot delete the master's only layout: ${layoutId}`)
     this.commit([{ path: ['layouts', layoutId], value: undefined }])
+  }
+
+  /**
+   * Duplicate a master and one of its layouts, so the new master is self-consistent (a master must own
+   * at least one layout). The clone keeps its own theme reference; standalone generation writes it as a
+   * new master + layout (+ theme) part set. On source writeback a synthetic master is standalone-only.
+   */
+  private addMaster(sourceMasterId: string, masterId?: string): void {
+    const source = this.document.masters?.[sourceMasterId]
+    if (!source) throw new Error(`master does not exist: ${sourceMasterId}`)
+    const sourceLayout = Object.values(this.document.layouts ?? {}).find((entry) => entry.masterId === sourceMasterId)
+    if (!sourceLayout) throw new Error(`master has no layout to copy: ${sourceMasterId}`)
+    const idFactory = this.options.idFactory
+    let id = masterId ?? (idFactory ? idFactory('mst') : `mst_added_${this.masterSequence++}`)
+    while (this.document.masters?.[id]) {
+      id = idFactory ? idFactory('mst') : `mst_added_${this.masterSequence++}`
+    }
+    let layoutId = idFactory ? idFactory('lyt') : `lyt_added_${this.layoutSequence++}`
+    while (this.document.layouts?.[layoutId]) {
+      layoutId = idFactory ? idFactory('lyt') : `lyt_added_${this.layoutSequence++}`
+    }
+    const master: typeof source = { ...clone(source), id }
+    delete master.source
+    const layout: typeof sourceLayout = { ...clone(sourceLayout), id: layoutId, masterId: id }
+    delete layout.source
+    const nextDocument = clone(this.document)
+    nextDocument.masters = { ...(nextDocument.masters ?? {}), [id]: master }
+    nextDocument.layouts = { ...(nextDocument.layouts ?? {}), [layoutId]: layout }
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`added master is invalid: ${id}: ${validation.errors.join('; ')}`)
+    this.commit([
+      { path: ['masters', id], value: master },
+      { path: ['layouts', layoutId], value: layout },
+    ])
   }
 
   private setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): void {
