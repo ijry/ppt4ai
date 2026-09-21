@@ -1415,8 +1415,11 @@ function appendRelationships(xml: string | undefined, relationships: string[]): 
   if (relationships.length === 0) return xml ?? ''
   if (!xml) return `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relationships.join('')}</Relationships>`
   const close = xml.lastIndexOf('</Relationships>')
-  if (close < 0) throw new Error('PPTX export slide relationships malformed')
-  return `${xml.slice(0, close)}${relationships.join('')}${xml.slice(close)}`
+  if (close >= 0) return `${xml.slice(0, close)}${relationships.join('')}${xml.slice(close)}`
+  // An empty part writes `<Relationships .../>`; expand the self-closing tag before appending to it.
+  const selfClose = xml.lastIndexOf('/>')
+  if (selfClose < 0) throw new Error('PPTX export slide relationships malformed')
+  return `${xml.slice(0, selfClose)}>${relationships.join('')}</Relationships>`
 }
 
 function rewriteSlideLayoutRelationship(
@@ -1516,7 +1519,40 @@ function rewriteSourceThemes(document: Ppt4aiDocument, entriesByName: Map<string
   }
 }
 
-function rewriteSourceMastersAndLayouts(document: Ppt4aiDocument, entriesByName: Map<string, ZipEntry>): void {
+/**
+ * A picture background on a master or layout needs its media materialized and a relationship in that
+ * part's own `.rels`, exactly as a slide's does. Returns the relationship id to embed, or undefined when
+ * the background is not a picture, is unchanged from the source, or its asset cannot be resolved.
+ */
+async function partBackgroundPictureRelationship(
+  state: ImageWritebackState,
+  entriesByName: Map<string, ZipEntry>,
+  entries: ZipEntry[],
+  path: string,
+  background: SlideBackground | null | undefined,
+): Promise<string | undefined> {
+  const assetId = background?.pictureFill?.assetId
+  if (!assetId) return undefined
+  const relationships = readRelationships(entriesByName, path)
+  const roots = scanXml(decoder.decode(entriesByName.get(path)!.data))
+  if (sourceBackgroundAssetId(roots, path, relationships) === assetId) return undefined
+  const bytes = await mediaForAsset(state, assetId)
+  const relationshipIds = new Set(relationships.map((relationship) => relationship.id))
+  const relationshipId = allocateRelationshipId(relationshipIds)
+  const relationshipPath = relationshipFilePath(path)
+  const relationshipEntry = entriesByName.get(relationshipPath)
+  const relationshipXml = relationshipEntry ? decoder.decode(relationshipEntry.data) : undefined
+  const updated = encoder.encode(appendRelationships(relationshipXml, [serializeImageRelationship(relationshipId, `../media/${bytes.path.slice('ppt/media/'.length)}`)]))
+  if (relationshipEntry) relationshipEntry.data = updated
+  else {
+    const created = { name: relationshipPath, data: updated }
+    entries.push(created)
+    entriesByName.set(created.name, created)
+  }
+  return relationshipId
+}
+
+async function rewriteSourceMastersAndLayouts(document: Ppt4aiDocument, entriesByName: Map<string, ZipEntry>, state: ImageWritebackState, entries: ZipEntry[]): Promise<void> {
   const originalXmlByPath = new Map<string, string>()
   const rewrittenXmlByPath = new Map<string, string>()
 
@@ -1543,14 +1579,16 @@ function rewriteSourceMastersAndLayouts(document: Ppt4aiDocument, entriesByName:
     const master = document.masters?.[id]
     const path = master?.source?.partPath
     if (!path || !master) continue
-    rewritePart('master', id, path, (source) => rewriteMasterXml(source, master.defaults ?? {}, master.colorMap, id, master.background ?? null))
+    const pictureRelationshipId = await partBackgroundPictureRelationship(state, entriesByName, entries, path, master.background)
+    rewritePart('master', id, path, (source) => rewriteMasterXml(source, master.defaults ?? {}, master.colorMap, id, master.background ?? null, pictureRelationshipId))
   }
 
   for (const id of Object.keys(document.layouts ?? {}).sort()) {
     const layout = document.layouts?.[id]
     const path = layout?.source?.partPath
     if (!path || !layout) continue
-    rewritePart('layout', id, path, (source) => rewriteLayoutXml(source, layout.defaults ?? {}, layout.colorMapOverride, id, layout.background ?? null))
+    const pictureRelationshipId = await partBackgroundPictureRelationship(state, entriesByName, entries, path, layout.background)
+    rewritePart('layout', id, path, (source) => rewriteLayoutXml(source, layout.defaults ?? {}, layout.colorMapOverride, id, layout.background ?? null, pictureRelationshipId))
   }
 
   for (const [path, rewrittenXml] of rewrittenXmlByPath) {
@@ -1575,7 +1613,6 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
   const entries = await readZipEntries(source)
   const entriesByName = new Map(entries.map((entry) => [entry.name, entry]))
   rewriteSourceThemes(document, entriesByName)
-  rewriteSourceMastersAndLayouts(document, entriesByName)
   const sourcePackageData = sourcePackage(entriesByName)
   const plans = slidePlans(document, sourcePackageData, entriesByName)
   const scannedSlides = scanSourceSlides(sourcePackageData, entriesByName)
@@ -1634,6 +1671,7 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
     mediaContentTypes: new Map(),
     pendingMedia: [],
   }
+  await rewriteSourceMastersAndLayouts(document, entriesByName, state, entries)
   for (const plan of plans) {
     const slideId = plan.slideId
     const slidePath = plan.outputPath

@@ -1,5 +1,5 @@
 import { colorTransformValueIsValid, isOoxmlToken, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ElementDefaults, type Fill, type Rect, type SlideBackground, type TextBody } from '@ppt4ai/model'
-import { serializeColorXml, serializeTextBodyXml } from './standalone-xml.js'
+import { serializeBlipFillXml, serializeColorXml, serializeTextBodyXml } from './standalone-xml.js'
 import { sourceColor, sourceFill } from './color-source.js'
 import {
   fillNodeNames,
@@ -529,7 +529,8 @@ function partBackgroundsEqual(left: SlideBackground | undefined, right: SlideBac
   return leftRef.idx === rightRef.idx && JSON.stringify(leftRef.color ?? null) === JSON.stringify(rightRef.color ?? null)
 }
 
-function serializePartBackgroundNode(prefix: string, background: SlideBackground): string {
+function serializePartBackgroundNode(prefix: string, background: SlideBackground, pictureRelationshipId?: string): string {
+  if (background.pictureFill && pictureRelationshipId) return `<${prefix}bg><${prefix}bgPr>${serializeBlipFillXml(background.pictureFill, pictureRelationshipId)}<a:effectLst/></${prefix}bgPr></${prefix}bg>`
   if (background.fill) return `<${prefix}bg><${prefix}bgPr>${serializeFillPrefixed(background.fill, 'a:')}<a:effectLst/></${prefix}bgPr></${prefix}bg>`
   const reference = background.styleRef
   if (!reference) return ''
@@ -543,7 +544,16 @@ function serializePartBackgroundNode(prefix: string, background: SlideBackground
  * node; clearing deletes it. A picture background is never introduced here — it needs a media part and a
  * relationship, which no editing command asks for — so a model picture background leaves the source alone.
  */
-function rewriteBackground(source: string, background: SlideBackground | null | undefined, kind: 'master' | 'layout'): string {
+/** A blip embeds via `r:embed`, so the part root must declare the relationships namespace before one appears. */
+function ensureRelationshipNamespace(source: string): string {
+  const rootMatch = /^\s*<\?xml[^>]*\?>\s*<([^\s/>]+)([^>]*)>/u.exec(source) ?? /<([^\s/>]+)([^>]*)>/u.exec(source)
+  if (!rootMatch) return source
+  if ((rootMatch[2] ?? '').includes('xmlns:r=')) return source
+  const openEnd = rootMatch.index + rootMatch[0].length
+  const insertAt = openEnd - (rootMatch[0].endsWith('/>') ? 2 : 1)
+  return `${source.slice(0, insertAt)} xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"${source.slice(insertAt)}`
+}
+function rewriteBackground(source: string, background: SlideBackground | null | undefined, kind: 'master' | 'layout', pictureRelationshipId?: string): string {
   if (background === undefined) return source
   const roots = scanXml(source)
   const common = descendants(roots, 'cSld')[0]
@@ -552,7 +562,17 @@ function rewriteBackground(source: string, background: SlideBackground | null | 
   const existing = sourcePartBackground(bg)
   const desired = background === null ? undefined : background
   if (partBackgroundsEqual(existing, desired)) return source
-  if (desired?.pictureFill) return source
+  // A picture background needs a materialized media part and a relationship, supplied by the caller.
+  // Without one (unchanged photo, or the asset could not be resolved) the source is left alone.
+  if (desired?.pictureFill) {
+    if (!pictureRelationshipId) return source
+    const pictureValue = serializePartBackgroundNode(namespacePrefix(bg?.name ?? common.name), desired, pictureRelationshipId)
+    if (!pictureValue) return source
+    if (bg) return ensureRelationshipNamespace(replaceRanges(source, [{ start: bg.start, end: bg.end, value: pictureValue }]))
+    const pictureTree = descendants(roots, 'spTree')[0]
+    if (!pictureTree) return source
+    return ensureRelationshipNamespace(replaceRanges(source, [{ start: pictureTree.start, end: pictureTree.start, value: pictureValue }]))
+  }
   if (!desired) return bg ? replaceRanges(source, [{ start: bg.start, end: bg.end, value: '' }]) : source
   const properties = bg?.children.find((child) => child.localName === 'bgPr')
   const fillNode = properties?.children.find((child) => fillNodeNames.has(child.localName))
@@ -568,12 +588,12 @@ function rewriteBackground(source: string, background: SlideBackground | null | 
   return replaceRanges(source, [{ start: tree.start, end: tree.start, value }])
 }
 
-export function rewriteMasterXml(source: string, defaults: Record<string, ElementDefaults> = {}, colorMap?: Partial<ColorMap>, id = 'master', background?: SlideBackground | null): string {
-  return rewriteBackground(rewriteColorMapInternal(rewritePlaceholderDefaults(source, defaults, 'master', id), 'master', colorMap, id), background, 'master')
+export function rewriteMasterXml(source: string, defaults: Record<string, ElementDefaults> = {}, colorMap?: Partial<ColorMap>, id = 'master', background?: SlideBackground | null, backgroundPictureRelationshipId?: string): string {
+  return rewriteBackground(rewriteColorMapInternal(rewritePlaceholderDefaults(source, defaults, 'master', id), 'master', colorMap, id), background, 'master', backgroundPictureRelationshipId)
 }
 
-export function rewriteLayoutXml(source: string, defaults: Record<string, ElementDefaults> = {}, colorMap?: Partial<ColorMap>, id = 'layout', background?: SlideBackground | null): string {
-  return rewriteBackground(rewriteColorMapInternal(rewritePlaceholderDefaults(source, defaults, 'layout', id), 'layout', colorMap, id), background, 'layout')
+export function rewriteLayoutXml(source: string, defaults: Record<string, ElementDefaults> = {}, colorMap?: Partial<ColorMap>, id = 'layout', background?: SlideBackground | null, backgroundPictureRelationshipId?: string): string {
+  return rewriteBackground(rewriteColorMapInternal(rewritePlaceholderDefaults(source, defaults, 'layout', id), 'layout', colorMap, id), background, 'layout', backgroundPictureRelationshipId)
 }
 
 export function rewriteSlideColorMapXml(source: string, colorMap: Partial<ColorMap> | undefined, id = 'slide'): string {

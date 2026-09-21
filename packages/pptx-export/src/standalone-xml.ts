@@ -606,14 +606,18 @@ function serializeFillModeXml(fill: PictureFill): string {
   return `<a:tile${attributes}/>`
 }
 
-function serializePictureFillXml(element: ShapeElement | TextElement, relationshipId: string | undefined): string {
-  const fill = element.pictureFill
-  if (!fill || !relationshipId) return ''
+/** `a:blipFill` for a picture fill: the blip (with its effects), the source crop, then the tile/stretch mode. */
+export function serializeBlipFillXml(fill: PictureFill, relationshipId: string): string {
   const effects = serializeBlipEffectsXml(fill.effects)
   const blip = effects
     ? `<a:blip r:embed="${escapeXml(relationshipId)}">${effects}</a:blip>`
     : `<a:blip r:embed="${escapeXml(relationshipId)}"/>`
   return `<a:blipFill>${blip}${serializeCrop(fill.sourceCrop)}${serializeFillModeXml(fill)}</a:blipFill>`
+}
+function serializePictureFillXml(element: ShapeElement | TextElement, relationshipId: string | undefined): string {
+  const fill = element.pictureFill
+  if (!fill || !relationshipId) return ''
+  return serializeBlipFillXml(fill, relationshipId)
 }
 
 export function serializeShapeXml(element: ShapeElement | TextElement, shapeId: number, pictureRelationshipId?: string): string {
@@ -671,12 +675,7 @@ export function serializeTableFrameXml(table: TableElement, shapeId: number, pic
 /** `p:bg` comes before `p:spTree` inside `p:cSld`, and `p:bgPr` needs an effect list to be valid. */
 export function serializeBackgroundXml(background: SlideBackground | undefined, pictureRelationshipId?: string): string {
   if (background?.pictureFill && pictureRelationshipId) {
-    const fill = background.pictureFill
-    const effects = serializeBlipEffectsXml(fill.effects)
-    const blip = effects
-      ? `<a:blip r:embed="${escapeXml(pictureRelationshipId)}">${effects}</a:blip>`
-      : `<a:blip r:embed="${escapeXml(pictureRelationshipId)}"/>`
-    return `<p:bg><p:bgPr><a:blipFill>${blip}${serializeCrop(fill.sourceCrop)}${serializeFillModeXml(fill)}</a:blipFill><a:effectLst/></p:bgPr></p:bg>`
+    return `<p:bg><p:bgPr>${serializeBlipFillXml(background.pictureFill, pictureRelationshipId)}<a:effectLst/></p:bgPr></p:bg>`
   }
   if (background?.fill) return `<p:bg><p:bgPr>${serializeFillXml(background.fill)}<a:effectLst/></p:bgPr></p:bg>`
   if (background?.styleRef) {
