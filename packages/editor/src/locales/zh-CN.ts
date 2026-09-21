@@ -122,6 +122,7 @@ const zhCN = {
     slideLayout: {
       label: '版式',
       duplicate: '复制版式',
+      delete: '删除版式',
     },
     theme: {
       title: '主题',

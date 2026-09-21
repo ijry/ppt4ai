@@ -68,6 +68,7 @@ export interface PlaygroundPresentationHost {
   setLayoutBackground(background: SlideBackground | null): PlaygroundPresentationSnapshot
   setSlideLayout(layoutId: string): PlaygroundPresentationSnapshot
   addLayout(sourceLayoutId: string): PlaygroundPresentationSnapshot
+  deleteLayout(layoutId: string): PlaygroundPresentationSnapshot
   setThemeColor(slot: ThemeColorSlot, color: Color | null): PlaygroundPresentationSnapshot
   setThemeFont(slot: ThemeFontSlot, script: ThemeFontScript, typeface: string | null): PlaygroundPresentationSnapshot
   selectAsset(assetId: string): PlaygroundPresentationSnapshot
@@ -531,6 +532,9 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     },
     addLayout(sourceLayoutId) {
       return forward((host) => host.addLayout(sourceLayoutId))
+    },
+    deleteLayout(layoutId) {
+      return forward((host) => host.deleteLayout(layoutId))
     },
     setThemeColor(slot, color) {
       return forward((host) => host.setThemeColor(activeThemeId(host) ?? '', slot, color))

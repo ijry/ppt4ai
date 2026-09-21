@@ -138,3 +138,21 @@ describe('playground duplicate layout wiring', () => {
     expect(host.addLayout('nope').status).toEqual({ kind: 'error', message: 'layout-missing' })
   })
 })
+
+describe('playground delete layout wiring', () => {
+  it('duplicates then deletes the added layout after switching away', () => {
+    const host = createPlaygroundAssetHost()
+    host.addLayout('lay_playground')
+    const added = Object.values(host.getSnapshot().engineState.document.layouts ?? {}).find((l) => l.id !== 'lay_playground' && l.id !== 'lay_playground_title')!
+    // The seed slide is on lay_playground, so the freshly added layout is unused and deletable.
+    const snapshot = host.deleteLayout(added.id)
+    expect(snapshot.status).toEqual({ kind: 'success', message: 'layout-deleted' })
+    expect(host.getSnapshot().engineState.document.layouts?.[added.id]).toBeUndefined()
+  })
+
+  it('refuses to delete the layout the active slide uses', () => {
+    const host = createPlaygroundAssetHost()
+    const current = host.getSnapshot().engineState.document.slides.sld_playground!.layoutId!
+    expect(host.deleteLayout(current).status).toEqual({ kind: 'error', message: 'layout-delete-failed' })
+  })
+})

@@ -93,3 +93,35 @@ describe('addLayout', () => {
     expect(ids.length).toBe(4)
   })
 })
+
+describe('deleteLayout', () => {
+  it('removes an unused layout and undoes it', () => {
+    const engine = new EditorEngine(documentWith())
+    engine.dispatch({ type: 'setSlideLayout', slideId: 'sld_1', layoutId: 'lyt_b' })
+    // lyt_a is now unused (slide is on lyt_b), so it can be deleted.
+    engine.dispatch({ type: 'deleteLayout', layoutId: 'lyt_a' })
+    expect(engine.getState().document.layouts?.lyt_a).toBeUndefined()
+
+    engine.dispatch({ type: 'undo' })
+    expect(engine.getState().document.layouts?.lyt_a?.id).toBe('lyt_a')
+  })
+
+  it('refuses to delete a layout still used by a slide', () => {
+    const engine = new EditorEngine(documentWith())
+    expect(() => engine.dispatch({ type: 'deleteLayout', layoutId: 'lyt_a' })).toThrow(/in use by a slide/)
+  })
+
+  it('refuses to delete a master\'s only layout', () => {
+    const doc = documentWith()
+    // Leave only lyt_other under mst_2, and no slide using it.
+    delete doc.layouts!.lyt_b
+    doc.slides.sld_1!.layoutId = 'lyt_a'
+    const engine = new EditorEngine(doc)
+    expect(() => engine.dispatch({ type: 'deleteLayout', layoutId: 'lyt_other' })).toThrow(/only layout/)
+  })
+
+  it('throws for a missing layout', () => {
+    const engine = new EditorEngine(documentWith())
+    expect(() => engine.dispatch({ type: 'deleteLayout', layoutId: 'nope' })).toThrow(/layout does not exist/)
+  })
+})

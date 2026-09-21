@@ -122,6 +122,7 @@ const enUS = {
     slideLayout: {
       label: 'Layout',
       duplicate: 'Duplicate layout',
+      delete: 'Delete layout',
     },
     theme: {
       title: 'Theme',

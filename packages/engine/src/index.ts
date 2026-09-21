@@ -84,6 +84,7 @@ export type EngineCommand =
   | { type: 'setLayoutBackground'; layoutId: string; background: SlideBackground | null }
   | { type: 'setSlideLayout'; slideId: string; layoutId: string }
   | { type: 'addLayout'; sourceLayoutId: string; layoutId?: string }
+  | { type: 'deleteLayout'; layoutId: string }
   | { type: 'setThemeColor'; themeId: string; slot: ThemeColorSlot; color: Color | null }
   | { type: 'setThemeFont'; themeId: string; slot: ThemeFontSlot; script: ThemeFontScript; typeface: string | null }
   | { type: 'mergeTableCells' }
@@ -750,6 +751,10 @@ export class EditorEngine {
         this.addLayout(command.sourceLayoutId, command.layoutId)
         break
       }
+      case 'deleteLayout': {
+        this.deleteLayout(command.layoutId)
+        break
+      }
       case 'setSlideLayout': {
         this.setSlideLayout(command.slideId, command.layoutId)
         break
@@ -989,6 +994,22 @@ export class EditorEngine {
     const validation = validateDocument(nextDocument)
     if (!validation.valid) throw new Error(`added layout is invalid: ${id}: ${validation.errors.join('; ')}`)
     this.commit([{ path: ['layouts', id], value: next }])
+  }
+
+  /**
+   * Remove a layout. Refused when a slide still uses it (that would orphan the slide's inheritance) or
+   * when it is the master's only layout (a master must keep at least one). On source writeback the
+   * deleted layout simply lingers unused in the output until list/relationship removal lands; standalone
+   * generation drops it because it enumerates the model.
+   */
+  private deleteLayout(layoutId: string): void {
+    const layout = this.document.layouts?.[layoutId]
+    if (!layout) throw new Error(`layout does not exist: ${layoutId}`)
+    const usedBy = Object.values(this.document.slides).find((slide) => slide.layoutId === layoutId)
+    if (usedBy) throw new Error(`layout is in use by a slide: ${layoutId}`)
+    const siblings = Object.values(this.document.layouts ?? {}).filter((entry) => entry.masterId === layout.masterId)
+    if (siblings.length <= 1) throw new Error(`cannot delete the master's only layout: ${layoutId}`)
+    this.commit([{ path: ['layouts', layoutId], value: undefined }])
   }
 
   private setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): void {
