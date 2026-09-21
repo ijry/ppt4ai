@@ -146,7 +146,12 @@ function serializeMarks(marks: TextMarks | undefined, tag = 'a:rPr'): string {
     ['i', booleanAttribute(marks.italic)],
     ['u', marks.underline],
     ['baseline', marks.baseline],
-  ])}>${serializeFillXml(marks.color)}${serializeTypefaces(marks)}</${tag}>`
+  ])}>${serializeFillXml(marks.color)}${serializeHighlight(marks.highlight)}${serializeTypefaces(marks)}</${tag}>`
+}
+
+/** `a:highlight` sits between the fill and the typefaces in `CT_TextCharacterProperties`. A solid colour. */
+function serializeHighlight(highlight: TextMarks['highlight']): string {
+  return highlight ? `<a:highlight>${serializeColorXml(highlight)}</a:highlight>` : ''
 }
 
 function serializeBullet(bullet: TextBullet): string {

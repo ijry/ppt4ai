@@ -69,6 +69,8 @@ export interface SceneShapeNode {
 
 export interface SceneTextLayoutRun extends TextLayoutRun {
   resolvedColor?: ResolvedColor
+  /** `a:highlight` resolved through the theme: the swatch painted behind the run's glyphs. */
+  resolvedHighlight?: ResolvedColor
   resolvedFontFamily?: string
 }
 
@@ -250,9 +252,10 @@ function toSceneTextLayout(
         ...(line.marker ? { marker: { ...line.marker, ...(markerFamily ? { resolvedFontFamily: markerFamily } : {}) } } : {}),
         runs: line.runs.map((run) => {
           const resolvedColor = resolvedFillColor(run.marks?.color, context) ?? styleFallback.color
+          const resolvedHighlight = run.marks?.highlight ? resolveColor(run.marks.highlight, context.theme, context.colorMap) : undefined
           const fontFamily = resolvedFontFamily(run.marks, run.script, context)
             ?? (run.marks?.fontFamily ? undefined : styleFallback.fontFamily)
-          return { ...run, ...(resolvedColor ? { resolvedColor } : {}), ...(fontFamily ? { resolvedFontFamily: fontFamily } : {}) }
+          return { ...run, ...(resolvedColor ? { resolvedColor } : {}), ...(resolvedHighlight ? { resolvedHighlight } : {}), ...(fontFamily ? { resolvedFontFamily: fontFamily } : {}) }
         }),
       }
     }),

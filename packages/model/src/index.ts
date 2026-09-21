@@ -522,6 +522,8 @@ export interface TextMarks {
    */
   underline?: string
   color?: Fill
+  /** `a:highlight`: the text's background swatch. A solid `CT_Color` in OOXML, so a plain colour. */
+  highlight?: Color
   baseline?: number
 }
 
@@ -2058,6 +2060,7 @@ function validateTextMarks(value: unknown, path: string, errors: string[]): void
     if (key in marks && typeof marks[key] !== 'boolean') errors.push(`${path}.${key} must be boolean`)
   }
   if ('underline' in marks && !isOoxmlToken(marks.underline)) errors.push(`${path}.underline must be an underline token`)
+  if ('highlight' in marks && marks.highlight !== undefined) validateColor(marks.highlight, `${path}.highlight`, errors)
   if ('baseline' in marks) validateFiniteNumber(marks.baseline, `${path}.baseline`, errors, () => true, 'must be finite')
 }
 

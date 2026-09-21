@@ -127,6 +127,20 @@ function paintHorizontalItem(
   mapping: TextPageMapping,
 ): void {
   if (item.text.length === 0) return
+  const highlight = 'resolvedHighlight' in item ? item.resolvedHighlight : undefined
+  if (highlight) {
+    // The swatch spans the run's advance over the line box, painted before the glyphs sit on top of it.
+    const swatch = colorState(highlight)
+    context.fillStyle = swatch.color
+    context.globalAlpha = swatch.alpha
+    context.fillRect(
+      mapping.offsetX + item.x * mapping.scale,
+      mapping.offsetY + line.y * mapping.scale,
+      item.width * mapping.scale,
+      line.height * mapping.scale,
+    )
+    context.globalAlpha = 1
+  }
   applyTextStyle(context, style)
   const x = mapping.offsetX + item.x * mapping.scale
   const y = mapping.offsetY + line.y * mapping.scale

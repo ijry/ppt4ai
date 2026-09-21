@@ -1431,6 +1431,8 @@ function parseRunMarks(runProperties: XmlNode | undefined): TextMarks | undefine
   if (underline && isOoxmlToken(underline)) marks.underline = underline
   const color = parseColor(child(runProperties, 'solidFill'))
   if (color) marks.color = { color }
+  const highlight = parseColor(child(runProperties, 'highlight'))
+  if (highlight) marks.highlight = highlight
   const baseline = parseNumber(attribute(runProperties, 'baseline'))
   if (baseline !== undefined) marks.baseline = baseline
   return Object.keys(marks).length > 0 ? marks : undefined
