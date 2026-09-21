@@ -183,6 +183,14 @@ function paintVerticalItem(
   const x = mapping.offsetX + item.x * mapping.scale
   const y = mapping.offsetY + item.y! * mapping.scale
   if (item.orientation === 'upright') {
+    const upHighlight = 'resolvedHighlight' in item ? item.resolvedHighlight : undefined
+    if (upHighlight) {
+      const swatch = colorState(upHighlight)
+      context.fillStyle = swatch.color
+      context.globalAlpha = swatch.alpha
+      context.fillRect(x, y, item.width * mapping.scale, item.height! * mapping.scale)
+      context.globalAlpha = 1
+    }
     applyTextStyle(context, style)
     // An upright vertical glyph sits in an unrotated box, so a gradient fills it the same way a
     // horizontal run does. Rotated glyphs draw under a transform and stay flat (documented limit).
@@ -204,6 +212,14 @@ function paintVerticalItem(
     context.translate(mapping.offsetX + (item.x + item.width) * mapping.scale, y)
     context.rotate(Math.PI / 2)
     applyTextStyle(context, style)
+    const rotatedHighlight = 'resolvedHighlight' in item ? item.resolvedHighlight : undefined
+    if (rotatedHighlight) {
+      const swatch = colorState(rotatedHighlight)
+      context.fillStyle = swatch.color
+      context.globalAlpha = swatch.alpha
+      context.fillRect(0, 0, item.height! * mapping.scale, item.width * mapping.scale)
+      context.globalAlpha = 1
+    }
     // The glyph draws in the rotated local frame, so a page-space gradient axis is mapped into it:
     // a page direction (a, b) becomes local (b, -a) — the angle turns by -90deg and the box dims swap.
     const rotatedPattern = percentagePatternStroke('resolvedFillPattern' in item ? item.resolvedFillPattern : undefined)

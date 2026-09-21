@@ -17,7 +17,7 @@ class RecordingContext {
   save(): void {}
   restore(): void {}
   fillText(text: string, x: number, y: number): void { this.events.push(['fillText', text, x, y, this.fillStyle]) }
-  fillRect(): void {}
+  fillRect(x: number, y: number, w: number, h: number): void { this.events.push(['fillRect', this.fillStyle, x, y, w, h]) }
   beginPath(): void {}
   closePath(): void {}
   setLineDash(): void {}
@@ -150,5 +150,52 @@ describe('vertical text pattern painting', () => {
     const glyph = ctx.events.find(([type]) => type === 'fillText')
     expect(glyph?.[4]).toMatch(/^#[0-9A-F]{6}$/)
     expect(glyph?.[4]).not.toBe('#FF0000')
+  })
+})
+describe('vertical text highlight painting', () => {
+  function verticalHighlightNode(orientation: 'upright' | 'rotated'): SceneTextNode {
+    return {
+      id: 'text-1',
+      kind: 'text',
+      bounds: { x: 0, y: 0, w: 500, h: 1000 },
+      text: 'A',
+      layout: {
+        bounds: { x: 0, y: 0, w: 500, h: 1000 },
+        fontScale: 100000,
+        overflow: false,
+        contentBounds: { x: 0, y: 0, w: 500, h: 1000 },
+        vertical: 'vertical',
+        lines: [{
+          paragraphIndex: 0,
+          x: 100,
+          y: 100,
+          width: 80,
+          height: 1000,
+          runs: [{
+            text: 'A',
+            x: 100,
+            y: 100,
+            width: 80,
+            height: 80,
+            orientation,
+            marks: { fontSize: 20 },
+            resolvedColor: { rgb: '000000', alpha: 100000 },
+            resolvedHighlight: { rgb: 'FFFF00', alpha: 100000 },
+          }],
+        }],
+      },
+    }
+  }
+
+  it('paints a highlight swatch behind an upright vertical glyph', () => {
+    const ctx = context()
+    paintTextNode(ctx, verticalHighlightNode('upright'), mapping)
+    expect(ctx.events.some(([type, style]) => type === 'fillRect' && style === '#FFFF00')).toBe(true)
+  })
+
+  it('paints a highlight swatch behind a rotated vertical glyph', () => {
+    const ctx = context()
+    paintTextNode(ctx, verticalHighlightNode('rotated'), mapping)
+    expect(ctx.events.some(([type, style]) => type === 'fillRect' && style === '#FFFF00')).toBe(true)
   })
 })
