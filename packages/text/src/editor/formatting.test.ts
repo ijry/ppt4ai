@@ -207,3 +207,36 @@ describe('text formatting transactions', () => {
     expect(getTextEditorSnapshot(state).body.paragraphs[1]?.attrs?.align).toBe('right')
   })
 })
+
+describe('text highlight formatting', () => {
+  it('sets a run highlight colour over the selection and reads it back', () => {
+    const state = setTextEditorSelection(createTextEditorState({ paragraphs: [{ runs: [{ text: 'AB' }] }] }), { anchor: 1, head: 3 })
+    const formatted = setTextMarks(state, { highlight: { type: 'srgb', v: 'FFFF00' } })
+
+    expect(getTextEditorSnapshot(formatted).body.paragraphs[0]?.runs[0]?.marks?.highlight).toEqual({ type: 'srgb', v: 'FFFF00' })
+    expect(getTextFormattingState(formatted).highlight).toEqual({ type: 'srgb', v: 'FFFF00' })
+  })
+
+  it('clears the highlight when set to undefined', () => {
+    const withHighlight = setTextEditorSelection(createTextEditorState({ paragraphs: [{ runs: [{ text: 'AB', marks: { highlight: { type: 'srgb', v: 'FFFF00' } } }] }] }), { anchor: 1, head: 3 })
+    const cleared = setTextMarks(withHighlight, { highlight: undefined })
+
+    expect(getTextEditorSnapshot(cleared).body.paragraphs[0]?.runs[0]?.marks?.highlight).toBeUndefined()
+    expect(getTextFormattingState(cleared).highlight).toBeUndefined()
+  })
+
+  it('rejects an invalid highlight colour', () => {
+    const state = setTextEditorSelection(createTextEditorState({ paragraphs: [{ runs: [{ text: 'A' }] }] }), { anchor: 1, head: 2 })
+    expect(() => setTextMarks(state, { highlight: { type: 'srgb', v: '' } as never })).toThrow()
+  })
+
+  it('reports a mixed highlight as undefined across differing runs', () => {
+    const mixed = setTextEditorSelection(createTextEditorState({
+      paragraphs: [{ runs: [
+        { text: 'A', marks: { highlight: { type: 'srgb', v: 'FFFF00' } } },
+        { text: 'B' },
+      ] }],
+    }), { anchor: 1, head: 3 })
+    expect(getTextFormattingState(mixed).highlight).toBeUndefined()
+  })
+})

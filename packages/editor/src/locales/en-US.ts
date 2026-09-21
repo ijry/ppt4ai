@@ -25,6 +25,8 @@ const enUS = {
       fontFamilyEa: 'East Asian font',
       fontSize: 'Font size',
       color: 'Text color',
+      highlight: 'Highlight color',
+      highlightClear: 'Clear highlight',
       mixed: 'Mixed',
       align: {
         left: 'Align left',

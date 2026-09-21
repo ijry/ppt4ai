@@ -33,6 +33,15 @@ function color(event: Event): void {
   const value = (event.target as HTMLInputElement).value.replace(/^#/, '')
   if (value) emit('set-marks', { color: { color: { type: 'srgb', v: value } } })
 }
+
+function highlight(event: Event): void {
+  const value = (event.target as HTMLInputElement).value.replace(/^#/, '')
+  if (value) emit('set-marks', { highlight: { type: 'srgb', v: value } })
+}
+
+function clearHighlight(): void {
+  emit('set-marks', { highlight: undefined })
+}
 </script>
 
 <template>
@@ -104,5 +113,25 @@ function color(event: Event): void {
       :value="props.state.color?.color.type === 'srgb' ? `#${props.state.color.color.v}` : '#000000'"
       @change="color"
     >
+
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-text-highlight
+      :aria-label="t('toolbar.textFormatting.highlight')"
+      :disabled="!props.active"
+      :value="props.state.highlight?.type === 'srgb' ? `#${props.state.highlight.v}` : '#FFFF00'"
+      @change="highlight"
+    >
+    <button
+      type="button"
+      class="h-8 min-w-8 border border-transparent px-2 text-sm text-slate-700 hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+      data-text-highlight-clear
+      :aria-label="t('toolbar.textFormatting.highlightClear')"
+      :disabled="!props.active || !props.state.highlight"
+      @click="clearHighlight"
+    >
+      ✕
+    </button>
   </div>
 </template>

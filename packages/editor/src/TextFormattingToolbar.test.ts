@@ -38,13 +38,13 @@ describe('TextFormattingToolbar', () => {
   it('renders semantic controls, mixed state, and inactive disabled state', () => {
     const { app, host } = mountToolbar(false)
 
-    expect(host.querySelectorAll('button')).toHaveLength(6)
+    expect(host.querySelectorAll('button')).toHaveLength(7)
     expect(host.querySelectorAll('select')).toHaveLength(3)
-    expect(host.querySelector('input[type="color"]')).not.toBeNull()
+    expect(host.querySelectorAll('input[type="color"]')).toHaveLength(2)
     expect(host.querySelector('button[aria-pressed="mixed"]')).not.toBeNull()
-    expect(host.querySelectorAll('button:disabled')).toHaveLength(6)
+    expect(host.querySelectorAll('button:disabled')).toHaveLength(7)
     expect(host.querySelectorAll('select:disabled')).toHaveLength(3)
-    expect((host.querySelector('input[type="color"]') as HTMLInputElement).disabled).toBe(true)
+    expect([...host.querySelectorAll('input[type="color"]')].every((input) => (input as HTMLInputElement).disabled)).toBe(true)
     expect(host.querySelector('select')?.querySelector('option[value=""]')).not.toBeNull()
     expect(host.querySelector('[data-text-formatting-toolbar]')?.className).toContain('flex')
     expect(host.textContent).not.toContain('Hello')
@@ -68,6 +68,9 @@ describe('TextFormattingToolbar', () => {
     const color = host.querySelector('input[type="color"]') as HTMLInputElement
     color.value = '#00ff00'
     color.dispatchEvent(new Event('change', { bubbles: true }))
+    const highlightInput = host.querySelector('[data-text-highlight]') as HTMLInputElement
+    highlightInput.value = '#ffff00'
+    highlightInput.dispatchEvent(new Event('change', { bubbles: true }))
 
     expect(events.toggles).toEqual(['bold'])
     expect(events.alignments).toEqual(['left'])
@@ -76,6 +79,7 @@ describe('TextFormattingToolbar', () => {
       { fontFamilyEa: '宋体' },
       { fontSize: 18 },
       { color: { color: { type: 'srgb', v: '00ff00' } } },
+      { highlight: { type: 'srgb', v: 'ffff00' } },
     ])
 
     app.unmount()

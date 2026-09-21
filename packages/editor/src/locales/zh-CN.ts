@@ -25,6 +25,8 @@ const zhCN = {
       fontFamilyEa: '中日韩字体',
       fontSize: '字号',
       color: '文字颜色',
+      highlight: '突出显示颜色',
+      highlightClear: '清除突出显示',
       mixed: '混合',
       align: {
         left: '左对齐',

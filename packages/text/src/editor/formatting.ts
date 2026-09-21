@@ -1,4 +1,4 @@
-import { validateTextBody, type Fill, type TextBullet, type TextMarks } from '@ppt4ai/model'
+import { validateTextBody, type Color, type Fill, type TextBullet, type TextMarks } from '@ppt4ai/model'
 import type { Mark, Node as PMNode } from 'prosemirror-model'
 import { EditorState } from 'prosemirror-state'
 import { textEditorSchema } from './schema'
@@ -28,6 +28,8 @@ export interface TextFormattingState {
   readonly fontFamilyEa?: string
   readonly fontSize?: number
   readonly color?: Fill
+  /** `a:highlight`: the run's background swatch, a solid colour. */
+  readonly highlight?: Color
   readonly align?: 'left' | 'center' | 'right'
 }
 
@@ -39,6 +41,7 @@ const markNames = new Set<keyof TextMarks>([
   'italic',
   'underline',
   'color',
+  'highlight',
   'baseline',
 ])
 const colorTypes = new Set(['srgb', 'scheme', 'preset', 'system', 'scrgb'])
@@ -130,6 +133,7 @@ export function getTextFormattingState(state: EditorState): TextFormattingState 
     fontFamilyEa?: string
     fontSize?: number
     color?: Fill
+    highlight?: Color
     align?: 'left' | 'center' | 'right'
   } = {
     bold: reduceBoolean(marks?.map((value) => value?.bold === true) ?? [false]),
@@ -140,10 +144,12 @@ export function getTextFormattingState(state: EditorState): TextFormattingState 
   const fontFamilyEa = reduceScalar(marks?.map((value) => value?.fontFamilyEa) ?? [undefined])
   const fontSize = reduceScalar(marks?.map((value) => value?.fontSize) ?? [undefined])
   const color = reduceScalar(marks?.map((value) => value?.color) ?? [undefined])
+  const highlight = reduceScalar(marks?.map((value) => value?.highlight) ?? [undefined])
   if (fontFamily !== undefined) result.fontFamily = fontFamily
   if (fontFamilyEa !== undefined) result.fontFamilyEa = fontFamilyEa
   if (fontSize !== undefined) result.fontSize = fontSize
   if (color !== undefined) result.color = structuredClone(color)
+  if (highlight !== undefined) result.highlight = structuredClone(highlight)
   const alignments = collectParagraphAlignments(state)
   const align = reduceScalar(alignments)
   if (align !== undefined) result.align = align
@@ -163,12 +169,28 @@ function validatePatch(patch: TextMarksPatch): void {
     if (key === 'underline' && (typeof value !== 'string' || !/^[A-Za-z][A-Za-z0-9]*$/u.test(value))) throw new TypeError('underline must be an underline token')
     if (key === 'baseline' && (typeof value !== 'number' || !Number.isFinite(value))) throw new TypeError('baseline must be finite')
     if (key === 'color' && !isFill(value)) throw new TypeError('color must be a valid fill')
+    if (key === 'highlight' && !isColor(value)) throw new TypeError('highlight must be a valid colour')
   }
 }
 
 function validateBullet(bullet: TextBullet): void {
   const validation = validateTextBody({ paragraphs: [{ runs: [{ text: 'x' }], attrs: { bullet } }] })
   if (!validation.valid) throw new TypeError(validation.errors.join('; '))
+}
+
+function isColor(value: unknown): value is Color {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const color = value as Record<string, unknown>
+  if (typeof color.type !== 'string' || !colorTypes.has(color.type) || typeof color.v !== 'string' || color.v.length === 0) return false
+  if (color.transforms === undefined) return true
+  if (!Array.isArray(color.transforms)) return false
+  return color.transforms.every((transform) => {
+    if (!transform || typeof transform !== 'object' || Array.isArray(transform)) return false
+    const entry = transform as Record<string, unknown>
+    return typeof entry.type === 'string' && colorTransformTypes.has(entry.type)
+      && typeof entry.value === 'number' && Number.isFinite(entry.value)
+      && entry.value >= 0 && entry.value <= 100000
+  })
 }
 
 function isFill(value: unknown): value is Fill {
