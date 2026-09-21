@@ -24,6 +24,7 @@ describe('slide background panel model', () => {
       patternForeground: '#1F3864',
       patternBackground: '#FFFFFF',
       patternPresets: expect.any(Array),
+      pictureAssetId: '',
     })
   })
 
@@ -142,5 +143,16 @@ describe('pattern background editor', () => {
   it('refuses an unpainted preset or an invalid swatch', () => {
     expect(backgroundPatternFrom('someFuturePattern', '#000000', '#ffffff')).toBeUndefined()
     expect(backgroundPatternFrom('ltHorz', 'nope', '#ffffff')).toBeUndefined()
+  })
+})
+
+describe('picture background model', () => {
+  it('reports the slide picture background asset id', () => {
+    const model = slideBackgroundModel({ pictureFill: { assetId: 'asset_x' } }, undefined)
+    expect(model.pictureAssetId).toBe('asset_x')
+  })
+
+  it('reports an empty asset id when there is no picture background', () => {
+    expect(slideBackgroundModel({ fill: { color: { type: 'srgb', v: '1F3864' } } }, navy).pictureAssetId).toBe('')
   })
 })

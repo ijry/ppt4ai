@@ -11,19 +11,22 @@ interface Events {
   colors: Color[]
   gradients: Fill[]
   patterns: Fill[]
+  pictures: string[]
   clears: number
 }
 
-function mountPanel(model: SlideBackgroundPanelModel) {
-  const events: Events = { colors: [], gradients: [], patterns: [], clears: 0 }
+function mountPanel(model: SlideBackgroundPanelModel, pictureAssets?: readonly { id: string; label: string }[]) {
+  const events: Events = { colors: [], gradients: [], patterns: [], pictures: [], clears: 0 }
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp({
     setup: () => () => h(SlideBackgroundPanel, {
       model,
+      ...(pictureAssets ? { pictureAssets } : {}),
       onSetColor: (color: Color) => events.colors.push(color),
       onSetGradient: (fill: Fill) => events.gradients.push(fill),
       onSetPattern: (fill: Fill) => events.patterns.push(fill),
+      onSetPicture: (assetId: string) => events.pictures.push(assetId),
       onClear: () => { events.clears += 1 },
     }),
   })
@@ -137,6 +140,22 @@ describe('SlideBackgroundPanel pattern editor', () => {
     expect(events.patterns).toHaveLength(1)
     expect(events.patterns[0]?.pattern?.preset).toBe('pct25')
     expect(events.patterns[0]?.pattern?.foreground).toEqual({ type: 'srgb', v: 'FF0000' })
+    app.unmount()
+  })
+})
+
+describe('SlideBackgroundPanel picture editor', () => {
+  it('emits the chosen asset id and hides when the host gives no assets', () => {
+    const model = slideBackgroundModel({ fill: { color: { type: 'srgb', v: '1F3864' } } }, { rgb: '1F3864', alpha: 100000 })
+    const noAssets = mountPanel(model)
+    expect(noAssets.host.querySelector('[data-slide-background-picture]')).toBeNull()
+    noAssets.app.unmount()
+
+    const { app, host, events } = mountPanel(model, [{ id: 'asset_x', label: 'photo.png' }])
+    const select = host.querySelector('[data-slide-background-picture-asset]') as HTMLSelectElement
+    select.value = 'asset_x'
+    select.dispatchEvent(new Event('change'))
+    expect(events.pictures).toEqual(['asset_x'])
     app.unmount()
   })
 })

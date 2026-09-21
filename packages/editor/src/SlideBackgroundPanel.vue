@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { backgroundColorFrom, backgroundGradientFrom, backgroundPatternFrom, type SlideBackgroundPanelEmit, type SlideBackgroundPanelModel } from './slide-background-panel'
 
-const props = defineProps<{ model: SlideBackgroundPanelModel }>()
+const props = defineProps<{ model: SlideBackgroundPanelModel; pictureAssets?: readonly { id: string; label: string }[] }>()
 const emit = defineEmits<SlideBackgroundPanelEmit>()
 const { t } = useI18n()
 
@@ -53,6 +53,11 @@ function pickPatternForeground(event: Event): void {
 
 function pickPatternBackground(event: Event): void {
   applyPattern(props.model.patternPreset, props.model.patternForeground, (event.target as HTMLInputElement).value)
+}
+
+function pickPicture(event: Event): void {
+  const assetId = (event.target as HTMLSelectElement).value
+  if (assetId) emit('set-picture', assetId)
 }
 </script>
 
@@ -145,6 +150,20 @@ function pickPatternBackground(event: Event): void {
         :value="props.model.patternBackground"
         @change="pickPatternBackground"
       >
+    </fieldset>
+    <fieldset v-if="props.pictureAssets && props.pictureAssets.length > 0" class="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700" data-slide-background-picture>
+      <legend class="text-xs text-slate-500">{{ t('panel.slideBackground.pictureEditor') }}</legend>
+      <select
+        class="h-8 border border-slate-300 bg-white px-1 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+        data-slide-background-picture-asset
+        :aria-label="t('panel.slideBackground.pictureAsset')"
+        :disabled="!props.model.active"
+        :value="props.model.pictureAssetId"
+        @change="pickPicture"
+      >
+        <option value="">{{ t('panel.slideBackground.pictureNone') }}</option>
+        <option v-for="asset in props.pictureAssets" :key="asset.id" :value="asset.id">{{ asset.label }}</option>
+      </select>
     </fieldset>
     <p v-if="note" role="note" class="mt-2 text-xs text-slate-500">{{ note }}</p>
   </section>

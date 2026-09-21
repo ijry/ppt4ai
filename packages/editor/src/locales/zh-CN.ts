@@ -87,6 +87,9 @@ const zhCN = {
       patternPreset: '图案预设',
       patternForeground: '图案前景色',
       patternBackground: '图案背景色',
+      pictureEditor: '图片',
+      pictureAsset: '背景图片',
+      pictureNone: '无',
     },
     theme: {
       title: '主题',

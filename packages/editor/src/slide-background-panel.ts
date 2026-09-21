@@ -27,12 +27,15 @@ export interface SlideBackgroundPanelModel {
   readonly patternBackground: string
   /** The preset words the panel offers, the ones the painter can actually draw. */
   readonly patternPresets: readonly string[]
+  /** The asset id of the slide's own picture background, or '' when it has none. */
+  readonly pictureAssetId: string
 }
 
 export type SlideBackgroundPanelEmit = {
   (event: 'set-color', color: Color): void
   (event: 'set-gradient', fill: Fill): void
   (event: 'set-pattern', fill: Fill): void
+  (event: 'set-picture', assetId: string): void
   (event: 'clear'): void
 }
 
@@ -89,6 +92,7 @@ export function slideBackgroundModel(
     patternForeground: hexFromStop(resolvedPattern?.foreground, flat),
     patternBackground: hexFromStop(resolvedPattern?.background, FALLBACK_GRADIENT_END),
     patternPresets: PAINTED_PRESET_PATTERNS,
+    pictureAssetId: background?.pictureFill?.assetId ?? '',
   }
 }
 

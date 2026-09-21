@@ -87,6 +87,9 @@ const enUS = {
       patternPreset: 'Pattern preset',
       patternForeground: 'Pattern foreground color',
       patternBackground: 'Pattern background color',
+      pictureEditor: 'Picture',
+      pictureAsset: 'Background image',
+      pictureNone: 'None',
     },
     theme: {
       title: 'Theme',

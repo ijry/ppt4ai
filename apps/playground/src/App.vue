@@ -156,6 +156,13 @@ function setSlideBackgroundPattern(fill: Fill): void {
   assetSnapshot.value = assetHost.setSlideBackground({ fill })
 }
 
+function setSlideBackgroundPicture(assetId: string): void {
+  assetSnapshot.value = assetHost.setSlideBackground({ pictureFill: { assetId } })
+}
+
+const backgroundPictureAssets = computed(() => Object.values(activeSlideSnapshot.value.engineState.document.assets ?? {})
+  .map((asset) => ({ id: asset.id, label: asset.originalFilename ?? asset.id })))
+
 function setThemeColor(slot: ThemeColorSlot, color: Color): void {
   assetSnapshot.value = assetHost.setThemeColor(slot, color)
 }
@@ -484,9 +491,11 @@ async function uploadFile(event: Event): Promise<void> {
         />
         <SlideBackgroundPanel
           :model="slideBackground"
+          :picture-assets="backgroundPictureAssets"
           @set-color="setSlideBackground"
           @set-gradient="setSlideBackgroundGradient"
           @set-pattern="setSlideBackgroundPattern"
+          @set-picture="setSlideBackgroundPicture"
           @clear="clearSlideBackground"
         />
         <ThemePanel
