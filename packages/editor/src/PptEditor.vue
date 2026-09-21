@@ -444,6 +444,12 @@ const tableFormatting = computed<TableFormattingToolbarProps>(() => {
   return {
     active: true,
     ...(cell.resolvedFillColor ? { fillColor: `#${cell.resolvedFillColor.rgb.toUpperCase()}` } : {}),
+    ...(cell.resolvedFillGradient?.stops[0] ? { fillGradientStart: `#${cell.resolvedFillGradient.stops[0].color.rgb.toUpperCase()}` } : {}),
+    ...(cell.resolvedFillGradient?.stops.length ? { fillGradientEnd: `#${cell.resolvedFillGradient.stops[cell.resolvedFillGradient.stops.length - 1]!.color.rgb.toUpperCase()}` } : {}),
+    ...(cell.resolvedFillGradient ? { fillGradientAngle: Math.round(((cell.resolvedFillGradient.angle ?? 0) / 60000) % 360) } : {}),
+    ...(cell.resolvedFillPattern ? { fillPatternPreset: cell.resolvedFillPattern.preset } : {}),
+    ...(cell.resolvedFillPattern ? { fillPatternForeground: `#${cell.resolvedFillPattern.foreground.rgb.toUpperCase()}` } : {}),
+    ...(cell.resolvedFillPattern ? { fillPatternBackground: `#${cell.resolvedFillPattern.background.rgb.toUpperCase()}` } : {}),
     ...(borderColor ? { borderColor: `#${borderColor.rgb.toUpperCase()}` } : {}),
     borderWidth: border?.width ?? 12700,
     borderStyle: border?.style === 'dash' || border?.style === 'dot' ? border.style : 'solid',

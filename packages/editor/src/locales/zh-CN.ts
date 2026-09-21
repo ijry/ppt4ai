@@ -68,6 +68,12 @@ const zhCN = {
     tableFormatting: {
       fillColor: '单元格填充颜色',
       clearFill: '清除单元格填充',
+      fillGradientStart: '单元格渐变起色',
+      fillGradientEnd: '单元格渐变止色',
+      fillGradientAngle: '单元格渐变角度',
+      fillPatternPreset: '单元格图案预设',
+      fillPatternForeground: '单元格图案前景',
+      fillPatternBackground: '单元格图案背景',
       borderColor: '边框颜色',
       borderWidth: '边框宽度',
       borderStyle: '边框样式',

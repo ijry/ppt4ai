@@ -4,6 +4,14 @@ import type { TableBorderPatch, TableBorderSide } from './table-editor-controlle
 export interface TableFormattingToolbarProps {
   readonly active: boolean
   readonly fillColor?: string
+  /** The cell fill gradient's editor state when the cell carries one. */
+  readonly fillGradientStart?: string
+  readonly fillGradientEnd?: string
+  readonly fillGradientAngle?: number
+  /** The cell fill pattern's editor state when the cell carries one. */
+  readonly fillPatternPreset?: string
+  readonly fillPatternForeground?: string
+  readonly fillPatternBackground?: string
   readonly borderColor?: string
   readonly borderWidth: number
   readonly borderStyle: 'solid' | 'dash' | 'dot'

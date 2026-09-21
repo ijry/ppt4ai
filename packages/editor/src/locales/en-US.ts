@@ -68,6 +68,12 @@ const enUS = {
     tableFormatting: {
       fillColor: 'Cell fill color',
       clearFill: 'Clear cell fill',
+      fillGradientStart: 'Cell gradient start',
+      fillGradientEnd: 'Cell gradient end',
+      fillGradientAngle: 'Cell gradient angle',
+      fillPatternPreset: 'Cell pattern preset',
+      fillPatternForeground: 'Cell pattern foreground',
+      fillPatternBackground: 'Cell pattern background',
       borderColor: 'Border color',
       borderWidth: 'Border width',
       borderStyle: 'Border style',

@@ -31,11 +31,11 @@ describe('TableFormattingToolbar', () => {
     const { app, host } = mountToolbar(false)
 
     expect(host.querySelectorAll('button')).toHaveLength(7)
-    expect(host.querySelectorAll('select')).toHaveLength(2)
-    expect(host.querySelectorAll('input[type="color"]')).toHaveLength(2)
+    expect(host.querySelectorAll('select')).toHaveLength(3)
+    expect(host.querySelectorAll('input[type="color"]')).toHaveLength(6)
     expect(host.querySelectorAll('button:disabled')).toHaveLength(7)
-    expect(host.querySelectorAll('select:disabled')).toHaveLength(2)
-    expect(host.querySelectorAll('input:disabled')).toHaveLength(2)
+    expect(host.querySelectorAll('select:disabled')).toHaveLength(3)
+    expect(host.querySelectorAll('input:disabled')).toHaveLength(7)
     expect(host.querySelector('[data-table-formatting-toolbar]')?.className).toContain('flex')
 
     app.unmount()
@@ -73,6 +73,25 @@ describe('TableFormattingToolbar', () => {
     ;(host.querySelector('button[data-action="clear-borders"]') as HTMLButtonElement).click()
 
     expect(events.borders).toEqual([])
+    app.unmount()
+    host.remove()
+  })
+})
+
+describe('TableFormattingToolbar cell gradient and pattern', () => {
+  it('emits a gradient cell fill and a pattern cell fill', () => {
+    const { app, host, events } = mountToolbar(true)
+    const gs = host.querySelector('[data-table-fill-gradient-start]') as HTMLInputElement
+    gs.value = '#ff0000'
+    gs.dispatchEvent(new Event('change'))
+    const pp = host.querySelector('[data-table-fill-pattern-preset]') as HTMLSelectElement
+    pp.value = 'pct25'
+    pp.dispatchEvent(new Event('change'))
+
+    const gradientFill = events.fills.find((f) => (f as { gradient?: unknown }).gradient) as { gradient: { stops: unknown[] } }
+    expect(gradientFill.gradient.stops).toHaveLength(2)
+    const patternFill = events.fills.find((f) => (f as { pattern?: unknown }).pattern) as { pattern: { preset: string } }
+    expect(patternFill.pattern.preset).toBe('pct25')
     app.unmount()
     host.remove()
   })

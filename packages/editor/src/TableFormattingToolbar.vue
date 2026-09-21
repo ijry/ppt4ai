@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Fill } from '@ppt4ai/model'
 import type { TableFormattingToolbarEmit, TableFormattingToolbarProps } from './table-formatting-toolbar'
+import { shapeGradientFrom, shapePatternFrom, SHAPE_FILL_PATTERN_PRESETS } from './shape-paint-toolbar'
 
 const props = withDefaults(defineProps<TableFormattingToolbarProps>(), {
   fillColor: '#FFFFFF',
@@ -51,6 +52,43 @@ function clearFill(): void {
   emit('set-fill', null)
 }
 
+const patternPresets = SHAPE_FILL_PATTERN_PRESETS
+
+function applyFillGradient(start: string, end: string, angle: number): void {
+  const value = shapeGradientFrom(start, end, angle)
+  if (value) emit('set-fill', value)
+}
+
+function fillGradientStart(event: Event): void {
+  applyFillGradient((event.target as HTMLInputElement).value, props.fillGradientEnd ?? '#FFFFFF', props.fillGradientAngle ?? 0)
+}
+
+function fillGradientEnd(event: Event): void {
+  applyFillGradient(props.fillGradientStart ?? props.fillColor ?? '#FFFFFF', (event.target as HTMLInputElement).value, props.fillGradientAngle ?? 0)
+}
+
+function fillGradientAngle(event: Event): void {
+  const angle = Number((event.target as HTMLInputElement).value)
+  if (Number.isFinite(angle)) applyFillGradient(props.fillGradientStart ?? props.fillColor ?? '#FFFFFF', props.fillGradientEnd ?? '#FFFFFF', angle)
+}
+
+function applyFillPattern(preset: string, fg: string, bg: string): void {
+  const value = shapePatternFrom(preset, fg, bg)
+  if (value) emit('set-fill', value)
+}
+
+function fillPatternPreset(event: Event): void {
+  applyFillPattern((event.target as HTMLSelectElement).value, props.fillPatternForeground ?? props.fillColor ?? '#FFFFFF', props.fillPatternBackground ?? '#FFFFFF')
+}
+
+function fillPatternForeground(event: Event): void {
+  applyFillPattern(props.fillPatternPreset ?? patternPresets[0]!, (event.target as HTMLInputElement).value, props.fillPatternBackground ?? '#FFFFFF')
+}
+
+function fillPatternBackground(event: Event): void {
+  applyFillPattern(props.fillPatternPreset ?? patternPresets[0]!, props.fillPatternForeground ?? props.fillColor ?? '#FFFFFF', (event.target as HTMLInputElement).value)
+}
+
 function clearBorders(): void {
   const payload = Object.fromEntries([...selectedSides.value].map((side) => [side, null]))
   if (Object.keys(payload).length > 0) emit('set-borders', payload)
@@ -77,6 +115,63 @@ function clearBorders(): void {
     >
       {{ t('toolbar.tableFormatting.clear') }}
     </button>
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-table-fill-gradient-start
+      :aria-label="t('toolbar.tableFormatting.fillGradientStart')"
+      :disabled="!props.active"
+      :value="props.fillGradientStart ?? props.fillColor ?? '#FFFFFF'"
+      @change="fillGradientStart"
+    >
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-table-fill-gradient-end
+      :aria-label="t('toolbar.tableFormatting.fillGradientEnd')"
+      :disabled="!props.active"
+      :value="props.fillGradientEnd ?? '#FFFFFF'"
+      @change="fillGradientEnd"
+    >
+    <input
+      type="number"
+      min="0"
+      max="359"
+      class="h-8 w-14 border border-slate-300 px-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+      data-table-fill-gradient-angle
+      :aria-label="t('toolbar.tableFormatting.fillGradientAngle')"
+      :disabled="!props.active"
+      :value="props.fillGradientAngle ?? 0"
+      @change="fillGradientAngle"
+    >
+    <select
+      class="h-8 border border-slate-300 bg-white px-1 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+      data-table-fill-pattern-preset
+      :aria-label="t('toolbar.tableFormatting.fillPatternPreset')"
+      :disabled="!props.active"
+      :value="props.fillPatternPreset ?? patternPresets[0]"
+      @change="fillPatternPreset"
+    >
+      <option v-for="preset in patternPresets" :key="preset" :value="preset">{{ preset }}</option>
+    </select>
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-table-fill-pattern-foreground
+      :aria-label="t('toolbar.tableFormatting.fillPatternForeground')"
+      :disabled="!props.active"
+      :value="props.fillPatternForeground ?? props.fillColor ?? '#FFFFFF'"
+      @change="fillPatternForeground"
+    >
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-table-fill-pattern-background
+      :aria-label="t('toolbar.tableFormatting.fillPatternBackground')"
+      :disabled="!props.active"
+      :value="props.fillPatternBackground ?? '#FFFFFF'"
+      @change="fillPatternBackground"
+    >
 
     <button
       v-for="side in sides"
