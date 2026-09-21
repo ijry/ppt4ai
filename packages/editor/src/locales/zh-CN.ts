@@ -27,6 +27,12 @@ const zhCN = {
       color: '文字颜色',
       highlight: '突出显示颜色',
       highlightClear: '清除突出显示',
+      gradientStart: '文字渐变起色',
+      gradientEnd: '文字渐变止色',
+      gradientAngle: '文字渐变角度',
+      patternPreset: '文字图案预设',
+      patternForeground: '文字图案前景',
+      patternBackground: '文字图案背景',
       mixed: '混合',
       align: {
         left: '左对齐',

@@ -27,6 +27,12 @@ const enUS = {
       color: 'Text color',
       highlight: 'Highlight color',
       highlightClear: 'Clear highlight',
+      gradientStart: 'Text gradient start',
+      gradientEnd: 'Text gradient end',
+      gradientAngle: 'Text gradient angle',
+      patternPreset: 'Text pattern preset',
+      patternForeground: 'Text pattern foreground',
+      patternBackground: 'Text pattern background',
       mixed: 'Mixed',
       align: {
         left: 'Align left',

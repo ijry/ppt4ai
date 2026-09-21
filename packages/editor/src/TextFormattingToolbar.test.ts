@@ -39,11 +39,11 @@ describe('TextFormattingToolbar', () => {
     const { app, host } = mountToolbar(false)
 
     expect(host.querySelectorAll('button')).toHaveLength(7)
-    expect(host.querySelectorAll('select')).toHaveLength(3)
-    expect(host.querySelectorAll('input[type="color"]')).toHaveLength(2)
+    expect(host.querySelectorAll('select')).toHaveLength(4)
+    expect(host.querySelectorAll('input[type="color"]')).toHaveLength(6)
     expect(host.querySelector('button[aria-pressed="mixed"]')).not.toBeNull()
     expect(host.querySelectorAll('button:disabled')).toHaveLength(7)
-    expect(host.querySelectorAll('select:disabled')).toHaveLength(3)
+    expect(host.querySelectorAll('select:disabled')).toHaveLength(4)
     expect([...host.querySelectorAll('input[type="color"]')].every((input) => (input as HTMLInputElement).disabled)).toBe(true)
     expect(host.querySelector('select')?.querySelector('option[value=""]')).not.toBeNull()
     expect(host.querySelector('[data-text-formatting-toolbar]')?.className).toContain('flex')
@@ -82,6 +82,25 @@ describe('TextFormattingToolbar', () => {
       { highlight: { type: 'srgb', v: 'ffff00' } },
     ])
 
+    app.unmount()
+    host.remove()
+  })
+})
+
+describe('TextFormattingToolbar fill editors', () => {
+  it('emits gradient and pattern run fills through set-marks', () => {
+    const { app, host, events } = mountToolbar(true)
+    const gs = host.querySelector('[data-text-gradient-start]') as HTMLInputElement
+    gs.value = '#ff0000'
+    gs.dispatchEvent(new Event('change', { bubbles: true }))
+    const pp = host.querySelector('[data-text-pattern-preset]') as HTMLSelectElement
+    pp.value = 'pct25'
+    pp.dispatchEvent(new Event('change', { bubbles: true }))
+
+    const gradientMark = events.marks.find((m) => (m as { color?: { gradient?: unknown } }).color?.gradient) as { color: { gradient: { stops: unknown[] } } }
+    expect(gradientMark.color.gradient.stops).toHaveLength(2)
+    const patternMark = events.marks.find((m) => (m as { color?: { pattern?: unknown } }).color?.pattern) as { color: { pattern: { preset: string } } }
+    expect(patternMark.color.pattern.preset).toBe('pct25')
     app.unmount()
     host.remove()
   })
