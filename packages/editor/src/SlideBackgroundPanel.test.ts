@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { Color } from '@ppt4ai/model'
+import type { Color, Fill } from '@ppt4ai/model'
 import { createApp, h } from 'vue'
 import { afterEach, describe, expect, it } from 'vitest'
 import SlideBackgroundPanel from './SlideBackgroundPanel.vue'
@@ -9,17 +9,19 @@ import { slideBackgroundModel, type SlideBackgroundPanelModel } from './slide-ba
 
 interface Events {
   colors: Color[]
+  gradients: Fill[]
   clears: number
 }
 
 function mountPanel(model: SlideBackgroundPanelModel) {
-  const events: Events = { colors: [], clears: 0 }
+  const events: Events = { colors: [], gradients: [], clears: 0 }
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp({
     setup: () => () => h(SlideBackgroundPanel, {
       model,
       onSetColor: (color: Color) => events.colors.push(color),
+      onSetGradient: (fill: Fill) => events.gradients.push(fill),
       onClear: () => { events.clears += 1 },
     }),
   })
@@ -85,6 +87,33 @@ describe('SlideBackgroundPanel', () => {
 
     expect((host.querySelector('[data-slide-background-color]') as HTMLInputElement).disabled).toBe(true)
     expect((host.querySelector('[data-slide-background-clear]') as HTMLButtonElement).disabled).toBe(true)
+    app.unmount()
+  })
+})
+
+describe('SlideBackgroundPanel gradient editor', () => {
+  it('emits a two-stop gradient fill when a gradient swatch changes', () => {
+    const model = slideBackgroundModel(
+      { fill: { color: { type: 'srgb', v: '1F3864' }, gradient: { stops: [{ pos: 0, color: { type: 'srgb', v: '1F3864' } }, { pos: 100000, color: { type: 'srgb', v: 'FFFFFF' } }] } } },
+      { rgb: '1F3864', alpha: 100000 },
+      { stops: [{ pos: 0, color: { rgb: '1F3864', alpha: 100000 } }, { pos: 100000, color: { rgb: 'FFFFFF', alpha: 100000 } }], angle: 5400000 },
+    )
+    const { app, host, events } = mountPanel(model)
+    const start = host.querySelector('[data-slide-background-gradient-start]') as HTMLInputElement
+    start.value = '#ff0000'
+    start.dispatchEvent(new Event('change'))
+
+    expect(events.gradients).toHaveLength(1)
+    expect(events.gradients[0]?.gradient?.stops[0]?.color).toEqual({ type: 'srgb', v: 'FF0000' })
+    expect(events.gradients[0]?.gradient?.stops[1]?.color).toEqual({ type: 'srgb', v: 'FFFFFF' })
+    expect(events.gradients[0]?.gradient?.angle).toBe(90 * 60000)
+    app.unmount()
+  })
+
+  it('disables the gradient inputs when no slide is active', () => {
+    const { app, host } = mountPanel(slideBackgroundModel(undefined, undefined, undefined, false))
+    expect((host.querySelector('[data-slide-background-gradient-start]') as HTMLInputElement).disabled).toBe(true)
+    expect((host.querySelector('[data-slide-background-gradient-angle]') as HTMLInputElement).disabled).toBe(true)
     app.unmount()
   })
 })

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { backgroundColorFrom, type SlideBackgroundPanelEmit, type SlideBackgroundPanelModel } from './slide-background-panel'
+import { backgroundColorFrom, backgroundGradientFrom, type SlideBackgroundPanelEmit, type SlideBackgroundPanelModel } from './slide-background-panel'
 
 const props = defineProps<{ model: SlideBackgroundPanelModel }>()
 const emit = defineEmits<SlideBackgroundPanelEmit>()
@@ -17,6 +17,25 @@ const note = computed(() => {
 function pick(event: Event): void {
   const color = backgroundColorFrom((event.target as HTMLInputElement).value)
   if (color) emit('set-color', color)
+}
+
+// The gradient inputs read from the model each render, so editing one reads the other two off the model.
+function applyGradient(start: string, end: string, angle: number): void {
+  const fill = backgroundGradientFrom(start, end, angle)
+  if (fill) emit('set-gradient', fill)
+}
+
+function pickGradientStart(event: Event): void {
+  applyGradient((event.target as HTMLInputElement).value, props.model.gradientEnd, props.model.gradientAngle)
+}
+
+function pickGradientEnd(event: Event): void {
+  applyGradient(props.model.gradientStart, (event.target as HTMLInputElement).value, props.model.gradientAngle)
+}
+
+function pickGradientAngle(event: Event): void {
+  const angle = Number((event.target as HTMLInputElement).value)
+  if (Number.isFinite(angle)) applyGradient(props.model.gradientStart, props.model.gradientEnd, angle)
 }
 </script>
 
@@ -47,6 +66,38 @@ function pick(event: Event): void {
       >
       <span class="font-mono text-xs text-slate-500">{{ props.model.color }}</span>
     </label>
+    <fieldset class="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700" data-slide-background-gradient>
+      <legend class="text-xs text-slate-500">{{ t('panel.slideBackground.gradientEditor') }}</legend>
+      <input
+        class="h-8 w-12 border border-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+        type="color"
+        data-slide-background-gradient-start
+        :aria-label="t('panel.slideBackground.gradientStart')"
+        :disabled="!props.model.active"
+        :value="props.model.gradientStart"
+        @change="pickGradientStart"
+      >
+      <input
+        class="h-8 w-12 border border-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+        type="color"
+        data-slide-background-gradient-end
+        :aria-label="t('panel.slideBackground.gradientEnd')"
+        :disabled="!props.model.active"
+        :value="props.model.gradientEnd"
+        @change="pickGradientEnd"
+      >
+      <input
+        class="h-8 w-16 border border-slate-300 px-1 disabled:cursor-not-allowed disabled:opacity-50"
+        type="number"
+        min="0"
+        max="359"
+        data-slide-background-gradient-angle
+        :aria-label="t('panel.slideBackground.gradientAngle')"
+        :disabled="!props.model.active"
+        :value="props.model.gradientAngle"
+        @change="pickGradientAngle"
+      >
+    </fieldset>
     <p v-if="note" role="note" class="mt-2 text-xs text-slate-500">{{ note }}</p>
   </section>
 </template>

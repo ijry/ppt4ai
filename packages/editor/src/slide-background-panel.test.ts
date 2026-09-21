@@ -1,6 +1,6 @@
 import type { ResolvedColor, ResolvedGradient, SlideBackground } from '@ppt4ai/model'
 import { describe, expect, it } from 'vitest'
-import { backgroundColorFrom, slideBackgroundModel } from './slide-background-panel'
+import { backgroundColorFrom, backgroundGradientFrom, slideBackgroundModel } from './slide-background-panel'
 
 const navy: ResolvedColor = { rgb: '1F3864', alpha: 100000 }
 const ramp: ResolvedGradient = {
@@ -17,6 +17,9 @@ describe('slide background panel model', () => {
       kind: 'color',
       own: true,
       inherited: false,
+      gradientStart: '#1F3864',
+      gradientEnd: '#FFFFFF',
+      gradientAngle: 0,
     })
   })
 
@@ -81,5 +84,33 @@ describe('background colour parsing', () => {
     expect(backgroundColorFrom('')).toBeUndefined()
     expect(backgroundColorFrom('#12345')).toBeUndefined()
     expect(backgroundColorFrom('navy')).toBeUndefined()
+  })
+})
+
+describe('gradient background editor', () => {
+  it('derives start, end and angle from a resolved gradient', () => {
+    const model = slideBackgroundModel(
+      { fill: { color: { type: 'srgb', v: '1F3864' }, gradient: { stops: [{ pos: 0, color: { type: 'srgb', v: '1F3864' } }, { pos: 100000, color: { type: 'srgb', v: 'FFFFFF' } }], angle: 5400000 } } },
+      navy,
+      { stops: [{ pos: 0, color: navy }, { pos: 100000, color: { rgb: 'FFFFFF', alpha: 100000 } }], angle: 5400000 },
+    )
+    expect(model).toMatchObject({ kind: 'gradient', gradientStart: '#1F3864', gradientEnd: '#FFFFFF', gradientAngle: 90 })
+  })
+
+  it('builds a two-stop linear gradient fill from the inputs', () => {
+    expect(backgroundGradientFrom('#1f3864', '#ffffff', 90)).toEqual({
+      color: { type: 'srgb', v: '1F3864' },
+      gradient: { stops: [{ pos: 0, color: { type: 'srgb', v: '1F3864' } }, { pos: 100000, color: { type: 'srgb', v: 'FFFFFF' } }], angle: 5400000 },
+    })
+  })
+
+  it('wraps the angle into 0..359 degrees', () => {
+    expect(backgroundGradientFrom('#000000', '#ffffff', 450)?.gradient?.angle).toBe(90 * 60000)
+    expect(backgroundGradientFrom('#000000', '#ffffff', -90)?.gradient?.angle).toBe(270 * 60000)
+  })
+
+  it('refuses an invalid swatch or a non-finite angle', () => {
+    expect(backgroundGradientFrom('nope', '#ffffff', 0)).toBeUndefined()
+    expect(backgroundGradientFrom('#000000', '#ffffff', Number.NaN)).toBeUndefined()
   })
 })

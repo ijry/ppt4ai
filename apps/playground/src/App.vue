@@ -148,6 +148,10 @@ function clearSlideBackground(): void {
   assetSnapshot.value = assetHost.setSlideBackground(null)
 }
 
+function setSlideBackgroundGradient(fill: Fill): void {
+  assetSnapshot.value = assetHost.setSlideBackground({ fill })
+}
+
 function setThemeColor(slot: ThemeColorSlot, color: Color): void {
   assetSnapshot.value = assetHost.setThemeColor(slot, color)
 }
@@ -477,6 +481,7 @@ async function uploadFile(event: Event): Promise<void> {
         <SlideBackgroundPanel
           :model="slideBackground"
           @set-color="setSlideBackground"
+          @set-gradient="setSlideBackgroundGradient"
           @clear="clearSlideBackground"
         />
         <ThemePanel

@@ -79,6 +79,10 @@ const zhCN = {
       gradient: '渐变背景 —— 选择颜色会替换它',
       pattern: '图案背景 —— 选择颜色会替换它',
       styleRef: '主题背景样式 —— 选择颜色会替换它',
+      gradientEditor: '渐变',
+      gradientStart: '渐变起始颜色',
+      gradientEnd: '渐变结束颜色',
+      gradientAngle: '渐变角度（度）',
     },
     theme: {
       title: '主题',

@@ -79,6 +79,10 @@ const enUS = {
       gradient: 'Gradient background — picking a color replaces it',
       pattern: 'Pattern background — picking a color replaces it',
       styleRef: 'Theme background style — picking a color replaces it',
+      gradientEditor: 'Gradient',
+      gradientStart: 'Gradient start color',
+      gradientEnd: 'Gradient end color',
+      gradientAngle: 'Gradient angle (degrees)',
     },
     theme: {
       title: 'Theme',
