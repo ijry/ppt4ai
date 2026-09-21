@@ -1,0 +1,85 @@
+import type { ResolvedColor, ResolvedGradient, SlideBackground } from '@ppt4ai/model'
+import { describe, expect, it } from 'vitest'
+import { backgroundColorFrom, slideBackgroundModel } from './slide-background-panel'
+
+const navy: ResolvedColor = { rgb: '1F3864', alpha: 100000 }
+const ramp: ResolvedGradient = {
+  stops: [{ pos: 0, color: navy }, { pos: 100000, color: { rgb: 'FFFFFF', alpha: 100000 } }],
+}
+
+describe('slide background panel model', () => {
+  it('reports a colour the slide declares itself', () => {
+    const background: SlideBackground = { fill: { color: { type: 'srgb', v: '1F3864' } } }
+
+    expect(slideBackgroundModel(background, navy)).toEqual({
+      active: true,
+      color: '#1F3864',
+      kind: 'color',
+      own: true,
+      inherited: false,
+    })
+  })
+
+  /** The colour shown is the resolved one — what the reader sees — even when the slide declares nothing. */
+  it('reports an inherited background with the resolved colour and nothing to clear', () => {
+    expect(slideBackgroundModel(undefined, navy)).toMatchObject({ color: '#1F3864', own: false, inherited: true, kind: 'none' })
+  })
+
+  it('falls back to white when nothing in the chain resolves', () => {
+    expect(slideBackgroundModel(undefined, undefined)).toMatchObject({ color: '#FFFFFF', kind: 'none' })
+  })
+
+  /** A swatch cannot express either of these, so the model says so instead of showing a first stop. */
+  it('reports a gradient and a style reference as themselves', () => {
+    const gradient: SlideBackground = {
+      fill: {
+        color: { type: 'srgb', v: '1F3864' },
+        gradient: { stops: [{ pos: 0, color: { type: 'srgb', v: '1F3864' } }, { pos: 100000, color: { type: 'srgb', v: 'FFFFFF' } }] },
+      },
+    }
+
+    expect(slideBackgroundModel(gradient, navy, ramp).kind).toBe('gradient')
+    expect(slideBackgroundModel({ styleRef: { idx: 1001 } }, navy).kind).toBe('styleRef')
+    // An inherited gradient counts as one too: the panel would otherwise offer to "keep" a flat colour.
+    expect(slideBackgroundModel(undefined, navy, ramp).kind).toBe('gradient')
+  })
+
+  /** A pattern is not a swatch either: reporting its foreground as a colour would let the panel silently drop the tiling. */
+  it('reports a pattern background as a pattern rather than a colour', () => {
+    const pattern: SlideBackground = {
+      fill: {
+        color: { type: 'srgb', v: '1F3864' },
+        pattern: {
+          preset: 'ltHorz',
+          foreground: { type: 'srgb', v: '1F3864' },
+          background: { type: 'srgb', v: 'FFFFFF' },
+        },
+      },
+    }
+
+    expect(slideBackgroundModel(pattern, navy).kind).toBe('pattern')
+  })
+
+  /** An inherited pattern counts too, the same way an inherited gradient does. */
+  it('reports an inherited pattern as a pattern', () => {
+    const resolvedPattern = { preset: 'ltHorz' as const, foreground: navy, background: { rgb: 'FFFFFF', alpha: 100000 } }
+    expect(slideBackgroundModel(undefined, navy, undefined, true, resolvedPattern).kind).toBe('pattern')
+  })
+
+  it('passes the active flag through for a host with no slide', () => {
+    expect(slideBackgroundModel(undefined, undefined, undefined, false).active).toBe(false)
+  })
+})
+
+describe('background colour parsing', () => {
+  it('accepts six hex digits with or without the hash', () => {
+    expect(backgroundColorFrom('#1f3864')).toEqual({ type: 'srgb', v: '1F3864' })
+    expect(backgroundColorFrom('1F3864')).toEqual({ type: 'srgb', v: '1F3864' })
+  })
+
+  it('refuses anything else rather than guessing', () => {
+    expect(backgroundColorFrom('')).toBeUndefined()
+    expect(backgroundColorFrom('#12345')).toBeUndefined()
+    expect(backgroundColorFrom('navy')).toBeUndefined()
+  })
+})

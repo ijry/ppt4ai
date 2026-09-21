@@ -1,0 +1,52 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { backgroundColorFrom, type SlideBackgroundPanelEmit, type SlideBackgroundPanelModel } from './slide-background-panel'
+
+const props = defineProps<{ model: SlideBackgroundPanelModel }>()
+const emit = defineEmits<SlideBackgroundPanelEmit>()
+const { t } = useI18n()
+
+const note = computed(() => {
+  if (props.model.kind === 'gradient') return t('panel.slideBackground.gradient')
+  if (props.model.kind === 'pattern') return t('panel.slideBackground.pattern')
+  if (props.model.kind === 'styleRef') return t('panel.slideBackground.styleRef')
+  return props.model.inherited ? t('panel.slideBackground.inherited') : ''
+})
+
+function pick(event: Event): void {
+  const color = backgroundColorFrom((event.target as HTMLInputElement).value)
+  if (color) emit('set-color', color)
+}
+</script>
+
+<template>
+  <section class="border border-slate-200 bg-white p-4" :aria-label="t('panel.slideBackground.title')">
+    <div class="flex items-center justify-between gap-3">
+      <h2 class="text-sm font-semibold">{{ t('panel.slideBackground.title') }}</h2>
+      <button
+        class="h-8 border border-slate-300 px-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+        type="button"
+        data-slide-background-clear
+        :disabled="!props.model.active || !props.model.own"
+        @click="emit('clear')"
+      >
+        {{ t('panel.slideBackground.clear') }}
+      </button>
+    </div>
+    <label class="mt-3 flex items-center gap-2 text-sm text-slate-700">
+      <span>{{ t('panel.slideBackground.color') }}</span>
+      <input
+        class="h-8 w-12 border border-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+        type="color"
+        data-slide-background-color
+        :aria-label="t('panel.slideBackground.color')"
+        :disabled="!props.model.active"
+        :value="props.model.color"
+        @change="pick"
+      >
+      <span class="font-mono text-xs text-slate-500">{{ props.model.color }}</span>
+    </label>
+    <p v-if="note" role="note" class="mt-2 text-xs text-slate-500">{{ note }}</p>
+  </section>
+</template>

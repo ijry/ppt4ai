@@ -1,0 +1,27 @@
+{
+  "name": "@ppt4ai/pptx-export",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ppt4ai/model": "workspace:*",
+    "@ppt4ai/geometry": "workspace:*"
+  },
+  "devDependencies": {
+    "@ppt4ai/pptx-import": "workspace:*"
+  }
+}

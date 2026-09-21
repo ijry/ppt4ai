@@ -1,0 +1,27 @@
+{
+  "name": "@ppt4ai/playground",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "prebuild": "pnpm --filter @ppt4ai/editor build",
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ppt4ai/editor": "workspace:*",
+    "@ppt4ai/engine": "workspace:*",
+    "@ppt4ai/model": "workspace:*",
+    "@ppt4ai/render": "workspace:*",
+    "@ppt4ai/text": "workspace:*",
+    "vue": "3.5.41",
+    "vue-i18n": "11.2.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.8",
+    "unocss": "66.8.1",
+    "vite": "8.2.2",
+    "vue-tsc": "3.3.11"
+  }
+}
