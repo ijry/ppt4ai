@@ -29,5 +29,5 @@ run 映射调 `resolvedFillPattern(run.marks?.color, context)`,两色经主题�
 ## 4. 已知限制
 
 - 只有百分比族(`pctNN`)体现密度;线条/装饰族仍平前景(与形状图案填充同规则)。
-- 竖排图案文字仍平前景(横排已支持;竖排是独立小切片)。
+- 竖排图案文字也已画合成色(直立与旋转字形都在 `paintVerticalItem` 里接入 `percentagePatternStroke`,与竖排渐变对称)。
 - 不画真实网点纹理,用平均合成色代替(性能取舍,全项目一致)。

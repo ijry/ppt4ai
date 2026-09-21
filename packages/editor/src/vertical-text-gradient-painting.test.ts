@@ -99,3 +99,56 @@ describe('vertical text gradient painting', () => {
     expect((glyph?.[4] as { addColorStop?: unknown }).addColorStop).toBeDefined()
   })
 })
+
+
+describe('vertical text pattern painting', () => {
+  function verticalPatternNode(orientation: 'upright' | 'rotated'): SceneTextNode {
+    return {
+      id: 'text-1',
+      kind: 'text',
+      bounds: { x: 0, y: 0, w: 500, h: 1000 },
+      text: 'A',
+      layout: {
+        bounds: { x: 0, y: 0, w: 500, h: 1000 },
+        fontScale: 100000,
+        overflow: false,
+        contentBounds: { x: 0, y: 0, w: 500, h: 1000 },
+        vertical: 'vertical',
+        lines: [{
+          paragraphIndex: 0,
+          x: 100,
+          y: 100,
+          width: 80,
+          height: 1000,
+          runs: [{
+            text: 'A',
+            x: 100,
+            y: 100,
+            width: 80,
+            height: 80,
+            orientation,
+            marks: { fontSize: 20 },
+            resolvedColor: { rgb: 'FF0000', alpha: 100000 },
+            resolvedFillPattern: { preset: 'pct50' as const, foreground: { rgb: 'FF0000', alpha: 100000 }, background: { rgb: '000000', alpha: 100000 } },
+          }],
+        }],
+      },
+    }
+  }
+
+  it('fills an upright vertical glyph with the composite pattern colour', () => {
+    const ctx = context()
+    paintTextNode(ctx, verticalPatternNode('upright'), mapping)
+    const glyph = ctx.events.find(([type]) => type === 'fillText')
+    expect(glyph?.[4]).toMatch(/^#[0-9A-F]{6}$/)
+    expect(glyph?.[4]).not.toBe('#FF0000')
+  })
+
+  it('fills a rotated vertical glyph with the composite pattern colour', () => {
+    const ctx = context()
+    paintTextNode(ctx, verticalPatternNode('rotated'), mapping)
+    const glyph = ctx.events.find(([type]) => type === 'fillText')
+    expect(glyph?.[4]).toMatch(/^#[0-9A-F]{6}$/)
+    expect(glyph?.[4]).not.toBe('#FF0000')
+  })
+})
