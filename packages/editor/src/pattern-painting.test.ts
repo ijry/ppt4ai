@@ -25,7 +25,7 @@ function fakeContext() {
     fill(): void { events.push(['fill']) },
     fillRect(x: number, y: number, w: number, h: number): void { events.push(['fillRect', x, y, w, h, this.globalAlpha]) },
     stroke(): void { events.push(['stroke']) },
-    setLineDash(): void {},
+    setLineDash(dash: number[]): void { events.push(['setLineDash', ...dash]) },
   }
 }
 
@@ -98,6 +98,14 @@ describe('pattern fill painting', () => {
   })
 
   /** The caller paints the flat foreground colour instead, which is what every pattern used to do. */
+  it('strokes a dashed word with a dash array and a solid word without one', () => {
+    const dashed = paint('dashHorz')
+    const solid = paint('ltHorz')
+
+    expect(dashed.events.some(([name, ...rest]) => name === 'setLineDash' && rest.length > 0)).toBe(true)
+    expect(solid.events.some(([name, ...rest]) => name === 'setLineDash' && rest.length > 0)).toBe(false)
+  })
+
   it('reports false and paints nothing for a preset it cannot draw', () => {
     for (const preset of ['zigZag', 'weave', 'someFuturePattern']) {
       const { painted, events } = paint(preset)

@@ -91,6 +91,22 @@ describe('pattern geometry', () => {
    * `patternCoverage` instead, so they are excluded here — `pattern-coverage.test.ts` covers the
    * constant as a whole and pins that the two families stay disjoint.
    */
+  /** `dash*` words are the same directional lines, drawn dashed — the dash the word names, not the pattern. */
+  it('draws dashed words with a dash array along the stated direction', () => {
+    const horz = patternGeometry('dashHorz', box)!
+    const up = patternGeometry('dashUpDiag', box)!
+
+    expect(horz.dash).toBeDefined()
+    expect(horz.dash!.length).toBeGreaterThan(0)
+    expect(horz.lines.every((line) => line.from.y === line.to.y)).toBe(true)
+    expect((up.lines[0]!.to.y - up.lines[0]!.from.y) / (up.lines[0]!.to.x - up.lines[0]!.from.x)).toBeLessThan(0)
+  })
+
+  /** A solid word carries no dash, so the painter clears any dash left set. */
+  it('leaves a solid word without a dash array', () => {
+    expect(patternGeometry('ltHorz', box)!.dash).toBeUndefined()
+  })
+
   /** The plain medium diagonals sit between the light and dark tiers, like `horz` between `ltHorz`/`dkHorz`. */
   it('draws the plain diagonals at the medium weight, leaning the way the word says', () => {
     const up = patternGeometry('upDiag', box)!

@@ -460,7 +460,8 @@ export function paintPatternFill(
       context.globalAlpha = foreground.alpha
       context.strokeStyle = foreground.style
       context.lineWidth = geometry.lineWidth
-      context.setLineDash([])
+      // The dash the `dash*` words name; a solid word carries none, so the array is cleared for it.
+      context.setLineDash(geometry.dash ?? [])
       context.beginPath()
       for (const line of geometry.lines) {
         context.moveTo(line.from.x, line.from.y)

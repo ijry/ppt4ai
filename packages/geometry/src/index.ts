@@ -43,6 +43,8 @@ export interface PatternGeometry {
   lines: Array<{ from: GeometryPoint; to: GeometryPoint }>
   /** Stroke width for those lines, in the same space as `bounds`. */
   lineWidth: number
+  /** A dash array in the same space as `bounds`, present only for the `dash*` words. */
+  dash?: number[]
 }
 
 /**
@@ -55,7 +57,7 @@ export interface PatternGeometry {
  * that the distinctions the names state are visible: `dkHorz` is heavier than `ltHorz`, `narHorz` is
  * tighter than `horz`, and a diagonal leans the way its word says.
  */
-const patternRecipes: Record<string, { directions: PatternDirection[]; spacing: number; width: number }> = {
+const patternRecipes: Record<string, { directions: PatternDirection[]; spacing: number; width: number; dashed?: true }> = {
   ltHorz: { directions: ['horizontal'], spacing: 8, width: 1 },
   horz: { directions: ['horizontal'], spacing: 8, width: 2 },
   dkHorz: { directions: ['horizontal'], spacing: 8, width: 3 },
@@ -76,6 +78,10 @@ const patternRecipes: Record<string, { directions: PatternDirection[]; spacing: 
   lgGrid: { directions: ['horizontal', 'vertical'], spacing: 16, width: 1 },
   cross: { directions: ['horizontal', 'vertical'], spacing: 8, width: 2 },
   diagCross: { directions: ['up', 'down'], spacing: 8, width: 2 },
+  dashHorz: { directions: ['horizontal'], spacing: 8, width: 2, dashed: true },
+  dashVert: { directions: ['vertical'], spacing: 8, width: 2, dashed: true },
+  dashUpDiag: { directions: ['up'], spacing: 8, width: 1, dashed: true },
+  dashDnDiag: { directions: ['down'], spacing: 8, width: 1, dashed: true },
 }
 
 type PatternDirection = 'horizontal' | 'vertical' | 'up' | 'down'
@@ -90,7 +96,12 @@ export function patternGeometry(preset: string, bounds: GeometryBounds): Pattern
   if (!recipe) return undefined
   if (!(bounds.w > 0) || !(bounds.h > 0)) return undefined
   const lines = recipe.directions.flatMap((direction) => patternLines(direction, bounds, recipe.spacing))
-  return lines.length > 0 ? { lines, lineWidth: recipe.width } : undefined
+  if (lines.length === 0) return undefined
+  // The dash the word names: a dash equal to the line width and a gap twice it, so `dashHorz` reads as a
+  // dotted rule at any size. The units are the same as `bounds`, which is what `setLineDash` consumes.
+  return recipe.dashed
+    ? { lines, lineWidth: recipe.width, dash: [recipe.width, recipe.width * 2] }
+    : { lines, lineWidth: recipe.width }
 }
 
 /**
