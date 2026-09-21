@@ -116,3 +116,25 @@ describe('playground slide layout switch (two seeded layouts)', () => {
     expect(snapshot.engineState.document.slides.sld_playground?.layoutId).toBe('lay_playground_title')
   })
 })
+
+describe('playground duplicate layout wiring', () => {
+  it('adds a layout under the master and can switch to it', () => {
+    const host = createPlaygroundAssetHost()
+    const before = Object.keys(host.getSnapshot().engineState.document.layouts ?? {}).length
+
+    const snapshot = host.addLayout('lay_playground')
+    expect(snapshot.status).toEqual({ kind: 'success', message: 'layout-added' })
+    const layouts = host.getSnapshot().engineState.document.layouts ?? {}
+    expect(Object.keys(layouts).length).toBe(before + 1)
+    const added = Object.values(layouts).find((l) => l.id !== 'lay_playground' && l.id !== 'lay_playground_title')!
+    expect(added.masterId).toBe('mst_playground')
+
+    const switched = host.setSlideLayout(added.id)
+    expect(switched.engineState.document.slides.sld_playground?.layoutId).toBe(added.id)
+  })
+
+  it('reports layout-missing when duplicating an unknown layout', () => {
+    const host = createPlaygroundAssetHost()
+    expect(host.addLayout('nope').status).toEqual({ kind: 'error', message: 'layout-missing' })
+  })
+})

@@ -45,6 +45,7 @@ export interface PlaygroundAssetHost {
   setMasterBackground(background: SlideBackground | null): PlaygroundAssetHostSnapshot
   setLayoutBackground(background: SlideBackground | null): PlaygroundAssetHostSnapshot
   setSlideLayout(layoutId: string): PlaygroundAssetHostSnapshot
+  addLayout(sourceLayoutId: string): PlaygroundAssetHostSnapshot
   setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): PlaygroundAssetHostSnapshot
   setThemeFont(themeId: string, slot: ThemeFontSlot, script: ThemeFontScript, typeface: string | null): PlaygroundAssetHostSnapshot
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
@@ -456,6 +457,16 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
         status = { kind: 'success', message: 'slide-layout-updated' }
       } catch {
         return fail('slide-layout-failed')
+      }
+      return snapshot()
+    },
+    addLayout(sourceLayoutId) {
+      if (!engine.getState().document.layouts?.[sourceLayoutId]) return fail('layout-missing')
+      try {
+        engine.dispatch({ type: 'addLayout', sourceLayoutId })
+        status = { kind: 'success', message: 'layout-added' }
+      } catch {
+        return fail('layout-add-failed')
       }
       return snapshot()
     },

@@ -83,6 +83,7 @@ export type EngineCommand =
   | { type: 'setMasterBackground'; masterId: string; background: SlideBackground | null }
   | { type: 'setLayoutBackground'; layoutId: string; background: SlideBackground | null }
   | { type: 'setSlideLayout'; slideId: string; layoutId: string }
+  | { type: 'addLayout'; sourceLayoutId: string; layoutId?: string }
   | { type: 'setThemeColor'; themeId: string; slot: ThemeColorSlot; color: Color | null }
   | { type: 'setThemeFont'; themeId: string; slot: ThemeFontSlot; script: ThemeFontScript; typeface: string | null }
   | { type: 'mergeTableCells' }
@@ -623,6 +624,7 @@ export class EditorEngine {
   private undoStack: HistoryEntry[] = []
   private redoStack: HistoryEntry[] = []
   private groupSequence = 1
+  private layoutSequence = 1
   private readonly options: EngineOptions
 
   constructor(document: Ppt4aiDocument, options: EngineOptions = {}) {
@@ -742,6 +744,10 @@ export class EditorEngine {
       }
       case 'setLayoutBackground': {
         this.setLayoutBackground(command.layoutId, command.background)
+        break
+      }
+      case 'addLayout': {
+        this.addLayout(command.sourceLayoutId, command.layoutId)
         break
       }
       case 'setSlideLayout': {
@@ -961,6 +967,28 @@ export class EditorEngine {
     const validation = validateDocument(nextDocument)
     if (!validation.valid) throw new Error(`slide layout is invalid: ${slideId}: ${validation.errors.join('; ')}`)
     this.commit([{ path: ['slides', slideId, 'layoutId'], value: layoutId }])
+  }
+
+  /**
+   * Duplicate an existing layout under the same master. A brand-new layout is a document-model concept
+   * that standalone generation writes as its own part; on source writeback it has no source part, so a
+   * slide keeps its source layout there (safe degradation) until new-part materialization lands.
+   */
+  private addLayout(sourceLayoutId: string, layoutId?: string): void {
+    const source = this.document.layouts?.[sourceLayoutId]
+    if (!source) throw new Error(`layout does not exist: ${sourceLayoutId}`)
+    const idFactory = this.options.idFactory
+    let id = layoutId ?? (idFactory ? idFactory('lyt') : `lyt_added_${this.layoutSequence++}`)
+    while (this.document.layouts?.[id]) {
+      id = idFactory ? idFactory('lyt') : `lyt_added_${this.layoutSequence++}`
+    }
+    const next: typeof source = { ...clone(source), id }
+    delete next.source
+    const nextDocument = clone(this.document)
+    nextDocument.layouts = { ...(nextDocument.layouts ?? {}), [id]: next }
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`added layout is invalid: ${id}: ${validation.errors.join('; ')}`)
+    this.commit([{ path: ['layouts', id], value: next }])
   }
 
   private setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): void {

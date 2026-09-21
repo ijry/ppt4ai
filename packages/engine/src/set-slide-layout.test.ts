@@ -51,3 +51,45 @@ describe('setSlideLayout', () => {
     expect(engine.getState().history.undoDepth).toBe(before)
   })
 })
+
+describe('addLayout', () => {
+  it('duplicates a layout under the same master and can switch a slide to it', () => {
+    const engine = new EditorEngine(documentWith())
+    engine.dispatch({ type: 'addLayout', sourceLayoutId: 'lyt_a', layoutId: 'lyt_copy' })
+
+    const layouts = engine.getState().document.layouts
+    expect(layouts?.lyt_copy?.masterId).toBe('mst_1')
+    expect(layouts?.lyt_copy?.id).toBe('lyt_copy')
+
+    engine.dispatch({ type: 'setSlideLayout', slideId: 'sld_1', layoutId: 'lyt_copy' })
+    expect(engine.getState().document.slides.sld_1?.layoutId).toBe('lyt_copy')
+
+    engine.dispatch({ type: 'undo' })
+    engine.dispatch({ type: 'undo' })
+    expect(engine.getState().document.layouts?.lyt_copy).toBeUndefined()
+  })
+
+  it('carries over the source layout background and drops its source part path', () => {
+    const doc = documentWith()
+    doc.layouts!.lyt_a!.background = { fill: { color: { type: 'srgb', v: '1F3864' } } }
+    doc.layouts!.lyt_a!.source = { partPath: 'ppt/slideLayouts/slideLayout1.xml' }
+    const engine = new EditorEngine(doc)
+
+    engine.dispatch({ type: 'addLayout', sourceLayoutId: 'lyt_a', layoutId: 'lyt_copy' })
+    const copy = engine.getState().document.layouts?.lyt_copy
+    expect(copy?.background).toEqual({ fill: { color: { type: 'srgb', v: '1F3864' } } })
+    expect(copy?.source).toBeUndefined()
+  })
+
+  it('throws for a missing source layout', () => {
+    const engine = new EditorEngine(documentWith())
+    expect(() => engine.dispatch({ type: 'addLayout', sourceLayoutId: 'nope' })).toThrow(/layout does not exist/)
+  })
+
+  it('auto-generates a unique id when none is given', () => {
+    const engine = new EditorEngine(documentWith())
+    engine.dispatch({ type: 'addLayout', sourceLayoutId: 'lyt_a' })
+    const ids = Object.keys(engine.getState().document.layouts ?? {})
+    expect(ids.length).toBe(4)
+  })
+})
