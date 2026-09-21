@@ -83,6 +83,10 @@ const enUS = {
       gradientStart: 'Gradient start color',
       gradientEnd: 'Gradient end color',
       gradientAngle: 'Gradient angle (degrees)',
+      patternEditor: 'Pattern',
+      patternPreset: 'Pattern preset',
+      patternForeground: 'Pattern foreground color',
+      patternBackground: 'Pattern background color',
     },
     theme: {
       title: 'Theme',

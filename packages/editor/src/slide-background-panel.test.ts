@@ -1,6 +1,6 @@
 import type { ResolvedColor, ResolvedGradient, SlideBackground } from '@ppt4ai/model'
 import { describe, expect, it } from 'vitest'
-import { backgroundColorFrom, backgroundGradientFrom, slideBackgroundModel } from './slide-background-panel'
+import { backgroundColorFrom, backgroundGradientFrom, backgroundPatternFrom, slideBackgroundModel } from './slide-background-panel'
 
 const navy: ResolvedColor = { rgb: '1F3864', alpha: 100000 }
 const ramp: ResolvedGradient = {
@@ -20,6 +20,10 @@ describe('slide background panel model', () => {
       gradientStart: '#1F3864',
       gradientEnd: '#FFFFFF',
       gradientAngle: 0,
+      patternPreset: 'ltHorz',
+      patternForeground: '#1F3864',
+      patternBackground: '#FFFFFF',
+      patternPresets: expect.any(Array),
     })
   })
 
@@ -112,5 +116,31 @@ describe('gradient background editor', () => {
   it('refuses an invalid swatch or a non-finite angle', () => {
     expect(backgroundGradientFrom('nope', '#ffffff', 0)).toBeUndefined()
     expect(backgroundGradientFrom('#000000', '#ffffff', Number.NaN)).toBeUndefined()
+  })
+})
+
+describe('pattern background editor', () => {
+  it('derives preset and swatches from a resolved pattern', () => {
+    const model = slideBackgroundModel(
+      { fill: { color: { type: 'srgb', v: 'FF0000' }, pattern: { preset: 'pct25', foreground: { type: 'srgb', v: 'FF0000' }, background: { type: 'srgb', v: 'FFFFFF' } } } },
+      navy,
+      undefined,
+      true,
+      { preset: 'pct25', foreground: { rgb: 'FF0000', alpha: 100000 }, background: { rgb: 'FFFFFF', alpha: 100000 } },
+    )
+    expect(model).toMatchObject({ kind: 'pattern', patternPreset: 'pct25', patternForeground: '#FF0000', patternBackground: '#FFFFFF' })
+    expect(model.patternPresets).toContain('ltHorz')
+  })
+
+  it('builds a pattern fill, mirroring the foreground into the colour', () => {
+    expect(backgroundPatternFrom('ltHorz', '#ff0000', '#ffffff')).toEqual({
+      color: { type: 'srgb', v: 'FF0000' },
+      pattern: { preset: 'ltHorz', foreground: { type: 'srgb', v: 'FF0000' }, background: { type: 'srgb', v: 'FFFFFF' } },
+    })
+  })
+
+  it('refuses an unpainted preset or an invalid swatch', () => {
+    expect(backgroundPatternFrom('someFuturePattern', '#000000', '#ffffff')).toBeUndefined()
+    expect(backgroundPatternFrom('ltHorz', 'nope', '#ffffff')).toBeUndefined()
   })
 })

@@ -10,11 +10,12 @@ import { slideBackgroundModel, type SlideBackgroundPanelModel } from './slide-ba
 interface Events {
   colors: Color[]
   gradients: Fill[]
+  patterns: Fill[]
   clears: number
 }
 
 function mountPanel(model: SlideBackgroundPanelModel) {
-  const events: Events = { colors: [], gradients: [], clears: 0 }
+  const events: Events = { colors: [], gradients: [], patterns: [], clears: 0 }
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp({
@@ -22,6 +23,7 @@ function mountPanel(model: SlideBackgroundPanelModel) {
       model,
       onSetColor: (color: Color) => events.colors.push(color),
       onSetGradient: (fill: Fill) => events.gradients.push(fill),
+      onSetPattern: (fill: Fill) => events.patterns.push(fill),
       onClear: () => { events.clears += 1 },
     }),
   })
@@ -114,6 +116,27 @@ describe('SlideBackgroundPanel gradient editor', () => {
     const { app, host } = mountPanel(slideBackgroundModel(undefined, undefined, undefined, false))
     expect((host.querySelector('[data-slide-background-gradient-start]') as HTMLInputElement).disabled).toBe(true)
     expect((host.querySelector('[data-slide-background-gradient-angle]') as HTMLInputElement).disabled).toBe(true)
+    app.unmount()
+  })
+})
+
+describe('SlideBackgroundPanel pattern editor', () => {
+  it('emits a pattern fill when the preset changes', () => {
+    const model = slideBackgroundModel(
+      { fill: { color: { type: 'srgb', v: 'FF0000' }, pattern: { preset: 'ltHorz', foreground: { type: 'srgb', v: 'FF0000' }, background: { type: 'srgb', v: 'FFFFFF' } } } },
+      { rgb: 'FF0000', alpha: 100000 },
+      undefined,
+      true,
+      { preset: 'ltHorz', foreground: { rgb: 'FF0000', alpha: 100000 }, background: { rgb: 'FFFFFF', alpha: 100000 } },
+    )
+    const { app, host, events } = mountPanel(model)
+    const select = host.querySelector('[data-slide-background-pattern-preset]') as HTMLSelectElement
+    select.value = 'pct25'
+    select.dispatchEvent(new Event('change'))
+
+    expect(events.patterns).toHaveLength(1)
+    expect(events.patterns[0]?.pattern?.preset).toBe('pct25')
+    expect(events.patterns[0]?.pattern?.foreground).toEqual({ type: 'srgb', v: 'FF0000' })
     app.unmount()
   })
 })

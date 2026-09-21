@@ -1,3 +1,4 @@
+import { PAINTED_PRESET_PATTERNS } from '@ppt4ai/model'
 import type { Color, Fill, ResolvedColor, ResolvedGradient, ResolvedPattern, SlideBackground } from '@ppt4ai/model'
 
 /**
@@ -20,11 +21,18 @@ export interface SlideBackgroundPanelModel {
   readonly gradientEnd: string
   /** The gradient angle in whole degrees, 0..359, for a plain number input. */
   readonly gradientAngle: number
+  /** Pattern editor state: the current (or default) preset word and the two swatches. */
+  readonly patternPreset: string
+  readonly patternForeground: string
+  readonly patternBackground: string
+  /** The preset words the panel offers, the ones the painter can actually draw. */
+  readonly patternPresets: readonly string[]
 }
 
 export type SlideBackgroundPanelEmit = {
   (event: 'set-color', color: Color): void
   (event: 'set-gradient', fill: Fill): void
+  (event: 'set-pattern', fill: Fill): void
   (event: 'clear'): void
 }
 
@@ -77,6 +85,10 @@ export function slideBackgroundModel(
     gradientStart: hexFromStop(stops[0]?.color, flat),
     gradientEnd: hexFromStop(stops[stops.length - 1]?.color, FALLBACK_GRADIENT_END),
     gradientAngle: Math.round(((resolvedGradient?.angle ?? 0) / 60000) % 360),
+    patternPreset: resolvedPattern?.preset ?? PAINTED_PRESET_PATTERNS[0]!,
+    patternForeground: hexFromStop(resolvedPattern?.foreground, flat),
+    patternBackground: hexFromStop(resolvedPattern?.background, FALLBACK_GRADIENT_END),
+    patternPresets: PAINTED_PRESET_PATTERNS,
   }
 }
 
@@ -100,4 +112,16 @@ export function backgroundGradientFrom(startHex: string, endHex: string, angleDe
     color: start,
     gradient: { stops: [{ pos: 0, color: start }, { pos: 100000, color: end }], angle: angle * 60000 },
   }
+}
+
+/**
+ * A pattern-fill background from the panel's inputs. The preset must be one the painter draws, and both
+ * swatches must be hex; `Fill.color` mirrors the foreground, the same rule import and export follow.
+ */
+export function backgroundPatternFrom(preset: string, foregroundHex: string, backgroundHex: string): Fill | undefined {
+  if (!PAINTED_PRESET_PATTERNS.includes(preset)) return undefined
+  const foreground = backgroundColorFrom(foregroundHex)
+  const background = backgroundColorFrom(backgroundHex)
+  if (!foreground || !background) return undefined
+  return { color: foreground, pattern: { preset, foreground, background } }
 }

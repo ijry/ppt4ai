@@ -83,6 +83,10 @@ const zhCN = {
       gradientStart: '渐变起始颜色',
       gradientEnd: '渐变结束颜色',
       gradientAngle: '渐变角度（度）',
+      patternEditor: '图案',
+      patternPreset: '图案预设',
+      patternForeground: '图案前景色',
+      patternBackground: '图案背景色',
     },
     theme: {
       title: '主题',

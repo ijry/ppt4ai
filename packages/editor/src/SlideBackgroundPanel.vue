@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { backgroundColorFrom, backgroundGradientFrom, type SlideBackgroundPanelEmit, type SlideBackgroundPanelModel } from './slide-background-panel'
+import { backgroundColorFrom, backgroundGradientFrom, backgroundPatternFrom, type SlideBackgroundPanelEmit, type SlideBackgroundPanelModel } from './slide-background-panel'
 
 const props = defineProps<{ model: SlideBackgroundPanelModel }>()
 const emit = defineEmits<SlideBackgroundPanelEmit>()
@@ -36,6 +36,23 @@ function pickGradientEnd(event: Event): void {
 function pickGradientAngle(event: Event): void {
   const angle = Number((event.target as HTMLInputElement).value)
   if (Number.isFinite(angle)) applyGradient(props.model.gradientStart, props.model.gradientEnd, angle)
+}
+
+function applyPattern(preset: string, foreground: string, background: string): void {
+  const fill = backgroundPatternFrom(preset, foreground, background)
+  if (fill) emit('set-pattern', fill)
+}
+
+function pickPatternPreset(event: Event): void {
+  applyPattern((event.target as HTMLSelectElement).value, props.model.patternForeground, props.model.patternBackground)
+}
+
+function pickPatternForeground(event: Event): void {
+  applyPattern(props.model.patternPreset, (event.target as HTMLInputElement).value, props.model.patternBackground)
+}
+
+function pickPatternBackground(event: Event): void {
+  applyPattern(props.model.patternPreset, props.model.patternForeground, (event.target as HTMLInputElement).value)
 }
 </script>
 
@@ -96,6 +113,37 @@ function pickGradientAngle(event: Event): void {
         :disabled="!props.model.active"
         :value="props.model.gradientAngle"
         @change="pickGradientAngle"
+      >
+    </fieldset>
+    <fieldset class="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700" data-slide-background-pattern>
+      <legend class="text-xs text-slate-500">{{ t('panel.slideBackground.patternEditor') }}</legend>
+      <select
+        class="h-8 border border-slate-300 bg-white px-1 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+        data-slide-background-pattern-preset
+        :aria-label="t('panel.slideBackground.patternPreset')"
+        :disabled="!props.model.active"
+        :value="props.model.patternPreset"
+        @change="pickPatternPreset"
+      >
+        <option v-for="preset in props.model.patternPresets" :key="preset" :value="preset">{{ preset }}</option>
+      </select>
+      <input
+        class="h-8 w-12 border border-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+        type="color"
+        data-slide-background-pattern-foreground
+        :aria-label="t('panel.slideBackground.patternForeground')"
+        :disabled="!props.model.active"
+        :value="props.model.patternForeground"
+        @change="pickPatternForeground"
+      >
+      <input
+        class="h-8 w-12 border border-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+        type="color"
+        data-slide-background-pattern-background
+        :aria-label="t('panel.slideBackground.patternBackground')"
+        :disabled="!props.model.active"
+        :value="props.model.patternBackground"
+        @change="pickPatternBackground"
       >
     </fieldset>
     <p v-if="note" role="note" class="mt-2 text-xs text-slate-500">{{ note }}</p>
