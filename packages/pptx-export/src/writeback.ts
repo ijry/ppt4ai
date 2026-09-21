@@ -1,6 +1,6 @@
 import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type AdjustValue, type CustomGeometry, type DashSegment, type Fill, type GroupElement, type ImageElement, type OuterShadow, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeElement, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
-import { serializeBackgroundXml, serializeColorXml, serializeCustomGeometry, serializeFillXml, serializeShadowXml } from './standalone-xml.js'
+import { serializeBackgroundXml, serializeColorXml, serializeCustomGeometry, serializeFillXml, serializeLayoutXml, serializeShadowXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
 import {
   allocateMediaPath,
@@ -998,8 +998,8 @@ function sourceLayoutRelationship(entries: Map<string, ZipEntry>, slidePath: str
   }
 }
 
-function layoutRelationshipsById(document: Ppt4aiDocument, source: SourcePackage, entries: Map<string, ZipEntry>): Map<string, LayoutRelationship> {
-  const result = new Map<string, LayoutRelationship>()
+function layoutRelationshipsById(document: Ppt4aiDocument, source: SourcePackage, entries: Map<string, ZipEntry>, addedLayouts: Map<string, LayoutRelationship> = new Map()): Map<string, LayoutRelationship> {
+  const result = new Map<string, LayoutRelationship>(addedLayouts)
   const idsByPath = new Map<string, string>()
   let nextId = 1
   for (const sourceSlide of source.slides) {
@@ -1028,13 +1028,114 @@ function firstLayoutRelationship(source: SourcePackage, entries: Map<string, Zip
   return undefined
 }
 
-function slidePlans(document: Ppt4aiDocument, source: SourcePackage, entries: Map<string, ZipEntry>): SlidePlan[] {
+function allocateLayoutPath(entryNames: Set<string>): string {
+  let next = 1
+  for (const entryName of entryNames) {
+    const match = /^ppt\/slideLayouts\/slideLayout(\d+)\.xml$/u.exec(entryName)
+    if (match) next = Math.max(next, Number(match[1]) + 1)
+  }
+  while (entryNames.has(`ppt/slideLayouts/slideLayout${next}.xml`) || entryNames.has(`ppt/slideLayouts/_rels/slideLayout${next}.xml.rels`)) next += 1
+  return `ppt/slideLayouts/slideLayout${next}.xml`
+}
+
+/** The next `p:sldLayoutId/@id`: OOXML reserves 2147483648, so ids start at 2147483649 and climb. */
+function nextSldLayoutId(masterXml: string): number {
+  let max = 2147483648
+  for (const element of descendants(scanXml(masterXml), 'sldLayoutId')) {
+    const value = Number(element.attributes.id)
+    if (Number.isFinite(value)) max = Math.max(max, value)
+  }
+  return max + 1
+}
+
+/**
+ * Insert a `p:sldLayoutId` into a master's `p:sldLayoutIdLst`, creating the list before `</p:sldMaster>`
+ * when absent and expanding a self-closing one. The prefix follows the master root element's own.
+ */
+function insertSldLayoutId(masterXml: string, entryXml: string): string {
+  const roots = scanXml(masterXml)
+  const master = roots[0]
+  const prefix = master ? namespacePrefix(master.name) : 'p:'
+  const listName = `${prefix}sldLayoutIdLst`
+  const closeTag = `</${listName}>`
+  const closeAt = masterXml.indexOf(closeTag)
+  if (closeAt >= 0) return `${masterXml.slice(0, closeAt)}${entryXml}${masterXml.slice(closeAt)}`
+  // A self-closing `<p:sldLayoutIdLst/>`: expand it to hold the entry.
+  const selfClose = `<${listName}/>`
+  const selfAt = masterXml.indexOf(selfClose)
+  if (selfAt >= 0) return `${masterXml.slice(0, selfAt)}<${listName}>${entryXml}${closeTag}${masterXml.slice(selfAt + selfClose.length)}`
+  // No list at all: add one just before the master's closing tag (after its color map, per the schema).
+  const masterClose = `</${prefix}sldMaster>`
+  const at = masterXml.lastIndexOf(masterClose)
+  const list = `<${listName}>${entryXml}${closeTag}`
+  return at >= 0 ? `${masterXml.slice(0, at)}${list}${masterXml.slice(at)}` : masterXml
+}
+
+/**
+ * A model layout with no `source.partPath` is one the editor added; materialize it as its own part so
+ * the source-writeback path matches standalone generation. Writes the layout xml, its `.rels` (to the
+ * master), a `p:sldLayoutId` + relationship on the master, and a content-types override. Returns the
+ * per-layout relationship so slide planning can repoint any slide switched to the new layout.
+ */
+function materializeAddedLayouts(
+  document: Ppt4aiDocument,
+  entriesByName: Map<string, ZipEntry>,
+  entries: ZipEntry[],
+  contentTypeOverrides: ContentTypeAddition[],
+): Map<string, LayoutRelationship> {
+  const result = new Map<string, LayoutRelationship>()
+  const entryNames = new Set(entriesByName.keys())
+  const LAYOUT_CT = 'application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml'
+  for (const id of Object.keys(document.layouts ?? {}).sort()) {
+    const layout = document.layouts?.[id]
+    if (!layout || layout.source?.partPath) continue
+    const master = document.masters?.[layout.masterId]
+    const masterPath = master?.source?.partPath
+    if (!masterPath) continue // a fully synthetic master is standalone-only; nothing to attach to here
+    const layoutPath = allocateLayoutPath(entryNames)
+    entryNames.add(layoutPath)
+    // Serialize the layout, then point its blip-free master reference at the real master part.
+    const layoutXml = serializeLayoutXml(layout, undefined)
+    const masterRel = relativeTarget(layoutPath, masterPath)
+    const layoutRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="${escapeXml(masterRel)}"/></Relationships>`
+    const layoutEntry: ZipEntry = { name: layoutPath, data: encoder.encode(layoutXml) }
+    const layoutRelsEntry: ZipEntry = { name: relationshipFilePath(layoutPath), data: encoder.encode(layoutRelsXml) }
+    entries.push(layoutEntry, layoutRelsEntry)
+    entriesByName.set(layoutEntry.name, layoutEntry)
+    entriesByName.set(layoutRelsEntry.name, layoutRelsEntry)
+    entryNames.add(layoutRelsEntry.name)
+    contentTypeOverrides.push({ path: layoutPath, contentType: LAYOUT_CT })
+    // Attach to the master: a new relationship + a `p:sldLayoutId` entry so PowerPoint lists the layout.
+    const masterRelsPath = relationshipFilePath(masterPath)
+    const masterRelsEntry = entriesByName.get(masterRelsPath)
+    const masterRelsXml = masterRelsEntry ? decoder.decode(masterRelsEntry.data) : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>'
+    const masterRelIds = new Set(descendants(scanXml(masterRelsXml), 'Relationship').flatMap((r) => r.attributes.Id ? [r.attributes.Id] : []))
+    const masterRelId = allocateRelationshipId(masterRelIds)
+    const layoutTargetFromMaster = relativeTarget(masterPath, layoutPath)
+    const updatedMasterRels = appendRelationships(masterRelsXml, [`<Relationship Id="${masterRelId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="${escapeXml(layoutTargetFromMaster)}"/>`])
+    if (masterRelsEntry) masterRelsEntry.data = encoder.encode(updatedMasterRels)
+    else {
+      const created: ZipEntry = { name: masterRelsPath, data: encoder.encode(updatedMasterRels) }
+      entries.push(created)
+      entriesByName.set(created.name, created)
+    }
+    const masterEntry = entriesByName.get(masterPath)
+    if (masterEntry) {
+      const masterXml = decoder.decode(masterEntry.data)
+      const entryXml = `<p:sldLayoutId id="${nextSldLayoutId(masterXml)}" r:id="${masterRelId}"/>`
+      masterEntry.data = encoder.encode(insertSldLayoutId(masterXml, entryXml))
+    }
+    result.set(id, { id: masterRelId, target: layoutTargetFromMaster, type: 'slideLayout', targetPath: normalizePath(layoutPath) })
+  }
+  return result
+}
+function slidePlans(document: Ppt4aiDocument, source: SourcePackage, entries: Map<string, ZipEntry>, addedLayouts: Map<string, LayoutRelationship> = new Map()): SlidePlan[] {
   const entryNames = new Set(entries.keys())
   const usedSourcePaths = new Set<string>()
   const presentationIds = new Set(source.slides.map((slide) => slide.presentationId))
   const relationshipIds = presentationRelationshipIds(source.presentationRelationshipsXml)
   const layoutRelationship = firstLayoutRelationship(source, entries)
-  const layoutRelationships = layoutRelationshipsById(document, source, entries)
+  const layoutRelationships = layoutRelationshipsById(document, source, entries, addedLayouts)
   const plans: SlidePlan[] = []
 
   for (const slideId of document.slideOrder) {
@@ -1613,8 +1714,10 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
   const entries = await readZipEntries(source)
   const entriesByName = new Map(entries.map((entry) => [entry.name, entry]))
   rewriteSourceThemes(document, entriesByName)
+  const addedLayoutOverrides: ContentTypeAddition[] = []
+  const addedLayouts = materializeAddedLayouts(document, entriesByName, entries, addedLayoutOverrides)
   const sourcePackageData = sourcePackage(entriesByName)
-  const plans = slidePlans(document, sourcePackageData, entriesByName)
+  const plans = slidePlans(document, sourcePackageData, entriesByName, addedLayouts)
   const scannedSlides = scanSourceSlides(sourcePackageData, entriesByName)
   const usedPaths = new Set(plans.filter((plan) => plan.mode === 'reuse').map((plan) => plan.outputPath))
   const removedSlides = sourcePackageData.slides.filter((slide) => !usedPaths.has(slide.partPath))
@@ -1805,7 +1908,7 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
     removedSlides.map((slide) => slide.partPath),
     [...protectedRoots, ...presentationDependencies],
   )
-  const structureRequiresContentTypes = removedSlides.length > 0 || addedSlidePaths.length > 0 || dependencyClones.size > 0 || orphanedPaths.size > 0
+  const structureRequiresContentTypes = removedSlides.length > 0 || addedSlidePaths.length > 0 || dependencyClones.size > 0 || orphanedPaths.size > 0 || addedLayoutOverrides.length > 0
   if (structureRequiresContentTypes || state.pendingMedia.length > 0) {
     if ((!contentTypesEntry || !sourceContentTypesXml) && structureRequiresContentTypes) throw new Error('PPTX export source part missing: [Content_Types].xml')
     if (contentTypesEntry && sourceContentTypesXml) {
@@ -1820,7 +1923,7 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
         sourceContentTypesXml,
         [...orphanedPaths],
         addedSlidePaths,
-        [...dependencyOverrides, ...mediaAdditions.overrides],
+        [...dependencyOverrides, ...mediaAdditions.overrides, ...addedLayoutOverrides],
         mediaAdditions.defaults,
       ))
     }

@@ -1,6 +1,6 @@
 # 新建（复制）版式设计
 
-> 状态：已实现（2026-09-22，模型 + standalone + UI；源写回新部件物化延期）
+> 状态：已实现（2026-09-22，模型 + standalone + UI + 源写回新部件物化）
 > 日期：2026-09-22
 
 ## 1. 目标
@@ -24,7 +24,11 @@ standalone `createPptx` 的 `planInheritance` 从模型枚举全部版式,因此
 - **playground**（wiring,+2）:复制加一个同母版版式并可切换;未知源报 `layout-missing`。
 - **回归**：全量 2486 项。
 
-## 4. 已知限制
+## 4. 后续:源写回新部件物化(已补,2026-09-22)
 
-- **源写回不物化新版式部件**(新 `slideLayoutN.xml` + 关系 + content-types + `sldLayoutIdLst` 增项)——这是与"多母版拆部件"同量级的独立切片;当前新版式只在 standalone 生成路径完整。
+materializeAddedLayouts(在 xportPptx 里 slidePlans 之前运行)把无 source.partPath 的模型版式物化为源包里的真实部件:分配 slideLayoutN.xml、序列化(serializeLayoutXml)、写它的 .rels(指向源母版的相对路径)、往母版 .rels 加 slideLayout 关系、往母版 p:sldLayoutIdLst 插 p:sldLayoutId(insertSldLayoutId,含自闭合/缺列表两种情形)、加 content-types override,并返回一张 layoutId → LayoutRelationship 表喂给 slidePlans/layoutRelationshipsById,使切到新版式的页的 .rels 自动重指向新部件。测试 dded-layout-writeback.test.ts 断言:双版式部件、母版列两项、content-types 有新 override、版式 rels 指母版、页 rels 指新版式,且 reimport 携带新版式背景;未加版式时逐字节相同。
+
+## 5. 已知限制
+
 - 只复制现有版式;空白新版式、删除版式是后续项。
+- 全新合成母版(源包里也没有的母版)下的新版式仍只在 standalone 路径完整(源写回需要母版本身也物化,是另一刀)。
