@@ -1531,14 +1531,14 @@ function rewriteSourceMastersAndLayouts(document: Ppt4aiDocument, entriesByName:
     const master = document.masters?.[id]
     const path = master?.source?.partPath
     if (!path || !master) continue
-    rewritePart('master', id, path, (source) => rewriteMasterXml(source, master.defaults ?? {}, master.colorMap, id))
+    rewritePart('master', id, path, (source) => rewriteMasterXml(source, master.defaults ?? {}, master.colorMap, id, master.background ?? null))
   }
 
   for (const id of Object.keys(document.layouts ?? {}).sort()) {
     const layout = document.layouts?.[id]
     const path = layout?.source?.partPath
     if (!path || !layout) continue
-    rewritePart('layout', id, path, (source) => rewriteLayoutXml(source, layout.defaults ?? {}, layout.colorMapOverride, id))
+    rewritePart('layout', id, path, (source) => rewriteLayoutXml(source, layout.defaults ?? {}, layout.colorMapOverride, id, layout.background ?? null))
   }
 
   for (const [path, rewrittenXml] of rewrittenXmlByPath) {

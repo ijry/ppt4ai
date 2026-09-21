@@ -1,6 +1,6 @@
-import { colorTransformValueIsValid, isOoxmlToken, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ElementDefaults, type Fill, type Rect, type TextBody } from '@ppt4ai/model'
+import { colorTransformValueIsValid, isOoxmlToken, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ElementDefaults, type Fill, type Rect, type SlideBackground, type TextBody } from '@ppt4ai/model'
 import { serializeColorXml, serializeTextBodyXml } from './standalone-xml.js'
-import { sourceFill } from './color-source.js'
+import { sourceColor, sourceFill } from './color-source.js'
 import {
   fillNodeNames,
   fillNodeReplacements,
@@ -503,12 +503,77 @@ export function rewriteColorMapXml(source: string, kind: ColorMapPart, map: Part
   return rewriteColorMapInternal(source, kind, map, id)
 }
 
-export function rewriteMasterXml(source: string, defaults: Record<string, ElementDefaults> = {}, colorMap?: Partial<ColorMap>, id = 'master'): string {
-  return rewriteColorMapInternal(rewritePlaceholderDefaults(source, defaults, 'master', id), 'master', colorMap, id)
+/** Mirrors the importer's `parseBackground`, so an untouched master or layout background compares equal. */
+function sourcePartBackground(bg: XmlElement | undefined): SlideBackground | undefined {
+  if (!bg) return undefined
+  const properties = bg.children.find((child) => child.localName === 'bgPr')
+  const fillNode = properties?.children.find((child) => fillNodeNames.has(child.localName))
+  // A picture background reads as a picture fill, which this rewrite never introduces or edits.
+  if (fillNode?.localName === 'blipFill') return { pictureFill: { assetId: '' } }
+  const fill = sourceFill(fillNode)
+  if (fill) return { fill }
+  const reference = bg.children.find((child) => child.localName === 'bgRef')
+  const idx = Number(reference?.attributes.idx)
+  if (!reference || !Number.isInteger(idx)) return undefined
+  const color = sourceColor(reference)
+  return { styleRef: { idx, ...(color ? { color } : {}) } }
 }
 
-export function rewriteLayoutXml(source: string, defaults: Record<string, ElementDefaults> = {}, colorMap?: Partial<ColorMap>, id = 'layout'): string {
-  return rewriteColorMapInternal(rewritePlaceholderDefaults(source, defaults, 'layout', id), 'layout', colorMap, id)
+function partBackgroundsEqual(left: SlideBackground | undefined, right: SlideBackground | undefined): boolean {
+  if (!left || !right) return left === right
+  if ((left.pictureFill?.assetId ?? undefined) !== (right.pictureFill?.assetId ?? undefined)) return false
+  if (!fillsEqual(left.fill, right.fill)) return false
+  const leftRef = left.styleRef
+  const rightRef = right.styleRef
+  if (!leftRef || !rightRef) return leftRef === rightRef
+  return leftRef.idx === rightRef.idx && JSON.stringify(leftRef.color ?? null) === JSON.stringify(rightRef.color ?? null)
+}
+
+function serializePartBackgroundNode(prefix: string, background: SlideBackground): string {
+  if (background.fill) return `<${prefix}bg><${prefix}bgPr>${serializeFillPrefixed(background.fill, 'a:')}<a:effectLst/></${prefix}bgPr></${prefix}bg>`
+  const reference = background.styleRef
+  if (!reference) return ''
+  const color = reference.color ? serializeColorXml(reference.color) : ''
+  return `<${prefix}bg><${prefix}bgRef idx="${reference.idx}">${color}</${prefix}bgRef></${prefix}bg>`
+}
+
+/**
+ * `p:bg` on a master or layout, edited the same way a slide's is: a colour, gradient or pattern change
+ * patches the fill node in place so unknown siblings survive; a structural change replaces the whole
+ * node; clearing deletes it. A picture background is never introduced here — it needs a media part and a
+ * relationship, which no editing command asks for — so a model picture background leaves the source alone.
+ */
+function rewriteBackground(source: string, background: SlideBackground | null | undefined, kind: 'master' | 'layout'): string {
+  if (background === undefined) return source
+  const roots = scanXml(source)
+  const common = descendants(roots, 'cSld')[0]
+  if (!common) return source
+  const bg = common.children.find((child) => child.localName === 'bg')
+  const existing = sourcePartBackground(bg)
+  const desired = background === null ? undefined : background
+  if (partBackgroundsEqual(existing, desired)) return source
+  if (desired?.pictureFill) return source
+  if (!desired) return bg ? replaceRanges(source, [{ start: bg.start, end: bg.end, value: '' }]) : source
+  const properties = bg?.children.find((child) => child.localName === 'bgPr')
+  const fillNode = properties?.children.find((child) => fillNodeNames.has(child.localName))
+  if (desired.fill && properties && fillNode && fillNode.localName !== 'blipFill') {
+    return replaceRanges(source, fillNodeReplacements(source, fillNode, existing?.fill, desired.fill))
+  }
+  const prefix = namespacePrefix(bg?.name ?? common.name)
+  const value = serializePartBackgroundNode(prefix, desired)
+  if (!value) return source
+  if (bg) return replaceRanges(source, [{ start: bg.start, end: bg.end, value }])
+  const tree = descendants(roots, 'spTree')[0]
+  if (!tree) return source
+  return replaceRanges(source, [{ start: tree.start, end: tree.start, value }])
+}
+
+export function rewriteMasterXml(source: string, defaults: Record<string, ElementDefaults> = {}, colorMap?: Partial<ColorMap>, id = 'master', background?: SlideBackground | null): string {
+  return rewriteBackground(rewriteColorMapInternal(rewritePlaceholderDefaults(source, defaults, 'master', id), 'master', colorMap, id), background, 'master')
+}
+
+export function rewriteLayoutXml(source: string, defaults: Record<string, ElementDefaults> = {}, colorMap?: Partial<ColorMap>, id = 'layout', background?: SlideBackground | null): string {
+  return rewriteBackground(rewriteColorMapInternal(rewritePlaceholderDefaults(source, defaults, 'layout', id), 'layout', colorMap, id), background, 'layout')
 }
 
 export function rewriteSlideColorMapXml(source: string, colorMap: Partial<ColorMap> | undefined, id = 'slide'): string {

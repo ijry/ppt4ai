@@ -80,6 +80,8 @@ export type EngineCommand =
   | { type: 'setTableCellFill'; fill: Fill | null }
   | { type: 'setTableCellBorders'; borders: Partial<Record<TableBorderSide, TableBorder | null>> }
   | { type: 'setSlideBackground'; slideId: string; background: SlideBackground | null }
+  | { type: 'setMasterBackground'; masterId: string; background: SlideBackground | null }
+  | { type: 'setLayoutBackground'; layoutId: string; background: SlideBackground | null }
   | { type: 'setThemeColor'; themeId: string; slot: ThemeColorSlot; color: Color | null }
   | { type: 'setThemeFont'; themeId: string; slot: ThemeFontSlot; script: ThemeFontScript; typeface: string | null }
   | { type: 'mergeTableCells' }
@@ -733,6 +735,14 @@ export class EditorEngine {
         this.setSlideBackground(command.slideId, command.background)
         break
       }
+      case 'setMasterBackground': {
+        this.setMasterBackground(command.masterId, command.background)
+        break
+      }
+      case 'setLayoutBackground': {
+        this.setLayoutBackground(command.layoutId, command.background)
+        break
+      }
       case 'setThemeColor': {
         this.setThemeColor(command.themeId, command.slot, command.color)
         break
@@ -892,6 +902,38 @@ export class EditorEngine {
     if (!validation.valid) throw new Error(`slide background is invalid: ${slideId}: ${validation.errors.join('; ')}`)
 
     this.commit([{ path: ['slides', slideId, 'background'], value: background === null ? undefined : background }])
+  }
+
+  /** A master's own `p:bg`. Cleared means the part inherits nothing — masters have no parent, so it is bare. */
+  private setMasterBackground(masterId: string, background: SlideBackground | null): void {
+    const master = this.document.masters?.[masterId]
+    if (!master) throw new Error(`master does not exist: ${masterId}`)
+    if (JSON.stringify(master.background ?? null) === JSON.stringify(background)) return
+
+    const nextDocument = clone(this.document)
+    const next = nextDocument.masters![masterId]!
+    if (background === null) delete next.background
+    else next.background = clone(background)
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`master background is invalid: ${masterId}: ${validation.errors.join('; ')}`)
+
+    this.commit([{ path: ['masters', masterId, 'background'], value: background === null ? undefined : background }])
+  }
+
+  /** A layout's own `p:bg`, which replaces its master's when present. Cleared falls back to the master. */
+  private setLayoutBackground(layoutId: string, background: SlideBackground | null): void {
+    const layout = this.document.layouts?.[layoutId]
+    if (!layout) throw new Error(`layout does not exist: ${layoutId}`)
+    if (JSON.stringify(layout.background ?? null) === JSON.stringify(background)) return
+
+    const nextDocument = clone(this.document)
+    const next = nextDocument.layouts![layoutId]!
+    if (background === null) delete next.background
+    else next.background = clone(background)
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`layout background is invalid: ${layoutId}: ${validation.errors.join('; ')}`)
+
+    this.commit([{ path: ['layouts', layoutId, 'background'], value: background === null ? undefined : background }])
   }
 
   private setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): void {

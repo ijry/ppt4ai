@@ -72,3 +72,53 @@ describe('master and layout XML write-back', () => {
     expect(() => rewriteMasterXml(sourceMaster, {}, { accent1: 'not-a-slot' } as never, 'master_1')).toThrow('PPTX export')
   })
 })
+
+
+const masterWithBg = '<p:sldMaster xmlns:p="p" xmlns:d="drawing"><p:cSld><p:bg><p:bgPr data-bg="keep"><d:solidFill><d:srgbClr val="112233"/></d:solidFill><d:effectLst/></p:bgPr></p:bg><p:spTree/></p:cSld></p:sldMaster>'
+const masterNoBg = '<p:sldMaster xmlns:p="p" xmlns:d="drawing"><p:cSld><p:spTree/></p:cSld></p:sldMaster>'
+const layoutNoBg = '<p:sldLayout xmlns:p="p" xmlns:d="drawing"><p:cSld><p:spTree/></p:cSld></p:sldLayout>'
+
+describe('master and layout background write-back', () => {
+  it('patches only the fill node of an existing master background', () => {
+    const rewritten = rewriteMasterXml(masterWithBg, {}, undefined, 'master_1', { fill: { color: { type: 'srgb', v: 'FF0000' } } })
+
+    expect(rewritten).toContain('<p:bgPr data-bg="keep"><d:solidFill><d:srgbClr val="FF0000"/></d:solidFill><d:effectLst/></p:bgPr>')
+  })
+
+  it('inserts a background before the shape tree when the master had none', () => {
+    const rewritten = rewriteMasterXml(masterNoBg, {}, undefined, 'master_1', { fill: { color: { type: 'srgb', v: 'FF0000' } } })
+
+    expect(rewritten).toContain('<p:bg><p:bgPr><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:effectLst/></p:bgPr></p:bg><p:spTree/>')
+  })
+
+  it('deletes the master background when it is cleared', () => {
+    const rewritten = rewriteMasterXml(masterWithBg, {}, undefined, 'master_1', null)
+
+    expect(rewritten).not.toContain('p:bg')
+  })
+
+  it('leaves the master untouched when the background matches the source', () => {
+    const rewritten = rewriteMasterXml(masterWithBg, {}, undefined, 'master_1', { fill: { color: { type: 'srgb', v: '112233' } } })
+
+    expect(rewritten).toBe(masterWithBg)
+  })
+
+  it('leaves the master untouched when no background is passed', () => {
+    expect(rewriteMasterXml(masterWithBg, {}, undefined, 'master_1')).toBe(masterWithBg)
+  })
+
+  it('inserts a gradient layout background', () => {
+    const rewritten = rewriteLayoutXml(layoutNoBg, {}, undefined, 'layout_1', {
+      fill: { color: { type: 'srgb', v: '1F3864' }, gradient: { stops: [{ pos: 0, color: { type: 'srgb', v: '1F3864' } }, { pos: 100000, color: { type: 'srgb', v: 'FFFFFF' } }] } },
+    })
+
+    expect(rewritten).toContain('<a:gradFill>')
+    expect(rewritten).toContain('<p:bg><p:bgPr>')
+  })
+
+  it('does not introduce a picture background it cannot materialize', () => {
+    const rewritten = rewriteMasterXml(masterNoBg, {}, undefined, 'master_1', { pictureFill: { assetId: 'asset_x' } })
+
+    expect(rewritten).toBe(masterNoBg)
+  })
+})
