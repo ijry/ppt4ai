@@ -25,5 +25,5 @@
 
 ## 4. 已知限制
 
-- 高亮控件在文字工具栏;playground 尚未挂该工具栏(工具栏组件与命令已就绪,宿主接线是独立步骤)。
+- 高亮控件在文字工具栏,PptEditor.vue 已挂载该工具栏并把 set-marks 接到 	extBoxRef.setMarks,因此高亮从工具栏到模型端到端可用(playground 用的就是 PptEditor)。
 - 高亮仅纯色(OOXML 本身如此)。
