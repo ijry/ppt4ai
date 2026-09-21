@@ -42,6 +42,8 @@ export interface PlaygroundAssetHost {
   setSelectedStrokeWidth(width: number | null): PlaygroundAssetHostSnapshot
   setSelectedStrokeStyle(style: StrokeStyle | null): PlaygroundAssetHostSnapshot
   setSlideBackground(background: SlideBackground | null): PlaygroundAssetHostSnapshot
+  setMasterBackground(background: SlideBackground | null): PlaygroundAssetHostSnapshot
+  setLayoutBackground(background: SlideBackground | null): PlaygroundAssetHostSnapshot
   setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): PlaygroundAssetHostSnapshot
   setThemeFont(themeId: string, slot: ThemeFontSlot, script: ThemeFontScript, typeface: string | null): PlaygroundAssetHostSnapshot
   selectAsset(assetId: string): PlaygroundAssetHostSnapshot
@@ -414,6 +416,32 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
         status = { kind: 'success', message: 'slide-background-updated' }
       } catch {
         return fail('slide-background-failed')
+      }
+      return snapshot()
+    },
+    setMasterBackground(background) {
+      const document = engine.getState().document
+      const slide = document.slides[currentSlideId()]
+      const layout = slide?.layoutId ? document.layouts?.[slide.layoutId] : undefined
+      const masterId = slide?.masterId ?? layout?.masterId
+      if (!masterId || !document.masters?.[masterId]) return fail('master-missing')
+      try {
+        engine.dispatch({ type: 'setMasterBackground', masterId, background })
+        status = { kind: 'success', message: 'master-background-updated' }
+      } catch {
+        return fail('master-background-failed')
+      }
+      return snapshot()
+    },
+    setLayoutBackground(background) {
+      const document = engine.getState().document
+      const layoutId = document.slides[currentSlideId()]?.layoutId
+      if (!layoutId || !document.layouts?.[layoutId]) return fail('layout-missing')
+      try {
+        engine.dispatch({ type: 'setLayoutBackground', layoutId, background })
+        status = { kind: 'success', message: 'layout-background-updated' }
+      } catch {
+        return fail('layout-background-failed')
       }
       return snapshot()
     },

@@ -49,3 +49,37 @@ describe('playground slide background wiring', () => {
     expect(snapshot.status).toEqual({ kind: 'error', message: 'slide-background-failed' })
   })
 })
+
+describe('playground master and layout background wiring', () => {
+  function host() {
+    return createPlaygroundAssetHost()
+  }
+
+  it('sets a master background and reports success', () => {
+    const h = host()
+    const snapshot = h.setMasterBackground({ fill: { color: { type: 'srgb', v: '203864' } } })
+
+    expect(snapshot.status).toEqual({ kind: 'success', message: 'master-background-updated' })
+    const document = h.getSnapshot().engineState.document
+    const masterId = Object.keys(document.masters ?? {})[0]!
+    expect(document.masters?.[masterId]?.background).toEqual({ fill: { color: { type: 'srgb', v: '203864' } } })
+  })
+
+  it('sets a layout background and clears it back', () => {
+    const h = host()
+    h.setLayoutBackground({ fill: { color: { type: 'srgb', v: 'FF0000' } } })
+    const document = h.getSnapshot().engineState.document
+    const layoutId = Object.keys(document.layouts ?? {})[0]!
+    expect(document.layouts?.[layoutId]?.background).toEqual({ fill: { color: { type: 'srgb', v: 'FF0000' } } })
+
+    const cleared = h.setLayoutBackground(null)
+    expect(cleared.status).toEqual({ kind: 'success', message: 'layout-background-updated' })
+    expect(cleared.engineState.document.layouts?.[layoutId]).not.toHaveProperty('background')
+  })
+
+  it('paints the slide from an inherited master background when the slide declares none', () => {
+    const h = host()
+    h.setMasterBackground({ fill: { color: { type: 'srgb', v: '00AA55' } } })
+    expect(backgroundOf(h)).toBe('00AA55')
+  })
+})

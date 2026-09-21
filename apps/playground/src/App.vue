@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Color, Fill, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { Color, Fill, SlideBackground, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import type { TableCellSelection } from '@ppt4ai/editor'
 import { DEFAULT_THEME_COLORS } from '@ppt4ai/model'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
@@ -76,17 +76,36 @@ const themeSlots = computed<ThemePanelSlotModel[]>(() => {
  * The panel shows the colour the scene resolved — slide, layout or master, whichever declared one — and
  * clears only what this slide owns.
  */
+type BackgroundTarget = 'slide' | 'layout' | 'master'
+const backgroundTarget = ref<BackgroundTarget>('slide')
+
+function ownBackgroundOf(target: BackgroundTarget) {
+  const document = activeSlideSnapshot.value.engineState.document
+  const slide = document.slides[document.slideOrder[0] ?? '']
+  if (target === 'slide') return slide?.background
+  const layout = slide?.layoutId ? document.layouts?.[slide.layoutId] : undefined
+  if (target === 'layout') return layout?.background
+  const masterId = slide?.masterId ?? layout?.masterId
+  return masterId ? document.masters?.[masterId]?.background : undefined
+}
+
 const slideBackground = computed(() => {
   const document = activeSlideSnapshot.value.engineState.document
   const slideId = document.slideOrder[0]
   const resolvedScene = scene.value
-  return slideBackgroundModel(
-    slideId ? document.slides[slideId]?.background : undefined,
-    resolvedScene?.background,
-    resolvedScene?.backgroundGradient,
-    slideId !== undefined,
-    resolvedScene?.backgroundPattern,
-  )
+  // The resolved scene colours describe the slide as painted; for the layout/master target the panel
+  // edits that part's *own* background, so its declared fill drives the model instead of the scene.
+  const own = ownBackgroundOf(backgroundTarget.value)
+  if (backgroundTarget.value === 'slide') {
+    return slideBackgroundModel(
+      slideId ? document.slides[slideId]?.background : undefined,
+      resolvedScene?.background,
+      resolvedScene?.backgroundGradient,
+      slideId !== undefined,
+      resolvedScene?.backgroundPattern,
+    )
+  }
+  return slideBackgroundModel(own, undefined, undefined, true, undefined)
 })
 
 const themeFonts = computed<ThemePanelFontModel[]>(() => {
@@ -140,24 +159,33 @@ function setShapeStrokeStyle(style: StrokeStyle | null): void {
   assetSnapshot.value = assetHost.setSelectedStrokeStyle(style)
 }
 
+function applyBackground(background: SlideBackground | null): void {
+  const target = backgroundTarget.value
+  assetSnapshot.value = target === 'slide'
+    ? assetHost.setSlideBackground(background)
+    : target === 'layout'
+      ? assetHost.setLayoutBackground(background)
+      : assetHost.setMasterBackground(background)
+}
+
 function setSlideBackground(color: Color): void {
-  assetSnapshot.value = assetHost.setSlideBackground({ fill: { color } })
+  applyBackground({ fill: { color } })
 }
 
 function clearSlideBackground(): void {
-  assetSnapshot.value = assetHost.setSlideBackground(null)
+  applyBackground(null)
 }
 
 function setSlideBackgroundGradient(fill: Fill): void {
-  assetSnapshot.value = assetHost.setSlideBackground({ fill })
+  applyBackground({ fill })
 }
 
 function setSlideBackgroundPattern(fill: Fill): void {
-  assetSnapshot.value = assetHost.setSlideBackground({ fill })
+  applyBackground({ fill })
 }
 
 function setSlideBackgroundPicture(assetId: string): void {
-  assetSnapshot.value = assetHost.setSlideBackground({ pictureFill: { assetId } })
+  applyBackground({ pictureFill: { assetId } })
 }
 
 const backgroundPictureAssets = computed(() => Object.values(activeSlideSnapshot.value.engineState.document.assets ?? {})
@@ -489,6 +517,14 @@ async function uploadFile(event: Event): Promise<void> {
           @insert="insertAsset"
           @replace="replaceAsset"
         />
+        <label class="flex items-center gap-2 border border-slate-200 bg-white p-2 text-sm text-slate-700">
+          <span>{{ t('panel.slideBackground.target') }}</span>
+          <select v-model="backgroundTarget" class="h-8 border border-slate-300 bg-white px-1" data-slide-background-target>
+            <option value="slide">{{ t('panel.slideBackground.targetSlide') }}</option>
+            <option value="layout">{{ t('panel.slideBackground.targetLayout') }}</option>
+            <option value="master">{{ t('panel.slideBackground.targetMaster') }}</option>
+          </select>
+        </label>
         <SlideBackgroundPanel
           :model="slideBackground"
           :picture-assets="backgroundPictureAssets"

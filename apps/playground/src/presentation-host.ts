@@ -64,6 +64,8 @@ export interface PlaygroundPresentationHost {
   setSelectedStrokeWidth(width: number | null): PlaygroundPresentationSnapshot
   setSelectedStrokeStyle(style: StrokeStyle | null): PlaygroundPresentationSnapshot
   setSlideBackground(background: SlideBackground | null): PlaygroundPresentationSnapshot
+  setMasterBackground(background: SlideBackground | null): PlaygroundPresentationSnapshot
+  setLayoutBackground(background: SlideBackground | null): PlaygroundPresentationSnapshot
   setThemeColor(slot: ThemeColorSlot, color: Color | null): PlaygroundPresentationSnapshot
   setThemeFont(slot: ThemeFontSlot, script: ThemeFontScript, typeface: string | null): PlaygroundPresentationSnapshot
   selectAsset(assetId: string): PlaygroundPresentationSnapshot
@@ -515,6 +517,12 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     },
     setSlideBackground(background) {
       return forward((host) => host.setSlideBackground(background))
+    },
+    setMasterBackground(background) {
+      return forward((host) => host.setMasterBackground(background))
+    },
+    setLayoutBackground(background) {
+      return forward((host) => host.setLayoutBackground(background))
     },
     setThemeColor(slot, color) {
       return forward((host) => host.setThemeColor(activeThemeId(host) ?? '', slot, color))

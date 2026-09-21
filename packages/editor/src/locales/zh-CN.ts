@@ -96,6 +96,10 @@ const zhCN = {
       pictureEditor: '图片',
       pictureAsset: '背景图片',
       pictureNone: '无',
+      target: '应用到',
+      targetSlide: '本页',
+      targetLayout: '版式',
+      targetMaster: '母版',
     },
     theme: {
       title: '主题',

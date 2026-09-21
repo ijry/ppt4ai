@@ -96,6 +96,10 @@ const enUS = {
       pictureEditor: 'Picture',
       pictureAsset: 'Background image',
       pictureNone: 'None',
+      target: 'Apply to',
+      targetSlide: 'This slide',
+      targetLayout: 'Layout',
+      targetMaster: 'Master',
     },
     theme: {
       title: 'Theme',
