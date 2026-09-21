@@ -313,11 +313,6 @@ function parseColorMapOverride(root: XmlNode): Partial<ColorMap> | undefined {
   return override ? parseColorMap(child(override, 'overrideClrMapping')) : undefined
 }
 
-function parseFill(shape: XmlNode): Fill | undefined {
-  const fill = findDescendants(shape, 'solidFill')[0]
-  return fill ? (parseColor(fill) ? { color: parseColor(fill)! } : undefined) : undefined
-}
-
 /**
  * `a:prstDash/@val` verbatim. All eleven `ST_PresetLineDashVal` tokens reach the model, so the word
  * the file used survives a round trip; grouping them into dash patterns is the painter's business.
