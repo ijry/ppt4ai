@@ -191,6 +191,14 @@ function paintVerticalItem(
     context.translate(mapping.offsetX + (item.x + item.width) * mapping.scale, y)
     context.rotate(Math.PI / 2)
     applyTextStyle(context, style)
+    // The glyph draws in the rotated local frame, so a page-space gradient axis is mapped into it:
+    // a page direction (a, b) becomes local (b, -a) — the angle turns by -90deg and the box dims swap.
+    const rotatedGradient = 'resolvedFillGradient' in item ? item.resolvedFillGradient : undefined
+    if (rotatedGradient) {
+      const localAngle = ((((rotatedGradient.angle ?? 0) - 5400000) % 21600000) + 21600000) % 21600000
+      context.fillStyle = fillGradient(context, { ...rotatedGradient, angle: localAngle }, { x: 0, y: 0, w: item.height! * mapping.scale, h: item.width * mapping.scale })
+      context.globalAlpha = 1
+    }
     context.fillText(item.text, 0, 0)
   } finally {
     context.restore()

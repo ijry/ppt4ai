@@ -90,12 +90,12 @@ describe('vertical text gradient painting', () => {
     expect((glyph?.[4] as { addColorStop?: unknown }).addColorStop).toBeDefined()
   })
 
-  it('leaves a rotated vertical glyph flat (documented limit)', () => {
+  it('fills a rotated vertical glyph with a gradient in its local frame', () => {
     const ctx = context()
     paintTextNode(ctx, verticalNode('rotated'), mapping)
 
-    expect(ctx.events.some(([type]) => type === 'createLinearGradient')).toBe(false)
+    expect(ctx.events.some(([type]) => type === 'createLinearGradient')).toBe(true)
     const glyph = ctx.events.find(([type]) => type === 'fillText')
-    expect(glyph?.[4]).toBe('#4472C4')
+    expect((glyph?.[4] as { addColorStop?: unknown }).addColorStop).toBeDefined()
   })
 })
