@@ -176,6 +176,13 @@ function paintVerticalItem(
   const y = mapping.offsetY + item.y! * mapping.scale
   if (item.orientation === 'upright') {
     applyTextStyle(context, style)
+    // An upright vertical glyph sits in an unrotated box, so a gradient fills it the same way a
+    // horizontal run does. Rotated glyphs draw under a transform and stay flat (documented limit).
+    const upGradient = 'resolvedFillGradient' in item ? item.resolvedFillGradient : undefined
+    if (upGradient) {
+      context.fillStyle = fillGradient(context, upGradient, { x, y, w: item.width * mapping.scale, h: item.height! * mapping.scale })
+      context.globalAlpha = 1
+    }
     context.fillText(item.text, x, y)
     return
   }
