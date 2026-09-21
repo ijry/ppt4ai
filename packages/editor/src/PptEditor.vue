@@ -120,10 +120,15 @@ const shapePaint = computed<ShapePaintToolbarProps>(() => {
   if (node?.kind !== 'shape' && node?.kind !== 'text') {
     return { active: false, fillIsGradient: false, strokeIsGradient: false }
   }
+  const gradient = node.resolvedFillGradient
+  const stops = gradient?.stops ?? []
   return {
     active: true,
     fillColor: node.resolvedFillColor ? `#${node.resolvedFillColor.rgb.toUpperCase()}` : '#FFFFFF',
-    fillIsGradient: node.resolvedFillGradient !== undefined,
+    fillIsGradient: gradient !== undefined,
+    ...(stops[0] ? { fillGradientStart: `#${stops[0].color.rgb.toUpperCase()}` } : {}),
+    ...(stops[stops.length - 1] ? { fillGradientEnd: `#${stops[stops.length - 1]!.color.rgb.toUpperCase()}` } : {}),
+    ...(gradient ? { fillGradientAngle: Math.round(((gradient.angle ?? 0) / 60000) % 360) } : {}),
     strokeColor: node.resolvedStrokeColor ? `#${node.resolvedStrokeColor.rgb.toUpperCase()}` : '#000000',
     strokeIsGradient: node.resolvedStrokeGradient !== undefined,
     ...(node.strokeWidth === undefined ? {} : { strokeWidth: node.strokeWidth }),

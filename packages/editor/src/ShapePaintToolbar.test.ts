@@ -159,3 +159,18 @@ describe('ShapePaintToolbar', () => {
     app.unmount()
   })
 })
+
+describe('ShapePaintToolbar fill gradient', () => {
+  it('emits a two-stop gradient fill when the gradient start swatch changes', () => {
+    const { app, host, events } = mountToolbar({ fillIsGradient: true })
+    const start = host.querySelector('[data-shape-fill-gradient-start]') as HTMLInputElement
+    start.value = '#ff0000'
+    start.dispatchEvent(new Event('change'))
+
+    const fill = events.fills.at(-1) as { color?: { v?: string }; gradient?: { stops: unknown[]; angle?: number } }
+    expect(fill.gradient?.stops).toHaveLength(2)
+    expect(fill.color?.v).toBe('FF0000')
+    app.unmount()
+    host.remove()
+  })
+})

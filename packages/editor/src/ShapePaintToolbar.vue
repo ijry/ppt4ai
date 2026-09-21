@@ -7,6 +7,7 @@ import {
   pointsFromEmu,
   STROKE_STYLE_OPTIONS,
   strokeStyleOptions,
+  shapeGradientFrom,
   type ShapePaintToolbarEmit,
   type ShapePaintToolbarProps,
 } from './shape-paint-toolbar'
@@ -51,6 +52,24 @@ function setStroke(event: Event): void {
   emit('set-stroke', paintFrom(event))
 }
 
+function applyFillGradient(start: string, end: string, angle: number): void {
+  const fill = shapeGradientFrom(start, end, angle)
+  if (fill) emit('set-fill', fill)
+}
+
+function fillGradientStart(event: Event): void {
+  applyFillGradient((event.target as HTMLInputElement).value, props.fillGradientEnd ?? '#FFFFFF', props.fillGradientAngle ?? 0)
+}
+
+function fillGradientEnd(event: Event): void {
+  applyFillGradient(props.fillGradientStart ?? props.fillColor ?? '#FFFFFF', (event.target as HTMLInputElement).value, props.fillGradientAngle ?? 0)
+}
+
+function fillGradientAngle(event: Event): void {
+  const angle = Number((event.target as HTMLInputElement).value)
+  if (Number.isFinite(angle)) applyFillGradient(props.fillGradientStart ?? props.fillColor ?? '#FFFFFF', props.fillGradientEnd ?? '#FFFFFF', angle)
+}
+
 function commitWidth(): void {
   const raw = widthPoints.value
   if (raw === '') return
@@ -80,6 +99,35 @@ function setStrokeStyle(event: Event): void {
       data-shape-fill-gradient
       class="text-xs text-slate-500"
     >{{ t('toolbar.shapePaint.gradient') }}</span>
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-shape-fill-gradient-start
+      :aria-label="t('toolbar.shapePaint.fillGradientStart')"
+      :disabled="!props.active"
+      :value="props.fillGradientStart ?? props.fillColor ?? '#FFFFFF'"
+      @change="fillGradientStart"
+    >
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-shape-fill-gradient-end
+      :aria-label="t('toolbar.shapePaint.fillGradientEnd')"
+      :disabled="!props.active"
+      :value="props.fillGradientEnd ?? '#FFFFFF'"
+      @change="fillGradientEnd"
+    >
+    <input
+      type="number"
+      min="0"
+      max="359"
+      class="h-8 w-14 border border-slate-300 px-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+      data-shape-fill-gradient-angle
+      :aria-label="t('toolbar.shapePaint.fillGradientAngle')"
+      :disabled="!props.active"
+      :value="props.fillGradientAngle ?? 0"
+      @change="fillGradientAngle"
+    >
     <button
       type="button"
       class="h-8 min-w-8 border border-transparent px-2 text-sm text-slate-700 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"

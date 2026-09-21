@@ -22,6 +22,10 @@ export interface ShapePaintToolbarProps {
   readonly fillColor?: string
   /** A gradient has no single colour, so the swatch says so rather than claiming the first stop. */
   readonly fillIsGradient: boolean
+  /** The fill gradient's editor state (start/end swatch, angle) when the element carries one. */
+  readonly fillGradientStart?: string
+  readonly fillGradientEnd?: string
+  readonly fillGradientAngle?: number
   readonly strokeColor?: string
   readonly strokeIsGradient: boolean
   /** Absent means the width is inherited from the theme line styles. */
@@ -51,4 +55,17 @@ export function emuFromPoints(value: number | string): number | undefined {
 export function pointsFromEmu(value: number | undefined): number | undefined {
   if (value === undefined || !Number.isFinite(value) || value < 0) return undefined
   return value / EMU_PER_POINT
+}
+
+/** A two-stop linear gradient fill from the toolbar's inputs; refuses a bad swatch or non-finite angle. */
+export function shapeGradientFrom(startHex: string, endHex: string, angleDegrees: number): Fill | undefined {
+  const hex = (value: string): { type: 'srgb'; v: string } | undefined => {
+    const normalized = value.replace(/^#/u, '').toUpperCase()
+    return /^[0-9A-F]{6}$/u.test(normalized) ? { type: 'srgb', v: normalized } : undefined
+  }
+  const start = hex(startHex)
+  const end = hex(endHex)
+  if (!start || !end || !Number.isFinite(angleDegrees)) return undefined
+  const angle = ((Math.round(angleDegrees) % 360) + 360) % 360
+  return { color: start, gradient: { stops: [{ pos: 0, color: start }, { pos: 100000, color: end }], angle: angle * 60000 } }
 }
