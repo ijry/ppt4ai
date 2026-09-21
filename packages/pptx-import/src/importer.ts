@@ -1429,8 +1429,10 @@ function parseRunMarks(runProperties: XmlNode | undefined): TextMarks | undefine
   // then wrote back as `sng`.
   const underline = attribute(runProperties, 'u')?.trim()
   if (underline && isOoxmlToken(underline)) marks.underline = underline
-  const color = parseColor(child(runProperties, 'solidFill'))
-  if (color) marks.color = { color }
+  // A run's fill is the same EG_FillProperties choice a shape uses, so it goes through the direct-fill
+  // parser rather than the solid-only one — a gradient or pattern text fill was otherwise dropped.
+  const fill = parseDirectFill(runProperties)
+  if (fill) marks.color = fill
   const highlight = parseColor(child(runProperties, 'highlight'))
   if (highlight) marks.highlight = highlight
   const baseline = parseNumber(attribute(runProperties, 'baseline'))
