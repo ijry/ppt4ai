@@ -413,8 +413,8 @@ export type PresetPattern = string
 export const PAINTED_PRESET_PATTERNS: readonly string[] = [
   'ltHorz', 'horz', 'dkHorz', 'narHorz',
   'ltVert', 'vert', 'dkVert', 'narVert',
-  'ltUpDiag', 'dkUpDiag', 'wdUpDiag',
-  'ltDnDiag', 'dkDnDiag', 'wdDnDiag',
+  'ltUpDiag', 'upDiag', 'dkUpDiag', 'wdUpDiag',
+  'ltDnDiag', 'dnDiag', 'dkDnDiag', 'wdDnDiag',
   'smGrid', 'lgGrid', 'cross', 'diagCross',
   'pct5', 'pct10', 'pct20', 'pct25', 'pct30', 'pct40',
   'pct50', 'pct60', 'pct70', 'pct75', 'pct80', 'pct90',

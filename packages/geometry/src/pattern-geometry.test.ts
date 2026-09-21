@@ -91,6 +91,17 @@ describe('pattern geometry', () => {
    * `patternCoverage` instead, so they are excluded here — `pattern-coverage.test.ts` covers the
    * constant as a whole and pins that the two families stay disjoint.
    */
+  /** The plain medium diagonals sit between the light and dark tiers, like `horz` between `ltHorz`/`dkHorz`. */
+  it('draws the plain diagonals at the medium weight, leaning the way the word says', () => {
+    const up = patternGeometry('upDiag', box)!
+    const down = patternGeometry('dnDiag', box)!
+
+    expect(up.lineWidth).toBeGreaterThan(patternGeometry('ltUpDiag', box)!.lineWidth)
+    expect(up.lineWidth).toBeLessThan(patternGeometry('dkUpDiag', box)!.lineWidth)
+    expect((up.lines[0]!.to.y - up.lines[0]!.from.y) / (up.lines[0]!.to.x - up.lines[0]!.from.x)).toBeLessThan(0)
+    expect((down.lines[0]!.to.y - down.lines[0]!.from.y) / (down.lines[0]!.to.x - down.lines[0]!.from.x)).toBeGreaterThan(0)
+  })
+
   it('draws every line-shaped word the model says it draws', () => {
     for (const preset of PAINTED_PRESET_PATTERNS.filter((word) => !word.startsWith('pct'))) {
       expect(patternGeometry(preset, box), preset).toBeDefined()
