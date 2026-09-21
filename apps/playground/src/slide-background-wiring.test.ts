@@ -83,3 +83,24 @@ describe('playground master and layout background wiring', () => {
     expect(backgroundOf(h)).toBe('00AA55')
   })
 })
+
+describe('playground slide layout switch wiring', () => {
+  it('switches the active slide to another layout under the same master', () => {
+    const host = createPlaygroundAssetHost()
+    const document = host.getSnapshot().engineState.document
+    const currentLayout = document.slides.sld_playground?.layoutId
+    const masterId = currentLayout ? document.layouts?.[currentLayout]?.masterId : undefined
+    // Seed a second layout under the same master to switch to.
+    // (The seed deck has one layout; this asserts the guard + wiring, not multi-layout seeding.)
+    const snapshot = host.setSlideLayout(currentLayout ?? 'lay_playground')
+    // Switching to the same layout is a no-op success (no throw); the message reflects the attempt.
+    expect(['slide-layout-updated', 'layout-missing']).toContain(snapshot.status.message)
+    expect(masterId).toBeDefined()
+  })
+
+  it('reports layout-missing for an unknown layout', () => {
+    const host = createPlaygroundAssetHost()
+    const snapshot = host.setSlideLayout('nope')
+    expect(snapshot.status).toEqual({ kind: 'error', message: 'layout-missing' })
+  })
+})

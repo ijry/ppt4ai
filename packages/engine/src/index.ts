@@ -82,6 +82,7 @@ export type EngineCommand =
   | { type: 'setSlideBackground'; slideId: string; background: SlideBackground | null }
   | { type: 'setMasterBackground'; masterId: string; background: SlideBackground | null }
   | { type: 'setLayoutBackground'; layoutId: string; background: SlideBackground | null }
+  | { type: 'setSlideLayout'; slideId: string; layoutId: string }
   | { type: 'setThemeColor'; themeId: string; slot: ThemeColorSlot; color: Color | null }
   | { type: 'setThemeFont'; themeId: string; slot: ThemeFontSlot; script: ThemeFontScript; typeface: string | null }
   | { type: 'mergeTableCells' }
@@ -743,6 +744,10 @@ export class EditorEngine {
         this.setLayoutBackground(command.layoutId, command.background)
         break
       }
+      case 'setSlideLayout': {
+        this.setSlideLayout(command.slideId, command.layoutId)
+        break
+      }
       case 'setThemeColor': {
         this.setThemeColor(command.themeId, command.slot, command.color)
         break
@@ -934,6 +939,28 @@ export class EditorEngine {
     if (!validation.valid) throw new Error(`layout background is invalid: ${layoutId}: ${validation.errors.join('; ')}`)
 
     this.commit([{ path: ['layouts', layoutId, 'background'], value: background === null ? undefined : background }])
+  }
+
+  /**
+   * Point a slide at a different layout. The layout must belong to the slide's master, because a
+   * slide inherits placeholders and colour map from that chain; switching to a layout under another
+   * master would resolve against the wrong theme. `masterId` is left as-is (the layout names its own).
+   */
+  private setSlideLayout(slideId: string, layoutId: string): void {
+    const slide = this.document.slides[slideId]
+    if (!slide) throw new Error(`slide does not exist: ${slideId}`)
+    const layout = this.document.layouts?.[layoutId]
+    if (!layout) throw new Error(`layout does not exist: ${layoutId}`)
+    if (slide.layoutId === layoutId) return
+    const master = slide.masterId ?? (slide.layoutId ? this.document.layouts?.[slide.layoutId]?.masterId : undefined)
+    if (master !== undefined && layout.masterId !== undefined && layout.masterId !== master) {
+      throw new Error(`layout belongs to a different master: ${layoutId}`)
+    }
+    const nextDocument = clone(this.document)
+    nextDocument.slides[slideId]!.layoutId = layoutId
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`slide layout is invalid: ${slideId}: ${validation.errors.join('; ')}`)
+    this.commit([{ path: ['slides', slideId, 'layoutId'], value: layoutId }])
   }
 
   private setThemeColor(themeId: string, slot: ThemeColorSlot, color: Color | null): void {
