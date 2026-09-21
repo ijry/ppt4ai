@@ -91,6 +91,41 @@ function fillPatternBackground(event: Event): void {
   applyFillPattern(props.fillPatternPreset ?? fillPatternPresets[0]!, props.fillPatternForeground ?? props.fillColor ?? '#FFFFFF', (event.target as HTMLInputElement).value)
 }
 
+function applyStrokeGradient(start: string, end: string, angle: number): void {
+  const fill = shapeGradientFrom(start, end, angle)
+  if (fill) emit('set-stroke', fill)
+}
+
+function strokeGradientStart(event: Event): void {
+  applyStrokeGradient((event.target as HTMLInputElement).value, props.strokeGradientEnd ?? '#FFFFFF', props.strokeGradientAngle ?? 0)
+}
+
+function strokeGradientEnd(event: Event): void {
+  applyStrokeGradient(props.strokeGradientStart ?? props.strokeColor ?? '#000000', (event.target as HTMLInputElement).value, props.strokeGradientAngle ?? 0)
+}
+
+function strokeGradientAngle(event: Event): void {
+  const angle = Number((event.target as HTMLInputElement).value)
+  if (Number.isFinite(angle)) applyStrokeGradient(props.strokeGradientStart ?? props.strokeColor ?? '#000000', props.strokeGradientEnd ?? '#FFFFFF', angle)
+}
+
+function applyStrokePattern(preset: string, fg: string, bg: string): void {
+  const fill = shapePatternFrom(preset, fg, bg)
+  if (fill) emit('set-stroke', fill)
+}
+
+function strokePatternPreset(event: Event): void {
+  applyStrokePattern((event.target as HTMLSelectElement).value, props.strokePatternForeground ?? props.strokeColor ?? '#000000', props.strokePatternBackground ?? '#FFFFFF')
+}
+
+function strokePatternForeground(event: Event): void {
+  applyStrokePattern(props.strokePatternPreset ?? fillPatternPresets[0]!, (event.target as HTMLInputElement).value, props.strokePatternBackground ?? '#FFFFFF')
+}
+
+function strokePatternBackground(event: Event): void {
+  applyStrokePattern(props.strokePatternPreset ?? fillPatternPresets[0]!, props.strokePatternForeground ?? props.strokeColor ?? '#000000', (event.target as HTMLInputElement).value)
+}
+
 function commitWidth(): void {
   const raw = widthPoints.value
   if (raw === '') return
@@ -202,6 +237,63 @@ function setStrokeStyle(event: Event): void {
       data-shape-stroke-gradient
       class="text-xs text-slate-500"
     >{{ t('toolbar.shapePaint.gradient') }}</span>
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-shape-stroke-gradient-start
+      :aria-label="t('toolbar.shapePaint.strokeGradientStart')"
+      :disabled="!props.active"
+      :value="props.strokeGradientStart ?? props.strokeColor ?? '#000000'"
+      @change="strokeGradientStart"
+    >
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-shape-stroke-gradient-end
+      :aria-label="t('toolbar.shapePaint.strokeGradientEnd')"
+      :disabled="!props.active"
+      :value="props.strokeGradientEnd ?? '#FFFFFF'"
+      @change="strokeGradientEnd"
+    >
+    <input
+      type="number"
+      min="0"
+      max="359"
+      class="h-8 w-14 border border-slate-300 px-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+      data-shape-stroke-gradient-angle
+      :aria-label="t('toolbar.shapePaint.strokeGradientAngle')"
+      :disabled="!props.active"
+      :value="props.strokeGradientAngle ?? 0"
+      @change="strokeGradientAngle"
+    >
+    <select
+      class="h-8 border border-slate-300 bg-white px-1 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+      data-shape-stroke-pattern-preset
+      :aria-label="t('toolbar.shapePaint.strokePatternPreset')"
+      :disabled="!props.active"
+      :value="props.strokePatternPreset ?? fillPatternPresets[0]"
+      @change="strokePatternPreset"
+    >
+      <option v-for="preset in fillPatternPresets" :key="preset" :value="preset">{{ preset }}</option>
+    </select>
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-shape-stroke-pattern-foreground
+      :aria-label="t('toolbar.shapePaint.strokePatternForeground')"
+      :disabled="!props.active"
+      :value="props.strokePatternForeground ?? props.strokeColor ?? '#000000'"
+      @change="strokePatternForeground"
+    >
+    <input
+      type="color"
+      class="h-8 w-8 cursor-pointer border border-slate-300 p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+      data-shape-stroke-pattern-background
+      :aria-label="t('toolbar.shapePaint.strokePatternBackground')"
+      :disabled="!props.active"
+      :value="props.strokePatternBackground ?? '#FFFFFF'"
+      @change="strokePatternBackground"
+    >
     <button
       type="button"
       class="h-8 min-w-8 border border-transparent px-2 text-sm text-slate-700 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"

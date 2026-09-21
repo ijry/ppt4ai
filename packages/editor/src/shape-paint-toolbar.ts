@@ -35,6 +35,16 @@ export interface ShapePaintToolbarProps {
   readonly fillPatternBackground?: string
   readonly strokeColor?: string
   readonly strokeIsGradient: boolean
+  /** The stroke gradient's editor state when the outline carries one. */
+  readonly strokeGradientStart?: string
+  readonly strokeGradientEnd?: string
+  readonly strokeGradientAngle?: number
+  /** True when the outline is an `a:pattFill`. */
+  readonly strokeIsPattern?: boolean
+  /** The stroke pattern's editor state when the outline carries one. */
+  readonly strokePatternPreset?: string
+  readonly strokePatternForeground?: string
+  readonly strokePatternBackground?: string
   /** Absent means the width is inherited from the theme line styles. */
   readonly strokeWidth?: number
   readonly strokeStyle?: StrokeStyle

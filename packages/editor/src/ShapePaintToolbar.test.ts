@@ -188,3 +188,27 @@ describe('ShapePaintToolbar fill pattern', () => {
     host.remove()
   })
 })
+
+describe('ShapePaintToolbar stroke gradient and pattern', () => {
+  it('emits a gradient stroke when the outline gradient start changes', () => {
+    const { app, host, events } = mountToolbar({ strokeIsGradient: true })
+    const start = host.querySelector('[data-shape-stroke-gradient-start]') as HTMLInputElement
+    start.value = '#ff0000'
+    start.dispatchEvent(new Event('change'))
+    const stroke = events.strokes.at(-1) as { gradient?: { stops: unknown[] } }
+    expect(stroke.gradient?.stops).toHaveLength(2)
+    app.unmount()
+    host.remove()
+  })
+
+  it('emits a pattern stroke when the outline pattern preset changes', () => {
+    const { app, host, events } = mountToolbar()
+    const select = host.querySelector('[data-shape-stroke-pattern-preset]') as HTMLSelectElement
+    select.value = 'pct25'
+    select.dispatchEvent(new Event('change'))
+    const stroke = events.strokes.at(-1) as { pattern?: { preset: string } }
+    expect(stroke.pattern?.preset).toBe('pct25')
+    app.unmount()
+    host.remove()
+  })
+})

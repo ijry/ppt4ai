@@ -135,6 +135,13 @@ const shapePaint = computed<ShapePaintToolbarProps>(() => {
     ...(node.resolvedFillPattern ? { fillPatternBackground: `#${node.resolvedFillPattern.background.rgb.toUpperCase()}` } : {}),
     strokeColor: node.resolvedStrokeColor ? `#${node.resolvedStrokeColor.rgb.toUpperCase()}` : '#000000',
     strokeIsGradient: node.resolvedStrokeGradient !== undefined,
+    ...(node.resolvedStrokeGradient?.stops[0] ? { strokeGradientStart: `#${node.resolvedStrokeGradient.stops[0].color.rgb.toUpperCase()}` } : {}),
+    ...(node.resolvedStrokeGradient?.stops.length ? { strokeGradientEnd: `#${node.resolvedStrokeGradient.stops[node.resolvedStrokeGradient.stops.length - 1]!.color.rgb.toUpperCase()}` } : {}),
+    ...(node.resolvedStrokeGradient ? { strokeGradientAngle: Math.round(((node.resolvedStrokeGradient.angle ?? 0) / 60000) % 360) } : {}),
+    strokeIsPattern: node.resolvedStrokePattern !== undefined,
+    ...(node.resolvedStrokePattern ? { strokePatternPreset: node.resolvedStrokePattern.preset } : {}),
+    ...(node.resolvedStrokePattern ? { strokePatternForeground: `#${node.resolvedStrokePattern.foreground.rgb.toUpperCase()}` } : {}),
+    ...(node.resolvedStrokePattern ? { strokePatternBackground: `#${node.resolvedStrokePattern.background.rgb.toUpperCase()}` } : {}),
     ...(node.strokeWidth === undefined ? {} : { strokeWidth: node.strokeWidth }),
     // The dropdown lists preset words only, so a custom dash leaves it unset rather than claiming to be
     // one of them. Picking a preset then replaces the custom dash, which is what the writeback does too.
