@@ -68,6 +68,15 @@ describe('animation import', () => {
     expect(item).toMatchObject({ preset: 'preset777', presetId: 777 })
   })
 
+  it('maps an entrance zoom and an emphasis spin to their kernel names', async () => {
+    const zoom = (await importSlide(MAIN_SEQ.replace('presetID="10" presetClass="entrance"', 'presetID="23" presetClass="entrance"')))
+      .animations?.sld_1?.mainSeq[0]?.items[0]
+    expect(zoom).toMatchObject({ preset: 'zoom', presetId: 23 })
+    const spin = (await importSlide(MAIN_SEQ.replace('presetID="10" presetClass="entrance" presetSubtype="0"', 'presetID="8" presetClass="emphasis"')))
+      .animations?.sld_1?.mainSeq[0]?.items[0]
+    expect(spin).toMatchObject({ preset: 'spin', class: 'emphasis', presetId: 8 })
+  })
+
   it('resolves an interactive sequence trigger shape to its element id', async () => {
     const document = await importSlide(INTERACTIVE)
     const timeline = document.animations?.sld_1

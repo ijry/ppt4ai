@@ -33,17 +33,17 @@ function isAnimationClass(value: string | undefined): value is AnimationClass {
 }
 
 /**
- * Best-effort OOXML `presetID` → stable preset name, only for the effects the playback kernel renders.
- *
- * UNVERIFIED: these numeric ids are recalled from the [MS-OI29500] preset tables, which were unreachable
- * in this environment — treat them as approximate and correct against the spec when available. Getting one
- * wrong only mislabels a *playback* visual (write-back always emits the verbatim `presetId`, never the
- * name, so the file round-trips regardless), and an unlisted id falls back to `preset<id>`, which the
- * kernel renders as a plain fade.
+ * OOXML `presetID` → stable preset name, for the presets the playback kernel renders distinctly. The
+ * numeric ids are PowerPoint's application-defined values (the OOXML spec leaves `presetID` open); these
+ * are taken from LibreOffice's OOXML export mapping (`oox/source/ppt/commontimenodecontext.cxx`, its
+ * `ooo-<class>-<name>` ↔ id table), which reverse-engineers PowerPoint. An id we do not name falls back
+ * to `preset<id>` (the kernel then renders a plain fade); write-back always emits the verbatim `presetId`,
+ * never the name, so a name is only ever a playback concern.
  */
 const PRESET_NAMES: Partial<Record<AnimationClass, Record<number, string>>> = {
-  entrance: { 1: 'appear', 2: 'fly', 10: 'fade' },
-  exit: { 1: 'disappear', 2: 'fly', 10: 'fade' },
+  entrance: { 1: 'appear', 2: 'fly', 10: 'fade', 23: 'zoom' },
+  exit: { 1: 'disappear', 2: 'fly', 10: 'fade', 23: 'zoom' },
+  emphasis: { 6: 'grow', 8: 'spin', 32: 'teeter' },
 }
 
 function presetName(cls: AnimationClass, presetId: number | undefined): string {
