@@ -6,7 +6,7 @@ import { createPpt4aiI18n } from './i18n'
 
 function mount(props: Record<string, unknown>) {
   const el = document.createElement('div'); document.body.append(el)
-  const app = createApp({ render: () => h(PptEditor, props) })
+  const app = createApp({ render: () => h(PptEditor, props as never) })
   app.use(createPpt4aiI18n())
   app.mount(el); return el
 }
