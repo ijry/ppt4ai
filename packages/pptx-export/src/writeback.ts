@@ -1,4 +1,4 @@
-import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AssetAdapter, type AssetMetadata, type AdjustValue, type CustomGeometry, type DashSegment, type Fill, type GroupElement, type ImageElement, type OuterShadow, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeElement, type SlideBackground, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
+import { fingerprintBytes, fingerprintDocument, parseBitmapMetadata, type AnimationItem, type AnimationTrigger, type AssetAdapter, type AssetMetadata, type AdjustValue, type CustomGeometry, type DashSegment, type Fill, type GroupElement, type ImageElement, type OuterShadow, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeElement, type SlideBackground, type SlideTimeline, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TextBody, type TextElement } from '@ppt4ai/model'
 import { serializeTableXml } from './table.js'
 import { serializeBackgroundXml, serializeColorXml, serializeCustomGeometry, serializeFillXml, serializeLayoutXml, serializeShadowXml } from './standalone-xml.js'
 import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
@@ -1398,6 +1398,104 @@ function backgroundReplacements(xml: string, background: SlideBackground | undef
   return [{ start: tree.start, end: tree.start, value }]
 }
 
+const TRIGGER_NODE_TYPE: Record<AnimationTrigger, string> = {
+  onClick: 'clickEffect',
+  withPrev: 'withEffect',
+  afterPrev: 'afterEffect',
+}
+
+/**
+ * Emit a `p:timing` string that the importer's `parseSlideTiming` reads back to the same model — the
+ * write-back contract is model round-trip, not byte round-trip, because the importer is a shallow read
+ * (one item per build, placeholder preset names, no `p:cTn` nesting). Each item becomes one effect
+ * `p:cTn` carrying `presetClass`/`presetID`/`presetSubtype`, the trigger as `nodeType`, its delay on the
+ * start condition and its duration on the behaviour. Interactive builds are grouped by `triggerId` into
+ * one `interactiveSeq` per trigger shape, matching how the parser assigns a trigger per sequence.
+ */
+function serializeTiming(timeline: SlideTimeline, resolveSpid: (elementId: string) => string | undefined): string | undefined {
+  let nextId = 3 // 1 = tmRoot, 2 = mainSeq; effects and interactive sequences take unique ids from here.
+  const allocateId = (): string => String(nextId++)
+
+  const effectXml = (item: AnimationItem, trigger: AnimationTrigger): string | undefined => {
+    const spid = resolveSpid(item.targetId)
+    if (spid === undefined) return undefined
+    const effectId = allocateId()
+    const behaviorId = allocateId()
+    const delay = trigger === 'onClick' ? (item.delay ?? 'indefinite') : (item.delay ?? 0)
+    const dur = item.duration ?? 'indefinite'
+    const presetAttrs = `presetClass="${escapeXml(item.class)}"`
+      + (item.presetId !== undefined ? ` presetID="${item.presetId}"` : '')
+      + (item.presetSubtype !== undefined ? ` presetSubtype="${item.presetSubtype}"` : '')
+    return `<p:par><p:cTn id="${effectId}" ${presetAttrs} nodeType="${TRIGGER_NODE_TYPE[trigger]}" fill="hold">`
+      + `<p:stCondLst><p:cond delay="${delay}"/></p:stCondLst>`
+      + `<p:childTnLst><p:anim><p:cBhvr><p:cTn id="${behaviorId}" dur="${dur}"/>`
+      + `<p:tgtEl><p:spTgt spid="${escapeXml(spid)}"/></p:tgtEl></p:cBhvr></p:anim></p:childTnLst>`
+      + `</p:cTn></p:par>`
+  }
+
+  const mainEffects: string[] = []
+  for (const build of timeline.mainSeq) {
+    for (const item of build.items) {
+      const effect = effectXml(item, build.trigger)
+      if (effect) mainEffects.push(effect)
+    }
+  }
+
+  // Group interactive builds by their resolved trigger spid, preserving document order within a group.
+  const interactiveByTrigger = new Map<string, string[]>()
+  for (const build of timeline.interactiveSeq ?? []) {
+    if (!build.triggerId) continue
+    const triggerSpid = resolveSpid(build.triggerId)
+    if (triggerSpid === undefined) continue
+    for (const item of build.items) {
+      const effect = effectXml(item, build.trigger)
+      if (!effect) continue
+      const group = interactiveByTrigger.get(triggerSpid) ?? []
+      group.push(effect)
+      interactiveByTrigger.set(triggerSpid, group)
+    }
+  }
+
+  const sequences: string[] = []
+  if (mainEffects.length > 0) {
+    sequences.push(
+      `<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>${mainEffects.join('')}</p:childTnLst></p:cTn>`
+      + `<p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:prevCondLst>`
+      + `<p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond></p:nextCondLst>`
+      + `</p:seq>`,
+    )
+  }
+  for (const [triggerSpid, effects] of interactiveByTrigger) {
+    sequences.push(
+      `<p:seq concurrent="1" nextAc="seek"><p:cTn id="${allocateId()}" dur="indefinite" nodeType="interactiveSeq"><p:childTnLst>${effects.join('')}</p:childTnLst></p:cTn>`
+      + `<p:prevCondLst><p:cond evt="onClick" delay="0"><p:tgtEl><p:spTgt spid="${escapeXml(triggerSpid)}"/></p:tgtEl></p:cond></p:prevCondLst>`
+      + `</p:seq>`,
+    )
+  }
+  if (sequences.length === 0) return undefined
+  return `<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>${sequences.join('')}</p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>`
+}
+
+/**
+ * `p:timing`. Replaces the slide's timing node (or deletes it when the model has none), inserting it as
+ * a sibling right after `p:cSld`/`p:clrMapOvr`/`p:transition` when the source had none. Byte-identity for
+ * an unedited deck comes from the document fingerprint short-circuit upstream; once a deck is re-written
+ * the timing is regenerated deterministically from the model.
+ */
+function timingReplacements(xml: string, timeline: SlideTimeline | undefined, resolveSpid: (elementId: string) => string | undefined): Replacement[] {
+  const roots = scanXml(xml)
+  const existing = descendants(roots, 'timing')[0]
+  const value = timeline ? (serializeTiming(timeline, resolveSpid) ?? '') : ''
+  if (existing) return [{ start: existing.start, end: existing.end, value }]
+  if (!value) return []
+  const sld = roots.find((root) => root.localName === 'sld')
+  if (!sld) return []
+  const anchorNames = new Set(['cSld', 'clrMapOvr', 'transition'])
+  const anchor = [...sld.children].reverse().find((child) => anchorNames.has(child.localName))
+  if (!anchor) return []
+  return [{ start: anchor.end, end: anchor.end, value }]
+}
+
 /** Asset id to the relationship the source table already uses for it, so nothing new has to be added. */
 function tablePictureRelationships(
   table: XmlElement,
@@ -1421,7 +1519,18 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
   const sourceElements = scanned.elements
   if (slide.elementIds.length < sourceElements.length) throw new Error(`PPTX export element count mismatch for slide ${slideId}`)
 
-  const replacements: Replacement[] = [...imageReplacements, ...backgroundReplacements(xml, slide.background, scanned.backgroundAssetId, bgPictureRelationshipId)]
+  // Animations target elements by id; map each back to the shape's drawingML `cNvPr/@id` (the spid the
+  // importer recorded), so a `targetId` becomes the right `p:spTgt/@spid` in the output.
+  const elementIdToSpid = new Map<string, string>()
+  for (const scannedElement of sourceElements) {
+    const rawId = firstDescendant(scannedElement.element, 'cNvPr')?.attributes.id
+    if (rawId) elementIdToSpid.set(scannedElement.expectedId, rawId)
+  }
+  const replacements: Replacement[] = [
+    ...imageReplacements,
+    ...backgroundReplacements(xml, slide.background, scanned.backgroundAssetId, bgPictureRelationshipId),
+    ...timingReplacements(xml, document.animations?.[slideId], (elementId) => elementIdToSpid.get(elementId)),
+  ]
   for (let index = 0; index < sourceElements.length; index += 1) {
     const source = sourceElements[index]
     const elementId = slide.elementIds[index]
