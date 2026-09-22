@@ -57,9 +57,15 @@ describe('animation import', () => {
     expect(timeline!.mainSeq[1]!.items[0]).toMatchObject({ targetId: 'el_2', class: 'exit', presetId: 10, duration: 300 })
   })
 
-  it('keeps presetID verbatim and derives a placeholder preset name', async () => {
-    const document = await importSlide(MAIN_SEQ)
-    expect(document.animations?.sld_1?.mainSeq[0]?.items[0]?.preset).toBe('preset10')
+  it('maps a known presetID to a stable name while keeping the id verbatim', async () => {
+    const item = (await importSlide(MAIN_SEQ)).animations?.sld_1?.mainSeq[0]?.items[0]
+    expect(item).toMatchObject({ preset: 'fade', presetId: 10 })
+  })
+
+  it('falls back to a placeholder name for an unmapped presetID', async () => {
+    const item = (await importSlide(MAIN_SEQ.replace('presetID="10" presetClass="entrance"', 'presetID="777" presetClass="entrance"')))
+      .animations?.sld_1?.mainSeq[0]?.items[0]
+    expect(item).toMatchObject({ preset: 'preset777', presetId: 777 })
   })
 
   it('resolves an interactive sequence trigger shape to its element id', async () => {

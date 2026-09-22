@@ -57,8 +57,8 @@ describe('animation writeback', () => {
     const document = await importPptx(source)
     const timeline: SlideTimeline = {
       mainSeq: [
-        { trigger: 'onClick', items: [{ targetId: 'el_1', class: 'entrance', preset: 'preset1', presetId: 1, duration: 500 }] },
-        { trigger: 'withPrev', items: [{ targetId: 'el_2', class: 'exit', preset: 'preset10', presetId: 10, duration: 300 }] },
+        { trigger: 'onClick', items: [{ targetId: 'el_1', class: 'entrance', preset: 'appear', presetId: 1, duration: 500 }] },
+        { trigger: 'withPrev', items: [{ targetId: 'el_2', class: 'exit', preset: 'fade', presetId: 10, duration: 300 }] },
       ],
     }
     document.animations = { sld_1: timeline }
@@ -71,7 +71,7 @@ describe('animation writeback', () => {
     const document = await importPptx(source)
     const timeline: SlideTimeline = {
       mainSeq: [],
-      interactiveSeq: [{ trigger: 'onClick', triggerId: 'el_2', items: [{ targetId: 'el_1', class: 'entrance', preset: 'preset1', presetId: 1, duration: 250 }] }],
+      interactiveSeq: [{ trigger: 'onClick', triggerId: 'el_2', items: [{ targetId: 'el_1', class: 'entrance', preset: 'appear', presetId: 1, duration: 250 }] }],
     }
     document.animations = { sld_1: timeline }
     const reimported = await importPptx(await exportPptx(document, source))

@@ -32,6 +32,25 @@ function isAnimationClass(value: string | undefined): value is AnimationClass {
   return value !== undefined && ANIMATION_CLASSES.has(value as AnimationClass)
 }
 
+/**
+ * Best-effort OOXML `presetID` → stable preset name, only for the effects the playback kernel renders.
+ *
+ * UNVERIFIED: these numeric ids are recalled from the [MS-OI29500] preset tables, which were unreachable
+ * in this environment — treat them as approximate and correct against the spec when available. Getting one
+ * wrong only mislabels a *playback* visual (write-back always emits the verbatim `presetId`, never the
+ * name, so the file round-trips regardless), and an unlisted id falls back to `preset<id>`, which the
+ * kernel renders as a plain fade.
+ */
+const PRESET_NAMES: Partial<Record<AnimationClass, Record<number, string>>> = {
+  entrance: { 1: 'appear', 2: 'fly', 10: 'fade' },
+  exit: { 1: 'disappear', 2: 'fly', 10: 'fade' },
+}
+
+function presetName(cls: AnimationClass, presetId: number | undefined): string {
+  if (presetId === undefined) return 'unknown'
+  return PRESET_NAMES[cls]?.[presetId] ?? `preset${presetId}`
+}
+
 /** An effect node is a `p:cTn` carrying `presetClass` — the one that wraps `p:anim`/`p:set`/`p:animEffect`. */
 function isEffect(node: XmlNode): boolean {
   return localName(node.name) === 'cTn' && attribute(node, 'presetClass') !== undefined
@@ -104,9 +123,8 @@ function buildFromEffect(effect: XmlNode, resolve: Resolve, triggerId: string | 
   const item: AnimationItem = {
     targetId,
     class: cls,
-    // The stable preset-name table is not built yet; keep the authoritative numeric id verbatim and
-    // derive a placeholder name the playback kernel falls back on cleanly.
-    preset: presetId !== undefined ? `preset${presetId}` : 'unknown',
+    // Keep the authoritative numeric id verbatim; derive a best-effort stable name for playback.
+    preset: presetName(cls, presetId),
     ...(presetId !== undefined ? { presetId } : {}),
     ...(presetSubtype !== undefined ? { presetSubtype } : {}),
     ...(duration !== undefined ? { duration } : {}),
