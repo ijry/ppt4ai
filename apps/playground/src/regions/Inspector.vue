@@ -46,7 +46,7 @@ function setBackgroundPicture(assetId: string): void { emit('update', props.host
 function clearBackground(): void { emit('update', props.host.setSlideBackground(null)) }
 </script>
 <template>
-  <div v-if="context === 'object' && selected" data-inspector="object" class="flex flex-col gap-3 p-3">
+  <div v-if="context === 'object' && selected" data-region="inspector" data-inspector="object" class="flex flex-col gap-3 p-3">
     <Panel title="位置与大小">
       <PanelSection>
         <Field label="X"><input class="w-24 rounded border border-border px-1 text-right" type="number" :value="selected.bounds.x" data-geom="x" @change="setGeom('x', ($event.target as HTMLInputElement).value)" /></Field>
@@ -57,7 +57,7 @@ function clearBackground(): void { emit('update', props.host.setSlideBackground(
       </PanelSection>
     </Panel>
   </div>
-  <div v-else data-inspector="slide" class="flex flex-col gap-3 p-3">
+  <div v-else data-region="inspector" data-inspector="slide" class="flex flex-col gap-3 p-3">
     <SlideBackgroundPanel
       :model="backgroundModel"
       :picture-assets="backgroundPictureAssets"
