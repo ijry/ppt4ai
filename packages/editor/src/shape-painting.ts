@@ -10,6 +10,8 @@ export interface ShapePageMapping {
   scale: number
   offsetX: number
   offsetY: number
+  /** A base opacity (0..1) every fill/stroke this node paints is multiplied by — an animation override. */
+  alpha?: number
 }
 
 type ShapeContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
@@ -300,7 +302,7 @@ export function paintPathFills(
     if (!painted) {
       tracePath(context, path, mapping)
       context.fillStyle = gradient ?? fill.style
-      context.globalAlpha = gradient ? 1 : fill.alpha
+      context.globalAlpha = (gradient ? 1 : fill.alpha) * (mapping.alpha ?? 1)
       castShadow()
       context.fill()
     }
@@ -313,7 +315,7 @@ export function paintPathFills(
     castShadow()
     tracePath(context, path, mapping)
     context.strokeStyle = strokeRamp ?? stroke.style
-    context.globalAlpha = strokeRamp ? 1 : stroke.alpha
+    context.globalAlpha = (strokeRamp ? 1 : stroke.alpha) * (mapping.alpha ?? 1)
     // Same floor table borders use: at thumbnail scale a real width lands below one pixel.
     const width = colors.strokeWidth !== undefined ? Math.max(1, colors.strokeWidth * mapping.scale) : 1
     context.lineWidth = width
@@ -394,7 +396,7 @@ export function paintPictureFill(
 ): void {
   context.save()
   try {
-    context.globalAlpha = 1
+    context.globalAlpha = mapping.alpha ?? 1
     applyEffects(context, fill.effects)
     if (fill.tile) {
       const pattern = context.createPattern(image.source, 'repeat')
@@ -451,13 +453,13 @@ export function paintPatternFill(
   try {
     tracePath(context, path, mapping)
     context.clip()
-    context.globalAlpha = background.alpha
+    context.globalAlpha = background.alpha * (mapping.alpha ?? 1)
     context.fillStyle = background.style
     context.fillRect(bounds.x, bounds.y, bounds.w, bounds.h)
     // One shadow per shape, as everywhere else: the background has just cast it, so the rest must not.
     clearShadow(context)
     if (geometry) {
-      context.globalAlpha = foreground.alpha
+      context.globalAlpha = foreground.alpha * (mapping.alpha ?? 1)
       context.strokeStyle = foreground.style
       context.lineWidth = geometry.lineWidth
       // The dash the `dash*` words name; a solid word carries none, so the array is cleared for it.
@@ -470,7 +472,7 @@ export function paintPatternFill(
       context.stroke()
     } else {
       // The word's own percentage, scaled by whatever transparency the foreground colour itself carries.
-      context.globalAlpha = foreground.alpha * (coverage ?? 1)
+      context.globalAlpha = foreground.alpha * (coverage ?? 1) * (mapping.alpha ?? 1)
       context.fillStyle = foreground.style
       context.fillRect(bounds.x, bounds.y, bounds.w, bounds.h)
     }
@@ -510,7 +512,7 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
           context.fillStyle = node.resolvedFillGradient
             ? fillGradient(context, node.resolvedFillGradient, bounds)
             : fill.style
-          context.globalAlpha = node.resolvedFillGradient ? 1 : fill.alpha
+          context.globalAlpha = (node.resolvedFillGradient ? 1 : fill.alpha) * (mapping.alpha ?? 1)
           castShadow()
           context.fill()
         }
@@ -525,7 +527,7 @@ export function paintShapeNode(context: ShapeContext, node: SceneShapeNode, mapp
         context.strokeStyle = node.resolvedStrokeGradient
           ? fillGradient(context, node.resolvedStrokeGradient, bounds)
           : stroke.style
-        context.globalAlpha = node.resolvedStrokeGradient ? 1 : stroke.alpha
+        context.globalAlpha = (node.resolvedStrokeGradient ? 1 : stroke.alpha) * (mapping.alpha ?? 1)
         const width = node.strokeWidth !== undefined ? Math.max(1, node.strokeWidth * mapping.scale) : 1
         context.lineWidth = width
         context.lineCap = canvasLineCap(node.strokeCap)

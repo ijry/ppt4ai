@@ -1,5 +1,5 @@
 import type { AssetAdapter, Rect, ResolvedColor, ResolvedGradient } from '@ppt4ai/model'
-import { gradientAxis, gradientFocus } from '@ppt4ai/geometry'
+import { boundsCentre, gradientAxis, gradientFocus } from '@ppt4ai/geometry'
 import type { PathCommand } from '@ppt4ai/geometry'
 import type { SceneGraph, SceneImageNode, SceneNode } from '@ppt4ai/render'
 import { paintPatternFill, paintPictureFill, paintShapeNode } from './shape-painting'
@@ -11,10 +11,25 @@ import { paintImageNode } from './image-painting'
 const EMU_PER_CSS_PIXEL = 914400 / 96
 const EMU_TO_CSS_PIXEL = 96 / 914400
 
+/**
+ * A per-element animation override the player lays over the scene at paint time (never mutating the
+ * scene). Offsets are in EMU (the same unit as node bounds); scale/rotation pivot on the box centre;
+ * opacity multiplies the element's own alpha. Structurally matches `@ppt4ai/player`'s resolved transform.
+ */
+export interface NodePaintOverride {
+  opacity?: number
+  translateX?: number
+  translateY?: number
+  scale?: number
+  rotationDeg?: number
+}
+
 export interface SlideCanvasViewport {
   zoom?: number
   devicePixelRatio?: number
   signal?: AbortSignal
+  /** Per-element paint overrides keyed by node id, e.g. from an animation player. */
+  overrides?: ReadonlyMap<string, NodePaintOverride>
 }
 
 export interface SlideCanvasRenderIssue {
@@ -50,14 +65,56 @@ function drawNode(
   context: CanvasRenderingContext2D,
   node: SceneNode,
   scale: number,
+  alpha: number,
   picture?: DecodedImage,
   cellPictures?: ReadonlyMap<string, DecodedImage>,
 ): void {
-  const mapping = { scale, offsetX: 0, offsetY: 0 }
+  const mapping = { scale, offsetX: 0, offsetY: 0, alpha }
   if (node.kind === 'shape') paintShapeNode(context, node, mapping, picture)
   else if (node.kind === 'text') paintTextNode(context, node, mapping, picture)
   else if (node.kind === 'table') paintTableNode(context, node, mapping, cellPictures)
   else throw new Error('image nodes require decoded image data')
+}
+
+/**
+ * Lay an animation override over one node's paint. Geometry (offset/scale/rotation about the box centre)
+ * is a canvas transform outside the node's own rotation/flip; opacity rides `globalAlpha` for images
+ * (which multiply it in) and `mapping.alpha` for shape/text/table (whose painters set alpha absolutely).
+ * A missing or identity override paints directly, so byte-for-byte behaviour is unchanged without one.
+ */
+function withNodeOverride(
+  context: CanvasRenderingContext2D,
+  mappedBounds: Rect,
+  override: NodePaintOverride | undefined,
+  scale: number,
+  draw: () => void,
+): void {
+  if (!override) { draw(); return }
+  const translateX = (override.translateX ?? 0) * scale
+  const translateY = (override.translateY ?? 0) * scale
+  const nodeScale = override.scale ?? 1
+  const rotationDeg = override.rotationDeg ?? 0
+  const opacity = override.opacity ?? 1
+  if (translateX === 0 && translateY === 0 && nodeScale === 1 && rotationDeg === 0 && opacity === 1) {
+    draw()
+    return
+  }
+  const centre = boundsCentre(mappedBounds)
+  context.save()
+  try {
+    if (opacity !== 1) context.globalAlpha *= opacity
+    context.translate(translateX, translateY)
+    if (rotationDeg !== 0 || nodeScale !== 1) {
+      context.translate(centre.x, centre.y)
+      // The override's rotation is plain degrees (clockwise); `rotationRadians` is for EMU 1/60000° units.
+      if (rotationDeg !== 0) context.rotate((rotationDeg * Math.PI) / 180)
+      if (nodeScale !== 1) context.scale(nodeScale, nodeScale)
+      context.translate(-centre.x, -centre.y)
+    }
+    draw()
+  } finally {
+    context.restore()
+  }
 }
 
 /**
@@ -202,6 +259,7 @@ export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; deco
       }
       for (const node of scene.nodes) {
         if (viewport.signal?.aborted) break
+        const override = viewport.overrides?.get(node.id)
         try {
           if (node.kind === 'image') {
             const outcome = await imageLoader.load(node)
@@ -210,7 +268,9 @@ export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; deco
               result.issues.push(imageIssue(node, outcome))
               continue
             }
-            paintImageNode(context, node, outcome.image, mapBounds(node.bounds, scale))
+            withNodeOverride(context, mapBounds(node.bounds, scale), override, scale, () => {
+              paintImageNode(context, node, outcome.image, mapBounds(node.bounds, scale))
+            })
           } else {
             // A shape's picture fill is only part of what it paints, so a failed load reports the
             // issue and the node still draws: losing a photo should not take the outline and the
@@ -243,7 +303,9 @@ export function createSlideCanvasRenderer(options: { adapter: AssetAdapter; deco
                 result.issues.push({ nodeId: node.id, kind: node.kind, code: outcome.code, message: outcome.message })
               } else picture = outcome.image
             }
-            drawNode(context, node, scale, picture, cellPictures)
+            withNodeOverride(context, mapBounds(node.bounds, scale), override, scale, () => {
+              drawNode(context, node, scale, override?.opacity ?? 1, picture, cellPictures)
+            })
           }
           result.drawnNodeIds.push(node.id)
         } catch (error) {

@@ -95,11 +95,11 @@ function paintCellFill(
   // resolved colour (the first stop) stays the flat fallback for a cell that resolves no gradient.
   if (cell.resolvedFillGradient) {
     context.fillStyle = fillGradient(context, cell.resolvedFillGradient, bounds)
-    context.globalAlpha = 1
+    context.globalAlpha = mapping.alpha ?? 1
   } else {
     const style = colorState(cell.resolvedFillColor, 'table fill color')
     context.fillStyle = style.color
-    context.globalAlpha = style.alpha
+    context.globalAlpha = style.alpha * (mapping.alpha ?? 1)
   }
   context.beginPath()
   context.rect(bounds.x, bounds.y, bounds.w, bounds.h)
@@ -155,7 +155,7 @@ function paintCellBorder(
   const bounds = mappedRect(cell.bounds, mapping)
   const [fromX, fromY, toX, toY] = borderPoints(bounds, side)
   context.strokeStyle = color.color
-  context.globalAlpha = color.alpha
+  context.globalAlpha = color.alpha * (mapping.alpha ?? 1)
   context.lineWidth = width
   context.lineCap = 'butt'
   context.setLineDash(dashPattern(style, width))

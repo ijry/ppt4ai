@@ -9,6 +9,8 @@ export interface TextPageMapping {
   scale: number
   offsetX: number
   offsetY: number
+  /** A base opacity (0..1) every glyph/highlight this text paints is multiplied by — an animation override. */
+  alpha?: number
 }
 
 type TextContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
@@ -95,12 +97,12 @@ function validateVerticalItem(item: TextItem, name: string): void {
   }
 }
 
-function applyTextStyle(context: TextContext, style: TextPaintStyle): void {
+function applyTextStyle(context: TextContext, style: TextPaintStyle, alpha: number): void {
   context.font = style.font
   context.textAlign = 'left'
   context.textBaseline = 'top'
   context.fillStyle = style.color
-  context.globalAlpha = style.alpha
+  context.globalAlpha = style.alpha * alpha
 }
 
 /**
@@ -132,16 +134,16 @@ function paintHorizontalItem(
     // The swatch spans the run's advance over the line box, painted before the glyphs sit on top of it.
     const swatch = colorState(highlight)
     context.fillStyle = swatch.color
-    context.globalAlpha = swatch.alpha
+    context.globalAlpha = swatch.alpha * (mapping.alpha ?? 1)
     context.fillRect(
       mapping.offsetX + item.x * mapping.scale,
       mapping.offsetY + line.y * mapping.scale,
       item.width * mapping.scale,
       line.height * mapping.scale,
     )
-    context.globalAlpha = 1
+    context.globalAlpha = mapping.alpha ?? 1
   }
-  applyTextStyle(context, style)
+  applyTextStyle(context, style, mapping.alpha ?? 1)
   const x = mapping.offsetX + item.x * mapping.scale
   const y = mapping.offsetY + line.y * mapping.scale
   // A gradient run fill paints the glyphs with a CanvasGradient over the mapped run box; the flat colour
@@ -152,12 +154,12 @@ function paintHorizontalItem(
   const patternComposite = percentagePatternStroke(runPattern)
   if (patternComposite) {
     context.fillStyle = patternComposite.style
-    context.globalAlpha = patternComposite.alpha
+    context.globalAlpha = patternComposite.alpha * (mapping.alpha ?? 1)
   }
   const runGradient = 'resolvedFillGradient' in item ? item.resolvedFillGradient : undefined
   if (runGradient) {
     context.fillStyle = fillGradient(context, runGradient, { x, y, w: item.width * mapping.scale, h: line.height * mapping.scale })
-    context.globalAlpha = 1
+    context.globalAlpha = mapping.alpha ?? 1
   }
   context.fillText(item.text, x, y)
   const underline = underlinePattern(item.marks?.underline, style.fontPixels)
@@ -166,7 +168,7 @@ function paintHorizontalItem(
   context.moveTo(x, mapping.offsetY + (line.y + line.height * 0.9) * mapping.scale)
   context.lineTo(mapping.offsetX + (item.x + item.width) * mapping.scale, mapping.offsetY + (line.y + line.height * 0.9) * mapping.scale)
   context.strokeStyle = style.color
-  context.globalAlpha = style.alpha
+  context.globalAlpha = style.alpha * (mapping.alpha ?? 1)
   context.lineWidth = Math.max(1, style.fontPixels * 0.05)
   context.setLineDash(underline.dash)
   context.stroke()
@@ -187,22 +189,22 @@ function paintVerticalItem(
     if (upHighlight) {
       const swatch = colorState(upHighlight)
       context.fillStyle = swatch.color
-      context.globalAlpha = swatch.alpha
+      context.globalAlpha = swatch.alpha * (mapping.alpha ?? 1)
       context.fillRect(x, y, item.width * mapping.scale, item.height! * mapping.scale)
-      context.globalAlpha = 1
+      context.globalAlpha = mapping.alpha ?? 1
     }
-    applyTextStyle(context, style)
+    applyTextStyle(context, style, mapping.alpha ?? 1)
     // An upright vertical glyph sits in an unrotated box, so a gradient fills it the same way a
     // horizontal run does. Rotated glyphs draw under a transform and stay flat (documented limit).
     const upPattern = percentagePatternStroke('resolvedFillPattern' in item ? item.resolvedFillPattern : undefined)
     if (upPattern) {
       context.fillStyle = upPattern.style
-      context.globalAlpha = upPattern.alpha
+      context.globalAlpha = upPattern.alpha * (mapping.alpha ?? 1)
     }
     const upGradient = 'resolvedFillGradient' in item ? item.resolvedFillGradient : undefined
     if (upGradient) {
       context.fillStyle = fillGradient(context, upGradient, { x, y, w: item.width * mapping.scale, h: item.height! * mapping.scale })
-      context.globalAlpha = 1
+      context.globalAlpha = mapping.alpha ?? 1
     }
     context.fillText(item.text, x, y)
     return
@@ -211,27 +213,27 @@ function paintVerticalItem(
   try {
     context.translate(mapping.offsetX + (item.x + item.width) * mapping.scale, y)
     context.rotate(Math.PI / 2)
-    applyTextStyle(context, style)
+    applyTextStyle(context, style, mapping.alpha ?? 1)
     const rotatedHighlight = 'resolvedHighlight' in item ? item.resolvedHighlight : undefined
     if (rotatedHighlight) {
       const swatch = colorState(rotatedHighlight)
       context.fillStyle = swatch.color
-      context.globalAlpha = swatch.alpha
+      context.globalAlpha = swatch.alpha * (mapping.alpha ?? 1)
       context.fillRect(0, 0, item.height! * mapping.scale, item.width * mapping.scale)
-      context.globalAlpha = 1
+      context.globalAlpha = mapping.alpha ?? 1
     }
     // The glyph draws in the rotated local frame, so a page-space gradient axis is mapped into it:
     // a page direction (a, b) becomes local (b, -a) — the angle turns by -90deg and the box dims swap.
     const rotatedPattern = percentagePatternStroke('resolvedFillPattern' in item ? item.resolvedFillPattern : undefined)
     if (rotatedPattern) {
       context.fillStyle = rotatedPattern.style
-      context.globalAlpha = rotatedPattern.alpha
+      context.globalAlpha = rotatedPattern.alpha * (mapping.alpha ?? 1)
     }
     const rotatedGradient = 'resolvedFillGradient' in item ? item.resolvedFillGradient : undefined
     if (rotatedGradient) {
       const localAngle = ((((rotatedGradient.angle ?? 0) - 5400000) % 21600000) + 21600000) % 21600000
       context.fillStyle = fillGradient(context, { ...rotatedGradient, angle: localAngle }, { x: 0, y: 0, w: item.height! * mapping.scale, h: item.width * mapping.scale })
-      context.globalAlpha = 1
+      context.globalAlpha = mapping.alpha ?? 1
     }
     context.fillText(item.text, 0, 0)
   } finally {
