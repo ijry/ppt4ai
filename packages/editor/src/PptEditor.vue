@@ -43,7 +43,9 @@ const props = withDefaults(defineProps<{
   fontFamilies?: readonly string[]
   /** Typefaces for the east asian slot; falls back to `fontFamilies` when the host gives only one list. */
   eaFontFamilies?: readonly string[]
-}>(), { zoom: 1 })
+  /** A host that supplies its own toolbar (e.g. a product shell) sets this false to hide the built-in one. */
+  showObjectToolbar?: boolean
+}>(), { zoom: 1, showObjectToolbar: true })
 
 const emit = defineEmits<{
   select: [nodeId: string | undefined]
@@ -745,7 +747,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="ppt-editor" aria-labelledby="ppt-editor-toolbar" tabindex="0" @keydown.capture="handleEditorKeyDown">
-    <header id="ppt-editor-toolbar" class="ppt-editor__toolbar flex items-center gap-2 border-b border-slate-200 bg-white p-2">
+    <header v-if="showObjectToolbar" id="ppt-editor-toolbar" class="ppt-editor__toolbar flex items-center gap-2 border-b border-slate-200 bg-white p-2">
       <button type="button" class="ppt-editor__button">
         {{ t('toolbar.insert.shape') }}
       </button>
