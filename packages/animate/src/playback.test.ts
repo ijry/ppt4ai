@@ -1,6 +1,6 @@
-import type { AnimationBuild } from '@ppt4ai/model'
+import type { AnimationBuild, SlideTimeline } from '@ppt4ai/model'
 import { describe, expect, it } from 'vitest'
-import { buildOverridesAt, EASINGS } from './index'
+import { buildOverridesAt, EASINGS, planTimeline, timelineOverridesAt } from './index'
 
 function build(items: AnimationBuild['items']): AnimationBuild {
   return { trigger: 'onClick', items }
@@ -50,5 +50,98 @@ describe('buildOverridesAt', () => {
     expect(EASINGS.linear!(0.5)).toBe(0.5)
     expect(EASINGS.easeOut!(0)).toBe(0)
     expect(EASINGS.easeOut!(1)).toBe(1)
+  })
+})
+
+describe('planTimeline', () => {
+  it('opens a step at the first build and at every onClick', () => {
+    const timeline: SlideTimeline = {
+      mainSeq: [
+        { trigger: 'onClick', items: [{ targetId: 'el_1', class: 'entrance', preset: 'fade', duration: 500 }] },
+        { trigger: 'onClick', items: [{ targetId: 'el_2', class: 'entrance', preset: 'fade', duration: 500 }] },
+      ],
+    }
+    const steps = planTimeline(timeline)
+    expect(steps).toHaveLength(2)
+    expect(steps[0]!.builds).toHaveLength(1)
+    expect(steps[0]!.builds[0]!.startMs).toBe(0)
+    expect(steps[1]!.builds[0]!.startMs).toBe(0)
+  })
+
+  it('starts withPrev with the previous build and afterPrev when it ends, inside one step', () => {
+    const timeline: SlideTimeline = {
+      mainSeq: [
+        { trigger: 'onClick', items: [{ targetId: 'el_1', class: 'entrance', preset: 'fade', duration: 500 }] },
+        { trigger: 'withPrev', items: [{ targetId: 'el_2', class: 'entrance', preset: 'fade', duration: 300 }] },
+        { trigger: 'afterPrev', items: [{ targetId: 'el_3', class: 'entrance', preset: 'fade', duration: 200 }] },
+      ],
+    }
+    const steps = planTimeline(timeline)
+    expect(steps).toHaveLength(1)
+    expect(steps[0]!.builds.map((b) => b.startMs)).toEqual([0, 0, 300])
+    // Latest end across items: el_1 ends at 500, el_3 at 300+200=500.
+    expect(steps[0]!.durationMs).toBe(500)
+  })
+
+  it('measures a build by the latest end across its items, including per-item delay', () => {
+    const timeline: SlideTimeline = {
+      mainSeq: [
+        {
+          trigger: 'onClick',
+          items: [
+            { targetId: 'el_1', class: 'entrance', preset: 'fade', duration: 200 },
+            { targetId: 'el_2', class: 'entrance', preset: 'fade', delay: 400, duration: 300 },
+          ],
+        },
+        { trigger: 'afterPrev', items: [{ targetId: 'el_3', class: 'entrance', preset: 'fade', duration: 100 }] },
+      ],
+    }
+    const steps = planTimeline(timeline)
+    expect(steps).toHaveLength(1)
+    // First build ends at max(200, 400+300) = 700, so afterPrev starts at 700.
+    expect(steps[0]!.builds[1]!.startMs).toBe(700)
+    expect(steps[0]!.durationMs).toBe(800)
+  })
+})
+
+describe('timelineOverridesAt', () => {
+  const timeline: SlideTimeline = {
+    mainSeq: [
+      { trigger: 'onClick', items: [{ targetId: 'el_1', class: 'entrance', preset: 'fade', duration: 500, params: { easing: 'linear' } }] },
+      {
+        trigger: 'onClick',
+        items: [
+          { targetId: 'el_1', class: 'exit', preset: 'fade', duration: 500, params: { easing: 'linear' } },
+          { targetId: 'el_2', class: 'entrance', preset: 'fade', duration: 500, params: { easing: 'linear' } },
+        ],
+      },
+    ],
+  }
+  const steps = planTimeline(timeline)
+
+  it('holds an entrance hidden before the first click', () => {
+    const at = timelineOverridesAt(steps, -1, 0)
+    expect(at.get('el_1')).toEqual({ opacity: 0 })
+  })
+
+  it('rests a finished entrance and drives the current step from its start', () => {
+    const at = timelineOverridesAt(steps, 1, 0)
+    // el_1 fully entered in step 0 (resting, no override there) and is about to exit at full opacity.
+    expect(at.get('el_1')).toEqual({ opacity: 1 })
+    // el_2 has not entered yet.
+    expect(at.get('el_2')).toEqual({ opacity: 0 })
+  })
+
+  it('interpolates within the current step', () => {
+    const at = timelineOverridesAt(steps, 1, 250)
+    expect(at.get('el_1')!.opacity).toBeCloseTo(0.5)
+    expect(at.get('el_2')!.opacity).toBeCloseTo(0.5)
+  })
+
+  it('applies every step at its end when seeked past the last step', () => {
+    const at = timelineOverridesAt(steps, 2, 0)
+    // el_1 has exited (rests hidden); el_2 has entered (rests visible, no override).
+    expect(at.get('el_1')).toEqual({ opacity: 0 })
+    expect(at.get('el_2')).toBeUndefined()
   })
 })

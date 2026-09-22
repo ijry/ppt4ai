@@ -1,2 +1,2 @@
-export type { ElementOverride, Easing } from './playback'
-export { EASINGS, buildOverridesAt } from './playback'
+export type { ElementOverride, Easing, PlannedBuild, TimelineStep } from './playback'
+export { EASINGS, buildOverridesAt, planTimeline, timelineOverridesAt } from './playback'

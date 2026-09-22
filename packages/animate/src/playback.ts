@@ -1,4 +1,4 @@
-import type { AnimationBuild, AnimationItem } from '@ppt4ai/model'
+import type { AnimationBuild, AnimationItem, SlideTimeline } from '@ppt4ai/model'
 
 /**
  * A per-element override the player lays over the SceneGraph — never mutating the document (§5.2).
@@ -78,7 +78,7 @@ function presetOverride(item: AnimationItem, p: number): ElementOverride {
         return { opacity: 1 - eased }
     }
   }
-  // Emphasis (and anything else): a pulse that returns to identity, so it composes cleanly at the ends.
+  // Emphasis (and anything else): identity for now, so it composes cleanly at the ends.
   return {}
 }
 
@@ -89,6 +89,15 @@ function restingOverride(item: AnimationItem, before: boolean): ElementOverride 
   return undefined
 }
 
+/** The override for one item at `timeMs` relative to the item's own start (before its delay is applied). */
+function itemOverrideAt(item: AnimationItem, timeMs: number): ElementOverride | undefined {
+  const delay = item.delay ?? 0
+  const duration = item.duration ?? 0
+  if (timeMs < delay) return restingOverride(item, true)
+  if (duration <= 0 || timeMs >= delay + duration) return restingOverride(item, false)
+  return presetOverride(item, clamp01((timeMs - delay) / duration))
+}
+
 /**
  * The overrides for one build (one trigger group) at `timeMs` from the build's own start. Each item runs
  * over `[delay, delay + duration]`; before/after that it holds its resting state. Multiple items on one
@@ -97,13 +106,77 @@ function restingOverride(item: AnimationItem, before: boolean): ElementOverride 
 export function buildOverridesAt(build: AnimationBuild, timeMs: number): Map<string, ElementOverride> {
   const result = new Map<string, ElementOverride>()
   for (const item of build.items) {
-    const delay = item.delay ?? 0
-    const duration = item.duration ?? 0
-    let override: ElementOverride | undefined
-    if (timeMs < delay) override = restingOverride(item, true)
-    else if (duration <= 0 || timeMs >= delay + duration) override = restingOverride(item, false)
-    else override = presetOverride(item, clamp01((timeMs - delay) / duration))
+    const override = itemOverrideAt(item, timeMs)
     if (override) result.set(item.targetId, override)
   }
+  return result
+}
+
+/** How long a build occupies the timeline: the latest end across its items. */
+function buildDuration(build: AnimationBuild): number {
+  let max = 0
+  for (const item of build.items) max = Math.max(max, (item.delay ?? 0) + (item.duration ?? 0))
+  return max
+}
+
+/** A build placed on its step's local clock, plus the step it belongs to. */
+export interface PlannedBuild {
+  build: AnimationBuild
+  /** Milliseconds from the step start when this build begins. */
+  startMs: number
+}
+
+export interface TimelineStep {
+  builds: PlannedBuild[]
+  /** The step's total length: the latest build end. */
+  durationMs: number
+}
+
+/**
+ * Split a main sequence into click-advanced steps. A step begins at each `onClick` build (and always at
+ * the first build); `withPrev` starts with the previous build, `afterPrev` starts when it ends. Within a
+ * build, items keep their own delays. The result is a seekable set of steps for the player.
+ */
+export function planTimeline(timeline: SlideTimeline): TimelineStep[] {
+  const steps: TimelineStep[] = []
+  let current: PlannedBuild[] | undefined
+  let previousStart = 0
+  let previousDuration = 0
+  timeline.mainSeq.forEach((build, index) => {
+    const isLeader = index === 0 || build.trigger === 'onClick'
+    let startMs: number
+    if (isLeader) {
+      current = []
+      steps.push({ builds: current, durationMs: 0 })
+      startMs = 0
+    } else if (build.trigger === 'withPrev') {
+      startMs = previousStart
+    } else {
+      startMs = previousStart + previousDuration
+    }
+    current!.push({ build, startMs })
+    previousStart = startMs
+    previousDuration = buildDuration(build)
+    const step = steps[steps.length - 1]!
+    step.durationMs = Math.max(step.durationMs, startMs + previousDuration)
+  })
+  return steps
+}
+
+/**
+ * The overrides at a point in a planned timeline: every step before `stepIndex` is applied at its end
+ * (so an element that already entered stays put and one that already exited stays hidden), then the
+ * current step at `timeMs` into it. Composed by last-write in step then build order.
+ */
+export function timelineOverridesAt(steps: TimelineStep[], stepIndex: number, timeMs: number): Map<string, ElementOverride> {
+  const result = new Map<string, ElementOverride>()
+  const apply = (step: TimelineStep, localTime: number): void => {
+    for (const planned of step.builds) {
+      for (const [id, override] of buildOverridesAt(planned.build, localTime - planned.startMs)) result.set(id, override)
+    }
+  }
+  const clampedStep = Math.max(0, Math.min(stepIndex, steps.length))
+  for (let i = 0; i < clampedStep && i < steps.length; i += 1) apply(steps[i]!, steps[i]!.durationMs)
+  if (clampedStep < steps.length) apply(steps[clampedStep]!, timeMs)
   return result
 }
