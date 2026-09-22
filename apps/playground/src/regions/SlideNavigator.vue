@@ -1,0 +1,7 @@
+<script setup lang="ts">
+import type { PlaygroundPresentationSnapshot } from '../presentation-host'
+defineProps<{ snapshot: PlaygroundPresentationSnapshot }>()
+</script>
+<template>
+  <div data-region="navigator" class="p-2 text-sm text-muted">navigator</div>
+</template>
