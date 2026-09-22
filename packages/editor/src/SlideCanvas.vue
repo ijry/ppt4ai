@@ -5,6 +5,7 @@ import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   createSlideCanvasRenderer,
   type ImageDecoder,
+  type NodePaintOverride,
   type SlideCanvasRenderResult,
   type SlideCanvasRenderer,
 } from './slide-canvas-renderer'
@@ -17,6 +18,8 @@ const props = withDefaults(defineProps<{
   zoom?: number
   devicePixelRatio?: number
   groupPath?: string[]
+  /** Per-element animation overrides (e.g. from a player); a new map reference re-renders the slide. */
+  overrides?: ReadonlyMap<string, NodePaintOverride>
 }>(), { zoom: 1, groupPath: () => [] })
 
 const emit = defineEmits<{
@@ -58,6 +61,7 @@ async function draw(): Promise<void> {
     zoom: props.zoom,
     devicePixelRatio: props.devicePixelRatio ?? globalThis.devicePixelRatio ?? 1,
     signal: nextController.signal,
+    ...(props.overrides ? { overrides: props.overrides } : {}),
   })
   if (controller === nextController && !nextController.signal.aborted) emit('render', result)
 }
@@ -114,7 +118,7 @@ function cancelMove(event: PointerEvent): void {
 }
 
 watch(
-  () => [props.scene, props.zoom, props.devicePixelRatio, props.adapter, props.decoder] as const,
+  () => [props.scene, props.zoom, props.devicePixelRatio, props.adapter, props.decoder, props.overrides] as const,
   () => { void draw() },
   { immediate: true, flush: 'post' },
 )
