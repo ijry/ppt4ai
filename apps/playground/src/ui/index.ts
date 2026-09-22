@@ -1,2 +1,8 @@
 export { default as Button } from './Button.vue'
 export { default as IconButton } from './IconButton.vue'
+export { default as Panel } from './Panel.vue'
+export { default as PanelSection } from './PanelSection.vue'
+export { default as Field } from './Field.vue'
+export { default as Toolbar } from './Toolbar.vue'
+export { default as ToolbarGroup } from './ToolbarGroup.vue'
+export { default as Divider } from './Divider.vue'
