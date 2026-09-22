@@ -33,6 +33,7 @@ function onZoom(kind: 'in' | 'out' | 'fit'): void {
   const page = snapshot.value.slides[snapshot.value.activeSlideId]!.thumbnailScene.page
   zoom.value = kind === 'in' ? zoomIn(zoom.value) : kind === 'out' ? zoomOut(zoom.value) : fitZoom({ w: 960, h: 540 }, page)
 }
+function onStageUpdate(next: typeof snapshot.value): void { snapshot.value = next }
 </script>
 <template>
   <div class="grid h-screen grid-rows-[auto_1fr] bg-bg text-text">
@@ -48,7 +49,7 @@ function onZoom(kind: 'in' | 'out' | 'fit'): void {
         class="min-h-0 overflow-y-auto border-r border-border bg-surface"
         @select="selectSlide" @add="addSlide" @duplicate="duplicateSlide" @delete="deleteSlide" @move="moveSlide"
       />
-      <CanvasStage :snapshot="snapshot" class="min-h-0 overflow-auto" />
+      <CanvasStage :snapshot="snapshot" :host="host" :zoom="zoom" class="min-h-0 overflow-auto" @update="onStageUpdate" />
       <Inspector :snapshot="snapshot" class="min-h-0 overflow-y-auto border-l border-border bg-surface" />
     </div>
   </div>
