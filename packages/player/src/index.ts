@@ -12,3 +12,5 @@ export {
   seekStep,
   reset,
 } from './playback'
+export type { SlidePlayer, SlidePlayerOptions } from './player'
+export { paintOverridesFor, createSlidePlayer } from './player'
