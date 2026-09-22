@@ -30,4 +30,16 @@ describe('Inspector', () => {
     w.value = '200'; w.dispatchEvent(new Event('change', { bubbles: true }))
     expect(host.resizeElement).toHaveBeenCalledWith('e1', { x: 0, y: 0, w: 200, h: 50 })
   })
+  it('shows a layout picker and switches layout via the host', () => {
+    const host = { setSlideLayout: vi.fn(() => snap([])) }
+    const s = snap([])
+    const doc = (s.slides.s as unknown as { engineState: { document: Record<string, unknown> } }).engineState.document
+    doc.layouts = { lyt_1: { id: 'lyt_1', masterId: 'mst_1' }, lyt_2: { id: 'lyt_2', masterId: 'mst_1' } }
+    doc.slides = { s: { layoutId: 'lyt_1', masterId: 'mst_1' } }
+    const el = mount({ snapshot: s, host })
+    const picker = el.querySelector('[data-layout-picker]') as HTMLSelectElement
+    expect(picker).not.toBeNull()
+    picker.value = 'lyt_2'; picker.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(host.setSlideLayout).toHaveBeenCalledWith('lyt_2')
+  })
 })
