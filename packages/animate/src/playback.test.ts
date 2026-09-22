@@ -166,6 +166,12 @@ describe('timelineOverridesAt', () => {
     expect(at.get('el_1')).toEqual({ opacity: 0 })
   })
 
+  it('pre-hides an entrance that belongs to a not-yet-reached step', () => {
+    // el_2 enters in step 1; at step 0 it must already be hidden, not shown at full.
+    const at = timelineOverridesAt(steps, 0, 0)
+    expect(at.get('el_2')).toEqual({ opacity: 0 })
+  })
+
   it('rests a finished entrance and drives the current step from its start', () => {
     const at = timelineOverridesAt(steps, 1, 0)
     // el_1 fully entered in step 0 (resting, no override there) and is about to exit at full opacity.

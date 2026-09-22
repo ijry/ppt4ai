@@ -44,6 +44,9 @@ importers:
       '@ppt4ai/model':
         specifier: workspace:*
         version: link:../../packages/model
+      '@ppt4ai/player':
+        specifier: workspace:*
+        version: link:../../packages/player
       '@ppt4ai/render':
         specifier: workspace:*
         version: link:../../packages/render

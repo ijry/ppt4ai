@@ -192,9 +192,11 @@ export function planTimeline(timeline: SlideTimeline): TimelineStep[] {
 }
 
 /**
- * The overrides at a point in a planned timeline: every step before `stepIndex` is applied at its end
- * (so an element that already entered stays put and one that already exited stays hidden), then the
- * current step at `timeMs` into it. Composed by last-write in step then build order.
+ * The overrides at a point in a planned timeline: an element entering in a not-yet-reached step is held
+ * hidden (as a real presentation hides it from the slide's start); every step before `stepIndex` is then
+ * applied at its end (so an element that already entered stays put and one that already exited stays
+ * hidden), then the current step at `timeMs` into it. Composed by last-write, so past/current win over
+ * the pre-hide.
  */
 export function timelineOverridesAt(steps: TimelineStep[], stepIndex: number, timeMs: number): Map<string, ElementOverride> {
   const result = new Map<string, ElementOverride>()
@@ -204,6 +206,15 @@ export function timelineOverridesAt(steps: TimelineStep[], stepIndex: number, ti
     }
   }
   const clampedStep = Math.max(0, Math.min(stepIndex, steps.length))
+  // Pre-hide entrances that belong to steps we have not reached yet, lowest priority so a past or current
+  // step that touches the same element overwrites it.
+  for (let i = clampedStep + 1; i < steps.length; i += 1) {
+    for (const planned of steps[i]!.builds) {
+      for (const item of planned.build.items) {
+        if (item.class === 'entrance') result.set(item.targetId, { opacity: 0 })
+      }
+    }
+  }
   for (let i = 0; i < clampedStep && i < steps.length; i += 1) apply(steps[i]!, steps[i]!.durationMs)
   if (clampedStep < steps.length) apply(steps[clampedStep]!, timeMs)
   return result
