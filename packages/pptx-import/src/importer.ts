@@ -1,6 +1,7 @@
-import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AdjustValue, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type DashSegment, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AdjustValue, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type DashSegment, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type SlideTimeline, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
+import { parseSlideTiming } from './timing'
 
 interface Relationship {
   id: string
@@ -1865,6 +1866,7 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
   const layouts: Record<string, SlideLayout> = {}
   const masters: Record<string, SlideMaster> = {}
   const themes: NonNullable<Ppt4aiDocument['themes']> = {}
+  const animations: Record<string, SlideTimeline> = {}
   const slideOrder: string[] = []
   let elementCounter = 1
   let groupCounter = 1
@@ -1968,6 +1970,14 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
     }
 
     const elementIds: string[] = []
+    // Animations target shapes by their drawingML `cNvPr/@id`, which the importer otherwise discards.
+    // Record it against the element id we assign so the timing parser can resolve `spTgt/@spid`.
+    const spidToElement = new Map<string, string>()
+    const mapSpid = (node: XmlNode, id: string): void => {
+      const cNvPr = findDescendants(node, 'cNvPr')[0]
+      const rawId = cNvPr && attribute(cNvPr, 'id')
+      if (rawId) spidToElement.set(rawId, id)
+    }
     // Table cells register their media through a buffer: the adapter write is awaited outside the
     // synchronous cell walk, which cannot await.
     const registeredAssets: Array<{ metadata: AssetMetadata; bytes: Uint8Array }> = []
@@ -2007,6 +2017,7 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
           ...(childSpace === undefined ? {} : { childSpace }),
         }
         registerChild(shape, groupId)
+        mapSpid(shape.node, groupId)
         continue
       }
       const id = `el_${elementCounter++}`
@@ -2022,6 +2033,7 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
         if (!picture) continue
         elements[id] = picture.element
         registerChild(shape, id)
+        mapSpid(shape.node, id)
         if (!assets[picture.metadata.id]) {
           assets[picture.metadata.id] = picture.metadata
           await options.assetAdapter?.put(picture.metadata.id, new Uint8Array(picture.bytes), picture.metadata)
@@ -2079,6 +2091,7 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
       }
       elements[id] = element
       registerChild(shape, id)
+      mapSpid(shape.node, id)
     }
     for (const asset of registeredAssets) {
       await options.assetAdapter?.put(asset.metadata.id, new Uint8Array(asset.bytes), asset.metadata)
@@ -2095,6 +2108,13 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
       }
       group.childIds = childIds
     }
+    // Group pruning above may have deleted an empty group, so resolve `spTgt` only to elements that
+    // survived — a build whose target did not survive is dropped, keeping `animations` validatable.
+    const timeline = parseSlideTiming(slidePart.xml, (spid) => {
+      const resolved = spidToElement.get(spid)
+      return resolved && elements[resolved] ? resolved : undefined
+    })
+    if (timeline) animations[slideId] = timeline
     const colorMapOverride = parseColorMapOverride(slidePart.xml)
     const source = relationshipId && reference.attributes.id
       ? {
@@ -2139,6 +2159,7 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
     masters,
     ...(Object.keys(themes).length > 0 ? { themes } : {}),
     ...(Object.keys(tableStyles).length > 0 ? { tableStyles } : {}),
+    ...(Object.keys(animations).length > 0 ? { animations } : {}),
     source: { entries: xmlEntries(entries), packageFingerprint: fingerprintBytes(input) },
   }
   if (!document.source) throw new Error('PPTX import source metadata missing')
