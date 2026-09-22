@@ -10,6 +10,8 @@ export interface ElementOverride {
   offsetXRatio?: number
   offsetYRatio?: number
   scale?: number
+  /** Degrees clockwise about the element's centre; the paint layer rotates around the box centre. */
+  rotation?: number
 }
 
 export type Easing = (t: number) => number
@@ -25,6 +27,12 @@ function clamp01(value: number): number {
   return value < 0 ? 0 : value > 1 ? 1 : value
 }
 
+/** A numeric preset param (params are stored as strings for the file), falling back when absent or unparseable. */
+function paramNumber(item: AnimationItem, key: string, fallback: number): number {
+  const n = Number(item.params?.[key])
+  return Number.isFinite(n) ? n : fallback
+}
+
 /** The direction an entrance flies in *from*, as a unit offset applied at progress 0 and eased to 0. */
 const DIRECTION_OFFSETS: Record<string, { x: number; y: number }> = {
   fromLeft: { x: -1, y: 0 },
@@ -38,9 +46,10 @@ const DIRECTION_OFFSETS: Record<string, { x: number; y: number }> = {
 }
 
 /**
- * The override for a single entrance/exit/emphasis preset at eased progress `p` (0..1). Unknown presets
- * fall back to a fade, which is what a reader shows for an effect it does not implement rather than
- * popping the element in with no animation. Motion paths are not modeled here yet.
+ * The override for a single entrance/exit/emphasis preset at eased progress `p` (0..1). Unknown
+ * entrance/exit presets fall back to a fade — a reader should degrade to a fade rather than pop the
+ * element in with no animation; unknown emphasis presets stay at identity. Motion paths are not modeled
+ * here yet.
  */
 function presetOverride(item: AnimationItem, p: number): ElementOverride {
   const eased = (EASINGS[item.params?.easing ?? 'easeOut'] ?? EASINGS.easeOut!)(p)
@@ -78,8 +87,27 @@ function presetOverride(item: AnimationItem, p: number): ElementOverride {
         return { opacity: 1 - eased }
     }
   }
-  // Emphasis (and anything else): identity for now, so it composes cleanly at the ends.
-  return {}
+  // Emphasis: effects that leave the element at identity at both ends, so they compose cleanly with the
+  // resting state before/after. `wave` is a there-and-back (0 at the ends, 1 at the middle) for the
+  // effects that grow then return; `spin` ramps monotonically to a full turn. Unknown emphasis presets
+  // stay at identity rather than falling back to fade — dimming an element is wrong for an emphasis.
+  const wave = Math.sin(Math.PI * eased)
+  switch (item.preset) {
+    case 'spin':
+    case 'spinner':
+      return { rotation: paramNumber(item, 'degrees', 360) * eased }
+    case 'teeter':
+      // A small wobble either side of upright, returning to 0 at the ends.
+      return { rotation: paramNumber(item, 'degrees', 8) * Math.sin(2 * Math.PI * eased) }
+    case 'grow':
+    case 'growShrink':
+    case 'grow/shrink':
+      return { scale: 1 + (paramNumber(item, 'amount', 1.5) - 1) * wave }
+    case 'pulse':
+      return { opacity: 1 - clamp01(paramNumber(item, 'amount', 1)) * wave }
+    default:
+      return {}
+  }
 }
 
 /** The state an entrance element sits in before it starts (hidden) and an exit element after it ends. */

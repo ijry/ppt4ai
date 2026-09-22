@@ -53,6 +53,48 @@ describe('buildOverridesAt', () => {
   })
 })
 
+describe('emphasis presets', () => {
+  it('spins toward a full turn and rests upright after', () => {
+    const b = build([{ targetId: 'el_1', class: 'emphasis', preset: 'spin', duration: 500, params: { easing: 'linear' } }])
+    expect(buildOverridesAt(b, 250).get('el_1')).toEqual({ rotation: 180 })
+    expect(buildOverridesAt(b, 600).get('el_1')).toBeUndefined()
+  })
+
+  it('teeters either side of upright and returns to zero at the ends', () => {
+    const b = build([{ targetId: 'el_1', class: 'emphasis', preset: 'teeter', duration: 400, params: { easing: 'linear' } }])
+    expect(buildOverridesAt(b, 100).get('el_1')!.rotation).toBeCloseTo(8)
+    expect(buildOverridesAt(b, 200).get('el_1')!.rotation).toBeCloseTo(0)
+  })
+
+  it('grows to a peak scale at the middle and back to identity', () => {
+    const b = build([{ targetId: 'el_1', class: 'emphasis', preset: 'grow', duration: 500, params: { easing: 'linear' } }])
+    expect(buildOverridesAt(b, 250).get('el_1')!.scale).toBeCloseTo(1.5)
+    expect(buildOverridesAt(b, 500).get('el_1')).toBeUndefined()
+  })
+
+  it('honours a custom grow amount', () => {
+    const b = build([{ targetId: 'el_1', class: 'emphasis', preset: 'grow', duration: 500, params: { easing: 'linear', amount: '2' } }])
+    expect(buildOverridesAt(b, 250).get('el_1')!.scale).toBeCloseTo(2)
+  })
+
+  it('pulses opacity down and back', () => {
+    const b = build([{ targetId: 'el_1', class: 'emphasis', preset: 'pulse', duration: 500, params: { easing: 'linear' } }])
+    expect(buildOverridesAt(b, 250).get('el_1')!.opacity).toBeCloseTo(0)
+    expect(buildOverridesAt(b, 125).get('el_1')!.opacity).toBeCloseTo(1 - Math.SQRT1_2)
+  })
+
+  it('leaves an unknown emphasis at identity instead of fading it', () => {
+    const b = build([{ targetId: 'el_1', class: 'emphasis', preset: 'colorPulse', duration: 500 }])
+    expect(buildOverridesAt(b, 250).get('el_1')).toEqual({})
+  })
+
+  it('does not hold an emphasis element hidden at rest', () => {
+    const b = build([{ targetId: 'el_1', class: 'emphasis', preset: 'spin', delay: 100, duration: 400 }])
+    expect(buildOverridesAt(b, 0).get('el_1')).toBeUndefined()
+    expect(buildOverridesAt(b, 600).get('el_1')).toBeUndefined()
+  })
+})
+
 describe('planTimeline', () => {
   it('opens a step at the first build and at every onClick', () => {
     const timeline: SlideTimeline = {
