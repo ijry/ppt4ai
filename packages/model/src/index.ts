@@ -956,6 +956,8 @@ export interface AnimationItem {
 export interface AnimationBuild {
   trigger: AnimationTrigger
   items: AnimationItem[]
+  /** For an `interactiveSeq` build: the element whose click triggers it. Omitted on `mainSeq` builds. */
+  triggerId?: string
 }
 
 export interface SlideTimeline {
@@ -2468,6 +2470,7 @@ function validateAnimationBuild(value: unknown, path: string, elements: Record<s
   if (!value || typeof value !== 'object' || Array.isArray(value)) { errors.push(`${path} must be an object`); return }
   const build = value as Record<string, unknown>
   if (typeof build.trigger !== 'string' || !animationTriggers.has(build.trigger)) errors.push(`${path}.trigger must be an animation trigger`)
+  if (build.triggerId !== undefined && (typeof build.triggerId !== 'string' || !elements[build.triggerId])) errors.push(`${path}.triggerId must reference an element`)
   if (!Array.isArray(build.items)) errors.push(`${path}.items must be an array`)
   else build.items.forEach((item, index) => validateAnimationItem(item, `${path}.items[${index}]`, elements, errors))
 }

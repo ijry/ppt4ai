@@ -48,4 +48,26 @@ describe('animation timeline validation', () => {
   it('accepts a document with no animations at all', () => {
     expect(validateDocument(documentWith())).toEqual({ valid: true })
   })
+
+  it('accepts an interactive build whose triggerId references an element', () => {
+    const doc = documentWith({
+      sld_1: {
+        mainSeq: [],
+        interactiveSeq: [{ trigger: 'onClick', triggerId: 'el_1', items: [{ targetId: 'el_1', class: 'entrance', preset: 'fade' }] }],
+      },
+    })
+    expect(validateDocument(doc)).toEqual({ valid: true })
+  })
+
+  it('rejects an interactive build whose triggerId points at a missing element', () => {
+    const doc = documentWith({
+      sld_1: {
+        mainSeq: [],
+        interactiveSeq: [{ trigger: 'onClick', triggerId: 'nope', items: [{ targetId: 'el_1', class: 'entrance', preset: 'fade' }] }],
+      },
+    })
+    const result = validateDocument(doc)
+    expect(result.valid).toBe(false)
+    if (!result.valid) expect(result.errors.some((e) => e.includes('triggerId must reference an element'))).toBe(true)
+  })
 })

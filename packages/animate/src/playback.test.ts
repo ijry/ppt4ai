@@ -1,6 +1,6 @@
 import type { AnimationBuild, SlideTimeline } from '@ppt4ai/model'
 import { describe, expect, it } from 'vitest'
-import { buildOverridesAt, EASINGS, planTimeline, timelineOverridesAt } from './index'
+import { buildOverridesAt, EASINGS, interactiveBuildsFor, planTimeline, timelineOverridesAt } from './index'
 
 function build(items: AnimationBuild['items']): AnimationBuild {
   return { trigger: 'onClick', items }
@@ -185,5 +185,29 @@ describe('timelineOverridesAt', () => {
     // el_1 has exited (rests hidden); el_2 has entered (rests visible, no override).
     expect(at.get('el_1')).toEqual({ opacity: 0 })
     expect(at.get('el_2')).toBeUndefined()
+  })
+})
+
+describe('interactiveBuildsFor', () => {
+  const timeline: SlideTimeline = {
+    mainSeq: [{ trigger: 'onClick', items: [{ targetId: 'el_1', class: 'entrance', preset: 'fade' }] }],
+    interactiveSeq: [
+      { trigger: 'onClick', triggerId: 'btn', items: [{ targetId: 'el_2', class: 'entrance', preset: 'fade' }] },
+      { trigger: 'onClick', triggerId: 'other', items: [{ targetId: 'el_3', class: 'entrance', preset: 'fade' }] },
+      { trigger: 'onClick', triggerId: 'btn', items: [{ targetId: 'el_4', class: 'exit', preset: 'fade' }] },
+    ],
+  }
+
+  it('returns every interactive build a shape triggers, in document order', () => {
+    const builds = interactiveBuildsFor(timeline, 'btn')
+    expect(builds.map((b) => b.items[0]!.targetId)).toEqual(['el_2', 'el_4'])
+  })
+
+  it('returns nothing for a shape that triggers no build', () => {
+    expect(interactiveBuildsFor(timeline, 'nobody')).toEqual([])
+  })
+
+  it('never returns main-sequence builds', () => {
+    expect(interactiveBuildsFor({ mainSeq: timeline.mainSeq }, 'btn')).toEqual([])
   })
 })

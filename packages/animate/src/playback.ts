@@ -208,3 +208,12 @@ export function timelineOverridesAt(steps: TimelineStep[], stepIndex: number, ti
   if (clampedStep < steps.length) apply(steps[clampedStep]!, timeMs)
   return result
 }
+
+/**
+ * The interactive builds a click on `triggerId` fires. Unlike the main sequence these are not part of the
+ * click-through steps: each is its own little timeline the player runs from zero (via `buildOverridesAt`)
+ * when its shape is clicked. A shape may drive more than one build; document order is preserved.
+ */
+export function interactiveBuildsFor(timeline: SlideTimeline, triggerId: string): AnimationBuild[] {
+  return (timeline.interactiveSeq ?? []).filter((build) => build.triggerId === triggerId)
+}
