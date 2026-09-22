@@ -1404,6 +1404,14 @@ const TRIGGER_NODE_TYPE: Record<AnimationTrigger, string> = {
   afterPrev: 'afterEffect',
 }
 
+/** Model animation class → OOXML `@presetClass` token (`ST_TLTimeNodePresetClassType`). */
+const OOXML_PRESET_CLASS: Record<string, string> = {
+  entrance: 'entr',
+  exit: 'exit',
+  emphasis: 'emph',
+  motion: 'path',
+}
+
 /**
  * Emit a `p:timing` string that the importer's `parseSlideTiming` reads back to the same model — the
  * write-back contract is model round-trip, not byte round-trip, because the importer is a shallow read
@@ -1423,7 +1431,7 @@ function serializeTiming(timeline: SlideTimeline, resolveSpid: (elementId: strin
     const behaviorId = allocateId()
     const delay = trigger === 'onClick' ? (item.delay ?? 'indefinite') : (item.delay ?? 0)
     const dur = item.duration ?? 'indefinite'
-    const presetAttrs = `presetClass="${escapeXml(item.class)}"`
+    const presetAttrs = `presetClass="${OOXML_PRESET_CLASS[item.class] ?? escapeXml(item.class)}"`
       + (item.presetId !== undefined ? ` presetID="${item.presetId}"` : '')
       + (item.presetSubtype !== undefined ? ` presetSubtype="${item.presetSubtype}"` : '')
     return `<p:par><p:cTn id="${effectId}" ${presetAttrs} nodeType="${TRIGGER_NODE_TYPE[trigger]}" fill="hold">`

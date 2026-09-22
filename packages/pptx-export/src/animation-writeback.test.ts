@@ -27,7 +27,7 @@ function packageWith(timing = ''): Uint8Array {
 const SOURCE_TIMING =
   '<p:timing><p:tnLst><p:par><p:cTn id="1" nodeType="tmRoot"><p:childTnLst>'
   + '<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" nodeType="mainSeq"><p:childTnLst>'
-  + '<p:par><p:cTn id="3" presetID="1" presetClass="entrance" nodeType="clickEffect">'
+  + '<p:par><p:cTn id="3" presetID="1" presetClass="entr" nodeType="clickEffect">'
   + '<p:stCondLst><p:cond delay="indefinite"/></p:stCondLst>'
   + '<p:childTnLst><p:anim><p:cBhvr><p:cTn id="4" dur="500"/><p:tgtEl><p:spTgt spid="7"/></p:tgtEl></p:cBhvr></p:anim></p:childTnLst>'
   + '</p:cTn></p:par>'
@@ -49,6 +49,8 @@ describe('animation writeback', () => {
     const xml = await slideOf(await exportPptx(document, source))
     expect(xml).toContain('<p:timing>')
     expect(xml).toContain('spid="7"')
+    // The model's friendly class name is written back as the OOXML token PowerPoint expects.
+    expect(xml).toContain('presetClass="entr"')
     expect(xml.indexOf('</p:cSld>')).toBeLessThan(xml.indexOf('<p:timing>'))
   })
 

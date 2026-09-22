@@ -26,10 +26,20 @@ function intAttribute(node: XmlNode, name: string): number | undefined {
   return Number.isFinite(value) ? value : undefined
 }
 
-const ANIMATION_CLASSES = new Set<AnimationClass>(['entrance', 'exit', 'emphasis', 'motion'])
+/**
+ * OOXML `@presetClass` token → model animation class. The file uses the abbreviated
+ * `ST_TLTimeNodePresetClassType` values (`entr`/`exit`/`emph`/`path`); the model uses friendly names.
+ * `verb`/`mediacall` are OLE/media triggers we do not model, so they are dropped.
+ */
+const CLASS_BY_OOXML: Record<string, AnimationClass> = {
+  entr: 'entrance',
+  exit: 'exit',
+  emph: 'emphasis',
+  path: 'motion',
+}
 
-function isAnimationClass(value: string | undefined): value is AnimationClass {
-  return value !== undefined && ANIMATION_CLASSES.has(value as AnimationClass)
+function animationClass(presetClass: string | undefined): AnimationClass | undefined {
+  return presetClass === undefined ? undefined : CLASS_BY_OOXML[presetClass]
 }
 
 /**
@@ -111,8 +121,8 @@ function sequenceTriggerSpid(seq: XmlNode): string | undefined {
 type Resolve = (spid: string) => string | undefined
 
 function buildFromEffect(effect: XmlNode, resolve: Resolve, triggerId: string | undefined): AnimationBuild | undefined {
-  const cls = attribute(effect, 'presetClass')
-  if (!isAnimationClass(cls)) return undefined
+  const cls = animationClass(attribute(effect, 'presetClass'))
+  if (!cls) return undefined
   const spid = effectSpid(effect)
   const targetId = spid ? resolve(spid) : undefined
   if (!targetId) return undefined

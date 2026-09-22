@@ -21,7 +21,7 @@ const importSlide = (timing: string) =>
 const MAIN_SEQ =
   '<p:timing><p:tnLst><p:par><p:cTn id="1" nodeType="tmRoot"><p:childTnLst>'
   + '<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" nodeType="mainSeq"><p:childTnLst>'
-  + '<p:par><p:cTn id="3" presetID="10" presetClass="entrance" presetSubtype="0" nodeType="clickEffect">'
+  + '<p:par><p:cTn id="3" presetID="10" presetClass="entr" presetSubtype="0" nodeType="clickEffect">'
   + '<p:stCondLst><p:cond delay="indefinite"/></p:stCondLst>'
   + '<p:childTnLst><p:anim><p:cBhvr><p:cTn id="4" dur="500"/><p:tgtEl><p:spTgt spid="2"/></p:tgtEl></p:cBhvr></p:anim></p:childTnLst>'
   + '</p:cTn></p:par>'
@@ -37,7 +37,7 @@ const MAIN_SEQ =
 const INTERACTIVE =
   '<p:timing><p:tnLst><p:par><p:cTn id="1" nodeType="tmRoot"><p:childTnLst>'
   + '<p:seq concurrent="1" nextAc="seek"><p:cTn id="7" nodeType="interactiveSeq"><p:childTnLst>'
-  + '<p:par><p:cTn id="8" presetID="10" presetClass="entrance" nodeType="clickEffect">'
+  + '<p:par><p:cTn id="8" presetID="10" presetClass="entr" nodeType="clickEffect">'
   + '<p:stCondLst><p:cond delay="0"/></p:stCondLst>'
   + '<p:childTnLst><p:anim><p:cBhvr><p:cTn id="9" dur="250"/><p:tgtEl><p:spTgt spid="2"/></p:tgtEl></p:cBhvr></p:anim></p:childTnLst>'
   + '</p:cTn></p:par>'
@@ -63,16 +63,16 @@ describe('animation import', () => {
   })
 
   it('falls back to a placeholder name for an unmapped presetID', async () => {
-    const item = (await importSlide(MAIN_SEQ.replace('presetID="10" presetClass="entrance"', 'presetID="777" presetClass="entrance"')))
+    const item = (await importSlide(MAIN_SEQ.replace('presetID="10" presetClass="entr"', 'presetID="777" presetClass="entr"')))
       .animations?.sld_1?.mainSeq[0]?.items[0]
     expect(item).toMatchObject({ preset: 'preset777', presetId: 777 })
   })
 
   it('maps an entrance zoom and an emphasis spin to their kernel names', async () => {
-    const zoom = (await importSlide(MAIN_SEQ.replace('presetID="10" presetClass="entrance"', 'presetID="23" presetClass="entrance"')))
+    const zoom = (await importSlide(MAIN_SEQ.replace('presetID="10" presetClass="entr"', 'presetID="23" presetClass="entr"')))
       .animations?.sld_1?.mainSeq[0]?.items[0]
     expect(zoom).toMatchObject({ preset: 'zoom', presetId: 23 })
-    const spin = (await importSlide(MAIN_SEQ.replace('presetID="10" presetClass="entrance" presetSubtype="0"', 'presetID="8" presetClass="emphasis"')))
+    const spin = (await importSlide(MAIN_SEQ.replace('presetID="10" presetClass="entr" presetSubtype="0"', 'presetID="8" presetClass="emph"')))
       .animations?.sld_1?.mainSeq[0]?.items[0]
     expect(spin).toMatchObject({ preset: 'spin', class: 'emphasis', presetId: 8 })
   })
