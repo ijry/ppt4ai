@@ -19,7 +19,7 @@ onBeforeUnmount(() => player.dispose())
       <button class="px-3 py-1 border rounded" data-demo-next @click="player.next()">下一步</button>
       <button class="px-3 py-1 border rounded" data-demo-reset @click="player.reset()">重置</button>
     </div>
-    <p class="text-sm text-gray-500">点击「下一步」逐步触发：淡入 → 从左飞入 → 旋转强调。</p>
+    <p class="text-sm text-gray-500">点击「下一步」逐步触发：淡入 → 从左飞入 → 旋转强调 → 沿路径移动。</p>
     <SlideCanvas :scene="demo.scene" :adapter="demo.adapter" :overrides="overrides" :zoom="0.6" />
   </div>
 </template>

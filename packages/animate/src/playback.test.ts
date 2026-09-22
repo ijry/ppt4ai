@@ -95,6 +95,32 @@ describe('emphasis presets', () => {
   })
 })
 
+describe('motion path', () => {
+  const motion = (path: string) => build([{ targetId: 'el_1', class: 'motion', preset: 'custom', duration: 1000, params: { path, easing: 'linear' } }])
+
+  it('offsets along the path as a fraction of the slide', () => {
+    const b = motion('M 0 0 L 0.5 0.25 E')
+    expect(b.items[0]!.class).toBe('motion')
+    expect(buildOverridesAt(b, 0).get('el_1')).toEqual({ offsetXSlideRatio: 0, offsetYSlideRatio: 0 })
+    const mid = buildOverridesAt(b, 500).get('el_1')!
+    expect(mid.offsetXSlideRatio).toBeCloseTo(0.25)
+    expect(mid.offsetYSlideRatio).toBeCloseTo(0.125)
+  })
+
+  it('holds the element at the path end after it finishes', () => {
+    const at = buildOverridesAt(motion('M 0 0 L 0.5 0.25 E'), 1500).get('el_1')!
+    expect(at.offsetXSlideRatio).toBeCloseTo(0.5)
+    expect(at.offsetYSlideRatio).toBeCloseTo(0.25)
+  })
+
+  it('reads relative commands as offsets from the current point', () => {
+    // m 0.1 0.1 then l 0.2 0 -> endpoint (0.3, 0.1); midpoint offset from start (0.1,0.1) is (0.1, 0).
+    const mid = buildOverridesAt(motion('m 0.1 0.1 l 0.2 0 e'), 500).get('el_1')!
+    expect(mid.offsetXSlideRatio).toBeCloseTo(0.1)
+    expect(mid.offsetYSlideRatio).toBeCloseTo(0)
+  })
+})
+
 describe('planTimeline', () => {
   it('opens a step at the first build and at every onClick', () => {
     const timeline: SlideTimeline = {

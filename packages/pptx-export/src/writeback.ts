@@ -1434,10 +1434,16 @@ function serializeTiming(timeline: SlideTimeline, resolveSpid: (elementId: strin
     const presetAttrs = `presetClass="${OOXML_PRESET_CLASS[item.class] ?? escapeXml(item.class)}"`
       + (item.presetId !== undefined ? ` presetID="${item.presetId}"` : '')
       + (item.presetSubtype !== undefined ? ` presetSubtype="${item.presetSubtype}"` : '')
+    const behavior = `<p:cBhvr><p:cTn id="${behaviorId}" dur="${dur}"/>`
+      + `<p:tgtEl><p:spTgt spid="${escapeXml(spid)}"/></p:tgtEl></p:cBhvr>`
+    // A motion path rides `p:animMotion` (with its `@path`/`@origin`); everything else uses `p:anim`.
+    const motionPath = item.class === 'motion' ? item.params?.path : undefined
+    const behaviorNode = motionPath !== undefined
+      ? `<p:animMotion${item.params?.origin ? ` origin="${escapeXml(item.params.origin)}"` : ''} path="${escapeXml(motionPath)}">${behavior}</p:animMotion>`
+      : `<p:anim>${behavior}</p:anim>`
     return `<p:par><p:cTn id="${effectId}" ${presetAttrs} nodeType="${TRIGGER_NODE_TYPE[trigger]}" fill="hold">`
       + `<p:stCondLst><p:cond delay="${delay}"/></p:stCondLst>`
-      + `<p:childTnLst><p:anim><p:cBhvr><p:cTn id="${behaviorId}" dur="${dur}"/>`
-      + `<p:tgtEl><p:spTgt spid="${escapeXml(spid)}"/></p:tgtEl></p:cBhvr></p:anim></p:childTnLst>`
+      + `<p:childTnLst>${behaviorNode}</p:childTnLst>`
       + `</p:cTn></p:par>`
   }
 

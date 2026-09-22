@@ -80,6 +80,18 @@ describe('animation writeback', () => {
     expect(reimported.animations?.sld_1).toEqual(timeline)
   })
 
+  it('round-trips a motion path via p:animMotion', async () => {
+    const source = packageWith('')
+    const document = await importPptx(source)
+    const timeline: SlideTimeline = {
+      mainSeq: [{ trigger: 'onClick', items: [{ targetId: 'el_1', class: 'motion', preset: 'unknown', duration: 1000, params: { path: 'M 0 0 L 0.5 0.25 E', origin: 'layout' } }] }],
+    }
+    document.animations = { sld_1: timeline }
+    const output = await exportPptx(document, source)
+    expect(await slideOf(output)).toContain('<p:animMotion')
+    expect((await importPptx(output)).animations?.sld_1).toEqual(timeline)
+  })
+
   it('deletes the timing node when the model no longer has animations', async () => {
     const source = packageWith(SOURCE_TIMING)
     const document = await importPptx(source)

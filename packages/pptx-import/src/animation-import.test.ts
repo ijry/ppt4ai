@@ -46,7 +46,22 @@ const INTERACTIVE =
   + '</p:seq>'
   + '</p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>'
 
+const MOTION =
+  '<p:timing><p:tnLst><p:par><p:cTn id="1" nodeType="tmRoot"><p:childTnLst>'
+  + '<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" nodeType="mainSeq"><p:childTnLst>'
+  + '<p:par><p:cTn id="3" presetClass="path" nodeType="clickEffect">'
+  + '<p:stCondLst><p:cond delay="indefinite"/></p:stCondLst>'
+  + '<p:childTnLst><p:animMotion origin="layout" path="M 0 0 L 0.5 0.25 E"><p:cBhvr><p:cTn id="4" dur="1000"/><p:tgtEl><p:spTgt spid="2"/></p:tgtEl></p:cBhvr></p:animMotion></p:childTnLst>'
+  + '</p:cTn></p:par>'
+  + '</p:childTnLst></p:cTn></p:seq>'
+  + '</p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>'
+
 describe('animation import', () => {
+  it('parses a motion path into class motion with the path param', async () => {
+    const item = (await importSlide(MOTION)).animations?.sld_1?.mainSeq[0]?.items[0]
+    expect(item).toMatchObject({ targetId: 'el_1', class: 'motion', duration: 1000, params: { path: 'M 0 0 L 0.5 0.25 E', origin: 'layout' } })
+  })
+
   it('parses a main sequence into ordered builds keyed by slide id', async () => {
     const document = await importSlide(MAIN_SEQ)
     const timeline = document.animations?.sld_1

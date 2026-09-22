@@ -12,6 +12,12 @@ export interface ElementOverride {
   scale?: number
   /** Degrees clockwise about the element's centre; the paint layer rotates around the box centre. */
   rotation?: number
+  /**
+   * A motion-path offset as a fraction of the *slide* (page) size, not the element box — that is how
+   * OOXML expresses motion paths. The paint layer scales these by the page dimensions.
+   */
+  offsetXSlideRatio?: number
+  offsetYSlideRatio?: number
 }
 
 export type Easing = (t: number) => number
@@ -45,16 +51,95 @@ const DIRECTION_OFFSETS: Record<string, { x: number; y: number }> = {
   fromBottomRight: { x: 1, y: 1 },
 }
 
+interface PathPoint {
+  x: number
+  y: number
+}
+
 /**
- * The override for a single entrance/exit/emphasis preset at eased progress `p` (0..1). Unknown
+ * Parse an OOXML `animMotion@path` into a polyline of points, in fractions of the slide (`1,1` is the
+ * lower-right corner). UPPERCASE commands are absolute, lowercase are relative to the current point.
+ * `C` (cubic) is approximated by its endpoint — curve sampling is a later refinement — and `Z` closes
+ * back to the start; `E` ends. Unrecognised tokens stop the walk rather than loop.
+ */
+function parseMotionPath(path: string): PathPoint[] {
+  const tokens = path.trim().split(/[\s,]+/).filter(Boolean)
+  const points: PathPoint[] = []
+  let cursor: PathPoint = { x: 0, y: 0 }
+  let index = 0
+  const nextNumber = (): number => Number(tokens[index++])
+  while (index < tokens.length) {
+    const command = tokens[index++]!
+    const relative = command === command.toLowerCase()
+    const kind = command.toUpperCase()
+    if (kind === 'M' || kind === 'L') {
+      let x = nextNumber()
+      let y = nextNumber()
+      if (relative) { x += cursor.x; y += cursor.y }
+      cursor = { x, y }
+      points.push(cursor)
+    } else if (kind === 'C') {
+      let endpoint: PathPoint = cursor
+      for (let point = 0; point < 3; point += 1) {
+        let x = nextNumber()
+        let y = nextNumber()
+        if (relative) { x += cursor.x; y += cursor.y }
+        endpoint = { x, y }
+      }
+      cursor = endpoint
+      points.push(cursor)
+    } else if (kind === 'Z') {
+      if (points.length > 0) { cursor = points[0]!; points.push(cursor) }
+    } else {
+      break // 'E' (end) or anything unexpected
+    }
+  }
+  return points
+}
+
+/** The point at eased progress `p` (0..1) along the polyline, interpolated by segment length. */
+function pointAtProgress(points: PathPoint[], p: number): PathPoint {
+  if (points.length === 1) return points[0]!
+  const lengths: number[] = []
+  let total = 0
+  for (let i = 1; i < points.length; i += 1) {
+    const length = Math.hypot(points[i]!.x - points[i - 1]!.x, points[i]!.y - points[i - 1]!.y)
+    lengths.push(length)
+    total += length
+  }
+  if (total === 0) return points[points.length - 1]!
+  let remaining = clamp01(p) * total
+  for (let i = 0; i < lengths.length; i += 1) {
+    if (remaining <= lengths[i]! || i === lengths.length - 1) {
+      const t = lengths[i]! === 0 ? 0 : remaining / lengths[i]!
+      const a = points[i]!
+      const b = points[i + 1]!
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }
+    }
+    remaining -= lengths[i]!
+  }
+  return points[points.length - 1]!
+}
+
+/**
+ * The override for a single entrance/exit/emphasis/motion preset at eased progress `p` (0..1). Unknown
  * entrance/exit presets fall back to a fade — a reader should degrade to a fade rather than pop the
- * element in with no animation; unknown emphasis presets stay at identity. Motion paths are not modeled
- * here yet.
+ * element in with no animation; unknown emphasis presets stay at identity. A motion preset moves the
+ * element along its `params.path` (fractions of the slide).
  */
 function presetOverride(item: AnimationItem, p: number): ElementOverride {
   const eased = (EASINGS[item.params?.easing ?? 'easeOut'] ?? EASINGS.easeOut!)(p)
   const direction = item.params?.direction
   const offset = direction ? DIRECTION_OFFSETS[direction] : undefined
+  if (item.class === 'motion') {
+    const path = item.params?.path
+    if (!path) return {}
+    const points = parseMotionPath(path)
+    if (points.length < 2) return {}
+    const point = pointAtProgress(points, eased)
+    const start = points[0]!
+    return { offsetXSlideRatio: point.x - start.x, offsetYSlideRatio: point.y - start.y }
+  }
   if (item.class === 'entrance') {
     switch (item.preset) {
       case 'appear':
@@ -122,7 +207,11 @@ function itemOverrideAt(item: AnimationItem, timeMs: number): ElementOverride | 
   const delay = item.delay ?? 0
   const duration = item.duration ?? 0
   if (timeMs < delay) return restingOverride(item, true)
-  if (duration <= 0 || timeMs >= delay + duration) return restingOverride(item, false)
+  if (duration <= 0 || timeMs >= delay + duration) {
+    // A motion path leaves the element at its end position, so hold the final offset rather than resetting.
+    if (item.class === 'motion') return presetOverride(item, 1)
+    return restingOverride(item, false)
+  }
   return presetOverride(item, clamp01((timeMs - delay) / duration))
 }
 

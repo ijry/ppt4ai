@@ -117,6 +117,16 @@ function sequenceTriggerSpid(seq: XmlNode): string | undefined {
   return undefined
 }
 
+/** A motion effect's path (and origin) from its `p:animMotion`, as playback params; undefined otherwise. */
+function motionParams(effect: XmlNode, cls: AnimationClass): Record<string, string> | undefined {
+  if (cls !== 'motion') return undefined
+  const animMotion = descendants(effect, 'animMotion')[0]
+  const path = animMotion && attribute(animMotion, 'path')
+  if (!path) return undefined
+  const origin = animMotion && attribute(animMotion, 'origin')
+  return { path, ...(origin ? { origin } : {}) }
+}
+
 /** Resolve a raw spid to a model element id, or undefined if it does not map to an emitted element. */
 type Resolve = (spid: string) => string | undefined
 
@@ -130,6 +140,8 @@ function buildFromEffect(effect: XmlNode, resolve: Resolve, triggerId: string | 
   const presetSubtype = intAttribute(effect, 'presetSubtype')
   const duration = effectDurationMs(effect)
   const delay = startDelayMs(effect)
+  // A motion effect carries its path (and origin) on `p:animMotion`; keep them as params for playback.
+  const params = motionParams(effect, cls)
   const item: AnimationItem = {
     targetId,
     class: cls,
@@ -139,6 +151,7 @@ function buildFromEffect(effect: XmlNode, resolve: Resolve, triggerId: string | 
     ...(presetSubtype !== undefined ? { presetSubtype } : {}),
     ...(duration !== undefined ? { duration } : {}),
     ...(delay !== undefined ? { delay } : {}),
+    ...(params ? { params } : {}),
   }
   return {
     trigger: effectTrigger(effect),

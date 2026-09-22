@@ -22,6 +22,16 @@ describe('overridePaintTransform', () => {
     expect(overridePaintTransform({ x: 0, y: 0, w: 100, h: 100 }, undefined))
       .toEqual({ opacity: 1, translateX: 0, translateY: 0, scale: 1, rotationDeg: 0 })
   })
+
+  it('resolves a motion (slide-relative) offset against the page size', () => {
+    const transform = overridePaintTransform(
+      { x: 0, y: 0, w: 100, h: 100 },
+      { offsetXSlideRatio: 0.25, offsetYSlideRatio: 0.5 },
+      { w: 9144000, h: 6858000 },
+    )
+    expect(transform.translateX).toBeCloseTo(2286000)
+    expect(transform.translateY).toBeCloseTo(3429000)
+  })
 })
 
 describe('playback state machine', () => {

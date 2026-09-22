@@ -27,6 +27,7 @@ const demoTimeline: SlideTimeline = {
     { trigger: 'onClick', items: [{ targetId: 'el_1', class: 'entrance', preset: 'fade', duration: 600, params: { easing: 'easeOut' } }] },
     { trigger: 'onClick', items: [{ targetId: 'el_2', class: 'entrance', preset: 'fly', duration: 600, params: { easing: 'easeOut', direction: 'fromLeft' } }] },
     { trigger: 'onClick', items: [{ targetId: 'el_3', class: 'emphasis', preset: 'spin', duration: 800 }] },
+    { trigger: 'onClick', items: [{ targetId: 'el_1', class: 'motion', preset: 'custom', duration: 900, params: { easing: 'easeInOut', path: 'M 0 0 L 0.3 0.15 L 0 0.3 E' } }] },
   ],
 }
 
@@ -50,7 +51,7 @@ export function createAnimationDemo(): AnimationDemo {
     timeline: demoTimeline,
     boundsById,
     createPlayer(onFrame, timing) {
-      return createSlidePlayer({ timeline: demoTimeline, boundsById, onFrame, ...(timing ?? {}) })
+      return createSlidePlayer({ timeline: demoTimeline, boundsById, page: scene.page, onFrame, ...(timing ?? {}) })
     },
   }
 }

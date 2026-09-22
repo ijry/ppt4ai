@@ -16,11 +16,12 @@ import {
 export function paintOverridesFor(
   state: PlaybackState,
   boundsById: (nodeId: string) => Rect | undefined,
+  page?: { w: number; h: number },
 ): Map<string, OverridePaintTransform> {
   const result = new Map<string, OverridePaintTransform>()
   for (const [id, override] of overridesFor(state)) {
     const bounds = boundsById(id)
-    if (bounds) result.set(id, overridePaintTransform(bounds, override))
+    if (bounds) result.set(id, overridePaintTransform(bounds, override, page))
   }
   return result
 }
@@ -29,6 +30,8 @@ export interface SlidePlayerOptions {
   timeline: SlideTimeline
   /** Bounds (EMU) for a node id, used to turn override ratios into concrete offsets. */
   boundsById: (nodeId: string) => Rect | undefined
+  /** Slide (page) size in EMU, needed to resolve motion-path (slide-relative) offsets. */
+  page?: { w: number; h: number }
   /** Called with the paint transforms for the current instant — hand these to the renderer. */
   onFrame: (overrides: Map<string, OverridePaintTransform>) => void
   /** Injectable for tests; default `performance.now`. */
@@ -68,7 +71,7 @@ export function createSlidePlayer(options: SlidePlayerOptions): SlidePlayer {
   let frame: number | undefined
   let lastTime = 0
 
-  const emit = (): void => options.onFrame(paintOverridesFor(state, options.boundsById))
+  const emit = (): void => options.onFrame(paintOverridesFor(state, options.boundsById, options.page))
 
   const schedule = (): void => {
     if (frame === undefined) frame = scheduleFrame(loop)

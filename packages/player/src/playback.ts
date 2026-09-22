@@ -19,11 +19,19 @@ export interface OverridePaintTransform {
   rotationDeg: number
 }
 
-export function overridePaintTransform(bounds: Rect, override: ElementOverride | undefined): OverridePaintTransform {
+export function overridePaintTransform(
+  bounds: Rect,
+  override: ElementOverride | undefined,
+  page?: { w: number; h: number },
+): OverridePaintTransform {
+  // Element-box offsets scale by the element; motion-path (slide) offsets scale by the page — both land
+  // in the same paint-space translation. Without a page the slide-relative part contributes nothing.
+  const slideX = (override?.offsetXSlideRatio ?? 0) * (page?.w ?? 0)
+  const slideY = (override?.offsetYSlideRatio ?? 0) * (page?.h ?? 0)
   return {
     opacity: override?.opacity ?? 1,
-    translateX: (override?.offsetXRatio ?? 0) * bounds.w,
-    translateY: (override?.offsetYRatio ?? 0) * bounds.h,
+    translateX: (override?.offsetXRatio ?? 0) * bounds.w + slideX,
+    translateY: (override?.offsetYRatio ?? 0) * bounds.h + slideY,
     scale: override?.scale ?? 1,
     rotationDeg: override?.rotation ?? 0,
   }
