@@ -50,7 +50,7 @@ function onStageUpdate(next: typeof snapshot.value): void { snapshot.value = nex
         @select="selectSlide" @add="addSlide" @duplicate="duplicateSlide" @delete="deleteSlide" @move="moveSlide"
       />
       <CanvasStage :snapshot="snapshot" :host="host" :zoom="zoom" class="min-h-0 overflow-auto" @update="onStageUpdate" />
-      <Inspector :snapshot="snapshot" class="min-h-0 overflow-y-auto border-l border-border bg-surface" />
+      <Inspector :snapshot="snapshot" :host="host" class="min-h-0 overflow-y-auto border-l border-border bg-surface" @update="onStageUpdate" />
     </div>
   </div>
 </template>
