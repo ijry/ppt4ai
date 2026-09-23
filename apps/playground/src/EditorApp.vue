@@ -42,7 +42,7 @@ function onStageUpdate(next: typeof snapshot.value): void { snapshot.value = nex
       @undo="undo" @redo="redo" @copy="copySel" @paste="paste" @add="addSlide"
       @group="group" @ungroup="ungroup" @rotate="rotate" @flip="flip" @zoom="onZoom"
     />
-    <div class="grid min-h-0 grid-cols-[17rem_1fr_22rem]">
+    <div class="grid min-h-0 grid-cols-[17rem_1fr_26rem]">
       <SlideNavigator
         :snapshot="snapshot"
         :adapter="host.adapter"
