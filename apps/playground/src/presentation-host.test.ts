@@ -328,4 +328,45 @@ describe('createPlaygroundPresentationHost', () => {
 
     expect(result.slides.sld_playground?.engineState.document.themes?.thm_playground?.colors.accent1).toBeNull()
   })
+
+  it('inserts a shape and selects it', () => {
+    const host = createPlaygroundPresentationHost()
+    const before = Object.keys(host.getSnapshot().slides.sld_playground!.engineState.document.elements).length
+
+    const result = host.insertShape('rect')
+    const doc = result.slides.sld_playground!.engineState.document
+
+    expect(Object.keys(doc.elements).length).toBe(before + 1)
+    expect(result.slides.sld_playground!.engineState.selection).toHaveLength(1)
+    const newId = result.slides.sld_playground!.engineState.selection[0]!
+    expect(doc.elements[newId]?.kind).toBe('shape')
+    expect(result.status).toEqual({ kind: 'success', message: 'element-inserted' })
+  })
+
+  it('inserts a text box', () => {
+    const host = createPlaygroundPresentationHost()
+    const result = host.insertText()
+    const newId = result.slides.sld_playground!.engineState.selection[0]!
+    expect(result.slides.sld_playground!.engineState.document.elements[newId]?.kind).toBe('text')
+  })
+
+  it('reorders the selected element back one layer', () => {
+    const host = createPlaygroundPresentationHost()
+    const slideId = () => host.getSnapshot().slides.sld_playground!.engineState.document.slideOrder[0]!
+    const inserted = host.insertShape('rect')
+    const ids0 = inserted.slides.sld_playground!.engineState.document.slides[slideId()]!.elementIds
+    const newId = inserted.slides.sld_playground!.engineState.selection[0]!
+    expect(ids0[ids0.length - 1]).toBe(newId)
+
+    const back = host.sendBackward()
+    const ids1 = back.slides.sld_playground!.engineState.document.slides[slideId()]!.elementIds
+    expect(ids1.indexOf(newId)).toBe(ids0.length - 2)
+    expect(back.status).toEqual({ kind: 'success', message: 'element-reordered' })
+  })
+
+  it('refuses to reorder with nothing selected', () => {
+    const host = createPlaygroundPresentationHost()
+    host.selectElement(undefined)
+    expect(host.bringToFront().status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+  })
 })

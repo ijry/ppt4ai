@@ -1,6 +1,6 @@
 import type { EngineState, ImageFlipAxis, SnapOptions } from '@ppt4ai/engine'
 import { documentToSceneGraph, type SceneGraph } from '@ppt4ai/render'
-import type { AssetAdapter, AssetMetadata, Color, Element, Fill, Ppt4aiDocument, Rect, SlideBackground, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Color, Element, Fill, Ppt4aiDocument, PresetGeometry, Rect, SlideBackground, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import { createPlaygroundAssetHost, type PlaygroundAssetHost, type PlaygroundAssetHostSnapshot } from './asset-host'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
@@ -43,6 +43,12 @@ export interface PlaygroundPresentationHost {
   moveSlide(slideId: string, direction: 'up' | 'down'): PlaygroundPresentationSnapshot
   selectElements(elementIds: string[]): PlaygroundPresentationSnapshot
   selectElement(elementId: string | undefined): PlaygroundPresentationSnapshot
+  insertText(): PlaygroundPresentationSnapshot
+  insertShape(preset: PresetGeometry): PlaygroundPresentationSnapshot
+  bringToFront(): PlaygroundPresentationSnapshot
+  sendToBack(): PlaygroundPresentationSnapshot
+  bringForward(): PlaygroundPresentationSnapshot
+  sendBackward(): PlaygroundPresentationSnapshot
   moveSelected(elementId: string, dx: number, dy: number): PlaygroundPresentationSnapshot
   groupSelected(): PlaygroundPresentationSnapshot
   ungroupSelected(groupId: string): PlaygroundPresentationSnapshot
@@ -462,6 +468,16 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     moveSelected(elementId, dx, dy) {
       return forward((host) => host.moveSelected(elementId, dx, dy))
     },
+    insertText() {
+      return forward((host) => host.insertText())
+    },
+    insertShape(preset) {
+      return forward((host) => host.insertShape(preset))
+    },
+    bringToFront() { return forward((host) => host.zOrder('front')) },
+    sendToBack() { return forward((host) => host.zOrder('back')) },
+    bringForward() { return forward((host) => host.zOrder('forward')) },
+    sendBackward() { return forward((host) => host.zOrder('backward')) },
     groupSelected() {
       return forward((host) => host.groupSelected())
     },

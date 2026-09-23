@@ -1,6 +1,6 @@
 import { EditorEngine, type EngineCommand, type EngineState, type ImageFlipAxis, type SnapOptions } from '@ppt4ai/engine'
 import { createImageAssetController, createTableCellTextEditingController, ImageAssetControllerError } from '@ppt4ai/editor'
-import type { AssetAdapter, AssetMetadata, Color, Element, Fill, ImageElement, Ppt4aiDocument, Rect, SlideBackground, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, Color, Element, Fill, ImageElement, Ppt4aiDocument, PresetGeometry, Rect, ShapeElement, SlideBackground, StrokeStyle, TableBorder, TextBody, TextElement, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
 export interface PlaygroundAssetHostSnapshot {
@@ -19,6 +19,9 @@ export interface PlaygroundAssetHost {
   undo(): PlaygroundAssetHostSnapshot
   redo(): PlaygroundAssetHostSnapshot
   insertElements(rootElementIds: string[], elements: Element[], assets: AssetMetadata[]): PlaygroundAssetHostSnapshot
+  insertText(): PlaygroundAssetHostSnapshot
+  insertShape(preset: PresetGeometry): PlaygroundAssetHostSnapshot
+  zOrder(action: 'front' | 'back' | 'forward' | 'backward'): PlaygroundAssetHostSnapshot
   selectElements(elementIds: string[]): PlaygroundAssetHostSnapshot
   selectElement(elementId: string | undefined): PlaygroundAssetHostSnapshot
   moveSelected(elementId: string, dx: number, dy: number): PlaygroundAssetHostSnapshot
@@ -143,6 +146,17 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
   let selectedAssetId: string | undefined
   let imageSequence = 1
   let assetSequence = 1
+  let elementSequence = 1
+  // Ids are caller-provided on insert (the engine echoes them); generate a fresh, collision-free one.
+  const nextElementId = (): string => {
+    let id = `element_${elementSequence}`
+    elementSequence += 1
+    while (engine.getState().document.elements[id]) {
+      id = `element_${elementSequence}`
+      elementSequence += 1
+    }
+    return id
+  }
   let status: PlaygroundAssetHostSnapshot['status'] = { kind: 'idle', message: '' }
   const imageAssetController = createImageAssetController({
     engine,
@@ -215,6 +229,46 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
         status = { kind: 'success', message: 'elements-pasted' }
       } catch {
         return fail('element-paste-failed')
+      }
+      return snapshot()
+    },
+    insertText() {
+      const id = nextElementId()
+      const element: TextElement = {
+        id, kind: 'text',
+        bounds: { x: 1219200, y: 1143000, w: 3657600, h: 914400 },
+        body: { paragraphs: [{ runs: [{ text: '文本', marks: { fontSize: 280000 } }] }] },
+      }
+      try {
+        engine.dispatch({ type: 'insertElements', slideId: currentSlideId(), rootElementIds: [id], elements: [element] })
+        status = { kind: 'success', message: 'element-inserted' }
+      } catch {
+        return fail('element-insert-failed')
+      }
+      return snapshot()
+    },
+    insertShape(preset) {
+      const id = nextElementId()
+      const element: ShapeElement = {
+        id, kind: 'shape', preset,
+        bounds: { x: 1219200, y: 1143000, w: 2743200, h: 1371600 },
+        fill: { color: { type: 'scheme', v: 'accent1' } },
+      }
+      try {
+        engine.dispatch({ type: 'insertElements', slideId: currentSlideId(), rootElementIds: [id], elements: [element] })
+        status = { kind: 'success', message: 'element-inserted' }
+      } catch {
+        return fail('element-insert-failed')
+      }
+      return snapshot()
+    },
+    zOrder(action) {
+      if (engine.getState().selection.length === 0) return fail('element-operation-failed')
+      try {
+        engine.dispatch({ type: 'zOrder', action })
+        status = { kind: 'success', message: 'element-reordered' }
+      } catch {
+        return fail('element-operation-failed')
       }
       return snapshot()
     },
