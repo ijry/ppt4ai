@@ -115,15 +115,17 @@ function resetThemeFont(slot: ThemeFontSlot, script: ThemeFontScript): void { em
         </select>
       </Field>
     </Panel>
-    <SlideBackgroundPanel
-      :model="backgroundModel"
-      :picture-assets="backgroundPictureAssets"
-      @set-color="setBackgroundColor"
-      @set-gradient="setBackgroundGradient"
-      @set-pattern="setBackgroundPattern"
-      @set-picture="setBackgroundPicture"
-      @clear="clearBackground"
-    />
+    <Panel title="背景">
+      <SlideBackgroundPanel
+        :model="backgroundModel"
+        :picture-assets="backgroundPictureAssets"
+        @set-color="setBackgroundColor"
+        @set-gradient="setBackgroundGradient"
+        @set-pattern="setBackgroundPattern"
+        @set-picture="setBackgroundPicture"
+        @clear="clearBackground"
+      />
+    </Panel>
     <Panel v-if="activeThemeId" title="主题" data-theme-panel>
       <ThemePanel
         :active="activeThemeId !== undefined"

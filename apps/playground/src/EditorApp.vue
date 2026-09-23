@@ -36,13 +36,13 @@ function onZoom(kind: 'in' | 'out' | 'fit'): void {
 function onStageUpdate(next: typeof snapshot.value): void { snapshot.value = next }
 </script>
 <template>
-  <div class="grid h-screen grid-rows-[auto_1fr] bg-bg text-text">
+  <div class="grid h-screen grid-rows-[auto_1fr] bg-bg text-text font-sans antialiased">
     <AppToolbar
       :snapshot="snapshot"
       @undo="undo" @redo="redo" @copy="copySel" @paste="paste" @add="addSlide"
       @group="group" @ungroup="ungroup" @rotate="rotate" @flip="flip" @zoom="onZoom"
     />
-    <div class="grid min-h-0 grid-cols-[16rem_1fr_20rem]">
+    <div class="grid min-h-0 grid-cols-[17rem_1fr_22rem]">
       <SlideNavigator
         :snapshot="snapshot"
         :adapter="host.adapter"
@@ -50,7 +50,7 @@ function onStageUpdate(next: typeof snapshot.value): void { snapshot.value = nex
         @select="selectSlide" @add="addSlide" @duplicate="duplicateSlide" @delete="deleteSlide" @move="moveSlide"
       />
       <CanvasStage :snapshot="snapshot" :host="host" :zoom="zoom" class="min-h-0 overflow-auto" @update="onStageUpdate" />
-      <Inspector :snapshot="snapshot" :host="host" class="min-h-0 overflow-y-auto border-l border-border bg-surface" @update="onStageUpdate" />
+      <Inspector :snapshot="snapshot" :host="host" class="min-h-0 overflow-y-auto border-l border-border bg-bg" @update="onStageUpdate" />
     </div>
   </div>
 </template>

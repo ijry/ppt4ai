@@ -1,1 +1,1 @@
-<template><div class="flex items-center gap-1 border-b border-border bg-surface px-2 py-1.5"><slot /></div></template>
+<template><div class="flex items-center gap-2 border-b border-border bg-surface px-3 h-14 shadow-toolbar"><slot /></div></template>

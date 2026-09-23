@@ -40,8 +40,9 @@ function setTableCellBorders(borders: Partial<Record<'left' | 'right' | 'top' | 
 function setTableCellText(p: { elementId: string; point: { row: number; column: number }; body: TextBody }): void { emit('update', props.host.setTableCellText(p.elementId, p.point.row, p.point.column, p.body)) }
 </script>
 <template>
-  <div data-region="stage" class="flex items-start justify-center p-6">
-    <PptEditor
+  <div data-region="stage" class="flex items-start justify-center overflow-auto bg-gradient-to-b from-surface-2 to-bg p-10">
+    <div class="overflow-hidden rounded-xl bg-white shadow-slide ring-1 ring-black/5">
+      <PptEditor
       :scene="b.scene" :adapter="props.host.adapter" :snap-options="props.host.snapOptions"
       :selected-element-id="b.selectedElementId" :selected-element-ids="b.selectedElementIds"
       :table-cell-selection="tableCellSelection" :text-bodies="b.textBodies"
@@ -54,6 +55,7 @@ function setTableCellText(p: { elementId: string; point: { row: number; column: 
       @set-stroke-width="setShapeStrokeWidth" @set-stroke-style="setShapeStrokeStyle"
       @select-table-cell="selectTableCell" @set-table-cell-fill="setTableCellFill"
       @set-table-cell-borders="setTableCellBorders" @table-cell-text="setTableCellText"
-    />
+      />
+    </div>
   </div>
 </template>

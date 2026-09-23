@@ -15,6 +15,11 @@ const m = computed(() => toolbarModel(props.snapshot))
 </script>
 <template>
   <Toolbar data-region="toolbar">
+    <span class="mr-1 flex items-center gap-2 pr-1 select-none">
+      <span class="grid h-7 w-7 place-items-center rounded-lg bg-primary text-xs font-bold text-white">P</span>
+      <span class="text-sm font-semibold tracking-tight">ppt4ai</span>
+    </span>
+    <Divider />
     <ToolbarGroup>
       <IconButton data-act="undo" label="撤销" :disabled="!m.canUndo" @click="emit('undo')"><Undo2 :size="18" /></IconButton>
       <IconButton data-act="redo" label="重做" :disabled="!m.canRedo" @click="emit('redo')"><Redo2 :size="18" /></IconButton>
@@ -34,7 +39,7 @@ const m = computed(() => toolbarModel(props.snapshot))
       <IconButton label="水平翻转" :disabled="!m.hasSelection" @click="emit('flip', 'horizontal')"><FlipHorizontal :size="18" /></IconButton>
       <IconButton label="垂直翻转" :disabled="!m.hasSelection" @click="emit('flip', 'vertical')"><FlipVertical :size="18" /></IconButton>
     </ToolbarGroup>
-    <div class="ml-auto flex items-center gap-0.5">
+    <div class="ml-auto flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
       <IconButton label="缩小" @click="emit('zoom', 'out')"><ZoomOut :size="18" /></IconButton>
       <IconButton label="适应" @click="emit('zoom', 'fit')"><Maximize :size="18" /></IconButton>
       <IconButton label="放大" @click="emit('zoom', 'in')"><ZoomIn :size="18" /></IconButton>
