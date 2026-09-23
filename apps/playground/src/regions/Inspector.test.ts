@@ -42,4 +42,13 @@ describe('Inspector', () => {
     picker.value = 'lyt_2'; picker.dispatchEvent(new Event('change', { bubbles: true }))
     expect(host.setSlideLayout).toHaveBeenCalledWith('lyt_2')
   })
+  it('renders the theme panel when the slide resolves a theme', () => {
+    const s = snap([])
+    const doc = (s.slides.s as unknown as { engineState: { document: Record<string, unknown> } }).engineState.document
+    doc.slides = { s: { layoutId: 'lyt_1' } }
+    doc.layouts = { lyt_1: { id: 'lyt_1', masterId: 'mst_1' } }
+    doc.masters = { mst_1: { id: 'mst_1', themeId: 'theme_1' } }
+    doc.themes = { theme_1: { id: 'theme_1', colors: {}, fonts: {} } }
+    expect(mount({ snapshot: s, host: {} }).querySelector('[data-theme-panel]')).not.toBeNull()
+  })
 })

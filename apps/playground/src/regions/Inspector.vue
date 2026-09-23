@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { SlideBackgroundPanel, slideBackgroundModel, AssetLibrary } from '@ppt4ai/editor'
-import type { Color } from '@ppt4ai/model'
+import { SlideBackgroundPanel, slideBackgroundModel, AssetLibrary, ThemePanel, THEME_SLOT_GROUPS, themeSlotGroup, themeFontModels, hexFromColor, type ThemePanelSlotModel, type ThemePanelFontModel } from '@ppt4ai/editor'
+import { DEFAULT_THEME_COLORS, type Color, type ThemeColorSlot, type ThemeFontSlot, type ThemeFontScript } from '@ppt4ai/model'
 import { Panel, PanelSection, Field } from '../ui'
 import { inspectorContext } from '../editor/inspector-context'
 import type { PlaygroundPresentationHost, PlaygroundPresentationSnapshot } from '../presentation-host'
+
+// Suggestions for the font boxes — a browser cannot enumerate installed fonts, and a theme typeface
+// need not exist locally to be written.
+const THEME_FONT_SUGGESTIONS: readonly string[] = ['Aptos', 'Aptos Display', 'Arial', 'Calibri', 'Cambria', 'Georgia', 'Times New Roman', '宋体', '等线', '微软雅黑']
 
 const props = defineProps<{ snapshot: PlaygroundPresentationSnapshot; host: PlaygroundPresentationHost }>()
 const emit = defineEmits<{ update: [PlaygroundPresentationSnapshot] }>()
@@ -62,6 +66,34 @@ function setLayout(event: Event): void {
 function selectAsset(id: string): void { emit('update', props.host.selectAsset(id)) }
 function insertAsset(id: string): void { emit('update', props.host.insertAsset(id)) }
 function replaceAsset(id: string): void { emit('update', props.host.replaceSelectedImage(id)) }
+
+// Theme (colors + fonts) for the active slide's resolved theme.
+const activeThemeId = computed(() => {
+  const doc = active().engineState.document
+  const slide = doc.slides[props.snapshot.activeSlideId]
+  const layout = slide?.layoutId ? doc.layouts?.[slide.layoutId] : undefined
+  const masterId = slide?.masterId ?? layout?.masterId
+  const themeId = masterId ? doc.masters?.[masterId]?.themeId : undefined
+  return themeId && doc.themes?.[themeId] ? themeId : undefined
+})
+const themeSlots = computed<ThemePanelSlotModel[]>(() => {
+  const themeId = activeThemeId.value
+  const colors = themeId ? active().engineState.document.themes?.[themeId]?.colors : undefined
+  if (!colors) return []
+  return THEME_SLOT_GROUPS.flatMap((group) => group.slots).map((slot) => {
+    const value = colors[slot]
+    return { slot, group: themeSlotGroup(slot), color: hexFromColor(value ?? DEFAULT_THEME_COLORS[slot], slot), isDefault: value === null, inherited: value === undefined }
+  })
+})
+const themeFonts = computed<ThemePanelFontModel[]>(() => {
+  const themeId = activeThemeId.value
+  const theme = themeId ? active().engineState.document.themes?.[themeId] : undefined
+  return theme ? themeFontModels(theme.fonts) : []
+})
+function setThemeColor(slot: ThemeColorSlot, color: Color): void { emit('update', props.host.setThemeColor(slot, color)) }
+function resetThemeColor(slot: ThemeColorSlot): void { emit('update', props.host.setThemeColor(slot, null)) }
+function setThemeFont(slot: ThemeFontSlot, script: ThemeFontScript, typeface: string): void { emit('update', props.host.setThemeFont(slot, script, typeface)) }
+function resetThemeFont(slot: ThemeFontSlot, script: ThemeFontScript): void { emit('update', props.host.setThemeFont(slot, script, null)) }
 </script>
 <template>
   <div v-if="context === 'object' && selected" data-region="inspector" data-inspector="object" class="flex flex-col gap-3 p-3">
@@ -92,6 +124,18 @@ function replaceAsset(id: string): void { emit('update', props.host.replaceSelec
       @set-picture="setBackgroundPicture"
       @clear="clearBackground"
     />
+    <Panel v-if="activeThemeId" title="主题" data-theme-panel>
+      <ThemePanel
+        :active="activeThemeId !== undefined"
+        :slots="themeSlots"
+        :fonts="themeFonts"
+        :font-families="THEME_FONT_SUGGESTIONS"
+        @set-color="setThemeColor"
+        @reset-color="resetThemeColor"
+        @set-font="setThemeFont"
+        @reset-font="resetThemeFont"
+      />
+    </Panel>
     <Panel title="素材">
       <AssetLibrary
         :assets="assets"
