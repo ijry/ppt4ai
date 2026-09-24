@@ -19,4 +19,19 @@ describe('AppToolbar', () => {
     ;(el.querySelector('[data-act="add"]') as HTMLElement).click()
     expect(events).toContain('add')
   })
+
+  it('emits insert-text and insert-shape (always enabled)', () => {
+    const events: string[] = []
+    const el = document.createElement('div'); document.body.append(el)
+    createApp({ render: () => h(AppToolbar, { snapshot: snap(), 'onInsert-text': () => events.push('text'), 'onInsert-shape': () => events.push('shape') }) }).mount(el)
+    ;(el.querySelector('[data-act="insert-text"]') as HTMLElement).click()
+    ;(el.querySelector('[data-act="insert-shape"]') as HTMLElement).click()
+    expect(events).toEqual(['text', 'shape'])
+  })
+
+  it('disables reorder-to-front with no selection', () => {
+    const el = document.createElement('div'); document.body.append(el)
+    createApp({ render: () => h(AppToolbar, { snapshot: snap() }) }).mount(el)
+    expect((el.querySelector('[data-act="to-front"]') as HTMLButtonElement).disabled).toBe(true)
+  })
 })

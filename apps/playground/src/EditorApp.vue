@@ -29,6 +29,13 @@ function ungroup(): void {
 }
 function rotate(deg: number): void { snapshot.value = host.rotateSelection(deg) }
 function flip(axis: 'horizontal' | 'vertical'): void { snapshot.value = host.flipSelection(axis) }
+function insertText(): void { snapshot.value = host.insertText() }
+function insertShape(): void { snapshot.value = host.insertShape('rect') }
+function reorder(action: 'front' | 'back' | 'forward' | 'backward'): void {
+  snapshot.value = action === 'front' ? host.bringToFront()
+    : action === 'back' ? host.sendToBack()
+      : action === 'forward' ? host.bringForward() : host.sendBackward()
+}
 function onZoom(kind: 'in' | 'out' | 'fit'): void {
   const page = snapshot.value.slides[snapshot.value.activeSlideId]!.thumbnailScene.page
   zoom.value = kind === 'in' ? zoomIn(zoom.value) : kind === 'out' ? zoomOut(zoom.value) : fitZoom({ w: 960, h: 540 }, page)
@@ -40,6 +47,7 @@ function onStageUpdate(next: typeof snapshot.value): void { snapshot.value = nex
     <AppToolbar
       :snapshot="snapshot"
       @undo="undo" @redo="redo" @copy="copySel" @paste="paste" @add="addSlide"
+      @insert-text="insertText" @insert-shape="insertShape" @reorder="reorder"
       @group="group" @ungroup="ungroup" @rotate="rotate" @flip="flip" @zoom="onZoom"
     />
     <div class="grid min-h-0 grid-cols-[17rem_1fr_26rem]">
