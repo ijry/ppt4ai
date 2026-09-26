@@ -23,6 +23,7 @@ export interface PlaygroundAssetHost {
   insertShape(preset: PresetGeometry): PlaygroundAssetHostSnapshot
   deleteSelected(): PlaygroundAssetHostSnapshot
   alignSelected(edge: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom', relativeTo: 'slide' | 'selection'): PlaygroundAssetHostSnapshot
+  distributeSelected(axis: 'horizontal' | 'vertical'): PlaygroundAssetHostSnapshot
   zOrder(action: 'front' | 'back' | 'forward' | 'backward'): PlaygroundAssetHostSnapshot
   selectElements(elementIds: string[]): PlaygroundAssetHostSnapshot
   selectElement(elementId: string | undefined): PlaygroundAssetHostSnapshot
@@ -290,6 +291,16 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
       try {
         engine.dispatch({ type: 'alignElements', edge, relativeTo })
         status = { kind: 'success', message: 'elements-aligned' }
+      } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    distributeSelected(axis) {
+      if (engine.getState().selection.length < 3) return fail('element-operation-failed')
+      try {
+        engine.dispatch({ type: 'distributeElements', axis })
+        status = { kind: 'success', message: 'elements-distributed' }
       } catch {
         return fail('element-operation-failed')
       }

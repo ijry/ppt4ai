@@ -24,6 +24,8 @@ describe('toolbarModel', () => {
     expect(toolbarModel(snap({ selection: ['g'], kinds: { g: 'group' } })).canUngroup).toBe(true)
     expect(toolbarModel(snap({ clipboard: true })).canPaste).toBe(true)
     expect(toolbarModel(snap({ undo: 1 })).canUndo).toBe(true)
+    expect(toolbarModel(snap({ selection: ['a', 'b'] })).canDistribute).toBe(false)
+    expect(toolbarModel(snap({ selection: ['a', 'b', 'c'] })).canDistribute).toBe(true)
   })
 })
 

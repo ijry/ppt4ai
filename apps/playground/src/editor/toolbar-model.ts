@@ -2,7 +2,7 @@ import type { PlaygroundPresentationSnapshot } from '../presentation-host'
 
 export interface ToolbarModel {
   canUndo: boolean; canRedo: boolean; canCopy: boolean; canPaste: boolean
-  hasSelection: boolean; canGroup: boolean; canUngroup: boolean
+  hasSelection: boolean; canGroup: boolean; canUngroup: boolean; canDistribute: boolean
 }
 
 export function toolbarModel(snapshot: PlaygroundPresentationSnapshot): ToolbarModel {
@@ -18,5 +18,6 @@ export function toolbarModel(snapshot: PlaygroundPresentationSnapshot): ToolbarM
     hasSelection: selection.length > 0,
     canGroup: selection.length >= 2,
     canUngroup: selection.length === 1 && first !== undefined && elements[first]?.kind === 'group',
+    canDistribute: selection.length >= 3,
   }
 }

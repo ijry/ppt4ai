@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Undo2, Redo2, Copy, ClipboardPaste, Plus, Type, Square, Group, Ungroup, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Trash2, BringToFront, SendToBack, ArrowUp, ArrowDown, AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, ZoomIn, ZoomOut, Maximize } from 'lucide-vue-next'
+import { Undo2, Redo2, Copy, ClipboardPaste, Plus, Type, Square, Group, Ungroup, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Trash2, BringToFront, SendToBack, ArrowUp, ArrowDown, AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, ZoomIn, ZoomOut, Maximize } from 'lucide-vue-next'
 import { Toolbar, ToolbarGroup, IconButton, Divider } from '../ui'
 import { toolbarModel } from '../editor/toolbar-model'
 import type { PlaygroundPresentationSnapshot } from '../presentation-host'
@@ -11,6 +11,7 @@ const emit = defineEmits<{
   'insert-text': []; 'insert-shape': []
   group: []; ungroup: []; rotate: [number]; flip: ['horizontal' | 'vertical']; delete: []
   align: ['left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom']
+  distribute: ['horizontal' | 'vertical']
   reorder: ['front' | 'back' | 'forward' | 'backward']
   zoom: ['in' | 'out' | 'fit']
 }>()
@@ -62,6 +63,8 @@ const m = computed(() => toolbarModel(props.snapshot))
       <IconButton label="顶对齐" :disabled="!m.hasSelection" @click="emit('align', 'top')"><AlignStartHorizontal :size="18" /></IconButton>
       <IconButton label="垂直居中" :disabled="!m.hasSelection" @click="emit('align', 'centerY')"><AlignCenterHorizontal :size="18" /></IconButton>
       <IconButton label="底对齐" :disabled="!m.hasSelection" @click="emit('align', 'bottom')"><AlignEndHorizontal :size="18" /></IconButton>
+      <IconButton data-act="distribute-h" label="横向分布" :disabled="!m.canDistribute" @click="emit('distribute', 'horizontal')"><AlignHorizontalDistributeCenter :size="18" /></IconButton>
+      <IconButton label="纵向分布" :disabled="!m.canDistribute" @click="emit('distribute', 'vertical')"><AlignVerticalDistributeCenter :size="18" /></IconButton>
     </ToolbarGroup>
     <Divider />
     <ToolbarGroup>

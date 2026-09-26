@@ -402,4 +402,13 @@ describe('createPlaygroundPresentationHost', () => {
     expect(result.slides.sld_playground!.engineState.document.elements[id]!.bounds.x).toBe(0)
     expect(result.status).toEqual({ kind: 'success', message: 'elements-aligned' })
   })
+
+  it('distributes three selected elements and refuses with fewer', () => {
+    const host = createPlaygroundPresentationHost()
+    host.selectElements(['shape_demo', 'text_demo', 'table_demo'])
+    expect(host.distributeSelected('horizontal').status).toEqual({ kind: 'success', message: 'elements-distributed' })
+
+    host.selectElements(['shape_demo', 'text_demo'])
+    expect(host.distributeSelected('horizontal').status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+  })
 })
