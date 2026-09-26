@@ -102,6 +102,7 @@ export type EngineCommand =
   | { type: 'zOrder'; action: 'front' | 'back' | 'forward' | 'backward' }
   | { type: 'group' }
   | { type: 'ungroup'; groupId: string }
+  | { type: 'deleteElements'; elementIds: string[] }
 
 interface HistoryEntry {
   patch: Patch
@@ -821,6 +822,9 @@ export class EditorEngine {
       case 'ungroup':
         this.ungroup(command.groupId)
         break
+      case 'deleteElements':
+        this.deleteElements(command.elementIds)
+        break
     }
     return this.getState()
   }
@@ -1302,6 +1306,36 @@ export class EditorEngine {
       { path: ['elements', groupId], value: undefined },
     ])
     this.selection = [...group.childIds]
+  }
+
+  /**
+   * Delete top-level slide elements (and, for a group, its whole subtree). Only ids that are direct
+   * members of the active slide's `elementIds` are removed, so no group is ever left referencing a
+   * missing child. Deleted ids are dropped from the selection. Ids that are not top-level are ignored.
+   */
+  private deleteElements(elementIds: string[]): void {
+    const slide = this.activeSlide()
+    if (!slide) return
+    const topLevel = new Set(slide.elementIds)
+    const remove = new Set<string>()
+    const collect = (id: string): void => {
+      if (remove.has(id)) return
+      const element = this.document.elements[id]
+      if (!element) return
+      remove.add(id)
+      if (element.kind === 'group') for (const childId of element.childIds) collect(childId)
+    }
+    for (const id of elementIds) if (topLevel.has(id)) collect(id)
+    if (remove.size === 0) return
+
+    const nextElementIds = slide.elementIds.filter((id) => !remove.has(id))
+    const changes: Array<{ path: string[]; value: unknown }> = [
+      { path: ['slides', slide.id, 'elementIds'], value: nextElementIds },
+    ]
+    for (const id of remove) changes.push({ path: ['elements', id], value: undefined })
+    this.commit(changes)
+    this.selection = this.selection.filter((id) => !remove.has(id))
+    this.tableCellSelection = undefined
   }
 
   /**

@@ -1249,3 +1249,46 @@ describe('EditorEngine', () => {
     expect(engine.dispatch({ type: 'setThemeColor', themeId: 'thm_1', slot: 'accent1', color: { type: 'srgb', v: 'FF0000' } }).history.undoDepth).toBe(0)
   })
 })
+
+describe('deleteElements', () => {
+  it('removes a top-level element and clears it from selection', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a'] })
+
+    const state = engine.dispatch({ type: 'deleteElements', elementIds: ['el_a'] })
+
+    expect(state.document.elements.el_a).toBeUndefined()
+    expect(state.document.slides.sld_1!.elementIds).toEqual(['el_b'])
+    expect(state.selection).toEqual([])
+    expect(state.history.undoDepth).toBe(1)
+  })
+
+  it('deletes a group and its whole subtree', () => {
+    const engine = new EditorEngine(makeNestedGroupDocument())
+
+    const state = engine.dispatch({ type: 'deleteElements', elementIds: ['grp_outer'] })
+
+    expect(Object.keys(state.document.elements)).toEqual([])
+    expect(state.document.slides.sld_1!.elementIds).toEqual([])
+  })
+
+  it('ignores ids that are not top-level slide elements', () => {
+    const engine = new EditorEngine(makeNestedGroupDocument())
+
+    // el_b is a group child, not a top-level element — deleting it directly is a no-op.
+    const state = engine.dispatch({ type: 'deleteElements', elementIds: ['el_b'] })
+
+    expect(state.document.elements.el_b).toBeDefined()
+    expect(state.history.undoDepth).toBe(0)
+  })
+
+  it('undoes a deletion', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'deleteElements', elementIds: ['el_a'] })
+
+    const state = engine.dispatch({ type: 'undo' })
+
+    expect(state.document.elements.el_a).toBeDefined()
+    expect(state.document.slides.sld_1!.elementIds).toEqual(['el_a', 'el_b'])
+  })
+})
