@@ -22,6 +22,7 @@ export interface PlaygroundAssetHost {
   insertText(): PlaygroundAssetHostSnapshot
   insertShape(preset: PresetGeometry): PlaygroundAssetHostSnapshot
   deleteSelected(): PlaygroundAssetHostSnapshot
+  alignSelected(edge: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom', relativeTo: 'slide' | 'selection'): PlaygroundAssetHostSnapshot
   zOrder(action: 'front' | 'back' | 'forward' | 'backward'): PlaygroundAssetHostSnapshot
   selectElements(elementIds: string[]): PlaygroundAssetHostSnapshot
   selectElement(elementId: string | undefined): PlaygroundAssetHostSnapshot
@@ -279,6 +280,16 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
       try {
         engine.dispatch({ type: 'deleteElements', elementIds })
         status = { kind: 'success', message: 'element-deleted' }
+      } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    alignSelected(edge, relativeTo) {
+      if (engine.getState().selection.length === 0) return fail('element-operation-failed')
+      try {
+        engine.dispatch({ type: 'alignElements', edge, relativeTo })
+        status = { kind: 'success', message: 'elements-aligned' }
       } catch {
         return fail('element-operation-failed')
       }

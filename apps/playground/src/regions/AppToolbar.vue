@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Undo2, Redo2, Copy, ClipboardPaste, Plus, Type, Square, Group, Ungroup, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Trash2, BringToFront, SendToBack, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize } from 'lucide-vue-next'
+import { Undo2, Redo2, Copy, ClipboardPaste, Plus, Type, Square, Group, Ungroup, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Trash2, BringToFront, SendToBack, ArrowUp, ArrowDown, AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, ZoomIn, ZoomOut, Maximize } from 'lucide-vue-next'
 import { Toolbar, ToolbarGroup, IconButton, Divider } from '../ui'
 import { toolbarModel } from '../editor/toolbar-model'
 import type { PlaygroundPresentationSnapshot } from '../presentation-host'
@@ -10,6 +10,7 @@ const emit = defineEmits<{
   undo: []; redo: []; copy: []; paste: []; add: []
   'insert-text': []; 'insert-shape': []
   group: []; ungroup: []; rotate: [number]; flip: ['horizontal' | 'vertical']; delete: []
+  align: ['left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom']
   reorder: ['front' | 'back' | 'forward' | 'backward']
   zoom: ['in' | 'out' | 'fit']
 }>()
@@ -52,6 +53,15 @@ const m = computed(() => toolbarModel(props.snapshot))
       <IconButton label="上移一层" :disabled="!m.hasSelection" @click="emit('reorder', 'forward')"><ArrowUp :size="18" /></IconButton>
       <IconButton label="下移一层" :disabled="!m.hasSelection" @click="emit('reorder', 'backward')"><ArrowDown :size="18" /></IconButton>
       <IconButton label="置于底层" :disabled="!m.hasSelection" @click="emit('reorder', 'back')"><SendToBack :size="18" /></IconButton>
+    </ToolbarGroup>
+    <Divider />
+    <ToolbarGroup>
+      <IconButton data-act="align-left" label="左对齐" :disabled="!m.hasSelection" @click="emit('align', 'left')"><AlignStartVertical :size="18" /></IconButton>
+      <IconButton label="水平居中" :disabled="!m.hasSelection" @click="emit('align', 'centerX')"><AlignCenterVertical :size="18" /></IconButton>
+      <IconButton label="右对齐" :disabled="!m.hasSelection" @click="emit('align', 'right')"><AlignEndVertical :size="18" /></IconButton>
+      <IconButton label="顶对齐" :disabled="!m.hasSelection" @click="emit('align', 'top')"><AlignStartHorizontal :size="18" /></IconButton>
+      <IconButton label="垂直居中" :disabled="!m.hasSelection" @click="emit('align', 'centerY')"><AlignCenterHorizontal :size="18" /></IconButton>
+      <IconButton label="底对齐" :disabled="!m.hasSelection" @click="emit('align', 'bottom')"><AlignEndHorizontal :size="18" /></IconButton>
     </ToolbarGroup>
     <Divider />
     <ToolbarGroup>

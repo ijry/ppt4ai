@@ -390,4 +390,16 @@ describe('createPlaygroundPresentationHost', () => {
     host.selectElement(undefined)
     expect(host.deleteSelected().status).toEqual({ kind: 'error', message: 'element-operation-failed' })
   })
+
+  it('aligns the selected element to the slide left edge', () => {
+    const host = createPlaygroundPresentationHost()
+    const inserted = host.insertShape('rect')
+    const id = inserted.slides.sld_playground!.engineState.selection[0]!
+    expect(inserted.slides.sld_playground!.engineState.document.elements[id]!.bounds.x).toBeGreaterThan(0)
+
+    const result = host.alignSelected('left', 'slide')
+
+    expect(result.slides.sld_playground!.engineState.document.elements[id]!.bounds.x).toBe(0)
+    expect(result.status).toEqual({ kind: 'success', message: 'elements-aligned' })
+  })
 })

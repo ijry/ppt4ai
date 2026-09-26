@@ -46,6 +46,7 @@ export interface PlaygroundPresentationHost {
   insertText(): PlaygroundPresentationSnapshot
   insertShape(preset: PresetGeometry): PlaygroundPresentationSnapshot
   deleteSelected(): PlaygroundPresentationSnapshot
+  alignSelected(edge: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom', relativeTo: 'slide' | 'selection'): PlaygroundPresentationSnapshot
   bringToFront(): PlaygroundPresentationSnapshot
   sendToBack(): PlaygroundPresentationSnapshot
   bringForward(): PlaygroundPresentationSnapshot
@@ -477,6 +478,9 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     },
     deleteSelected() {
       return forward((host) => host.deleteSelected())
+    },
+    alignSelected(edge, relativeTo) {
+      return forward((host) => host.alignSelected(edge, relativeTo))
     },
     bringToFront() { return forward((host) => host.zOrder('front')) },
     sendToBack() { return forward((host) => host.zOrder('back')) },

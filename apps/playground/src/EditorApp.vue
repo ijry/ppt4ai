@@ -37,6 +37,10 @@ function reorder(action: 'front' | 'back' | 'forward' | 'backward'): void {
       : action === 'forward' ? host.bringForward() : host.sendBackward()
 }
 function deleteSelected(): void { snapshot.value = host.deleteSelected() }
+function align(edge: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom'): void {
+  const count = snapshot.value.slides[snapshot.value.activeSlideId]!.engineState.selection.length
+  snapshot.value = host.alignSelected(edge, count >= 2 ? 'selection' : 'slide')
+}
 
 // Delete/Backspace removes the selection, unless the user is typing in a field or editing text.
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -63,7 +67,7 @@ function onStageUpdate(next: typeof snapshot.value): void { snapshot.value = nex
     <AppToolbar
       :snapshot="snapshot"
       @undo="undo" @redo="redo" @copy="copySel" @paste="paste" @add="addSlide"
-      @insert-text="insertText" @insert-shape="insertShape" @reorder="reorder" @delete="deleteSelected"
+      @insert-text="insertText" @insert-shape="insertShape" @reorder="reorder" @delete="deleteSelected" @align="align"
       @group="group" @ungroup="ungroup" @rotate="rotate" @flip="flip" @zoom="onZoom"
     />
     <div class="grid min-h-0 grid-cols-[17rem_1fr_26rem]">
