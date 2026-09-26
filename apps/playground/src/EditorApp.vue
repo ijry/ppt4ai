@@ -37,6 +37,7 @@ function reorder(action: 'front' | 'back' | 'forward' | 'backward'): void {
       : action === 'forward' ? host.bringForward() : host.sendBackward()
 }
 function deleteSelected(): void { snapshot.value = host.deleteSelected() }
+function duplicate(): void { snapshot.value = host.duplicateSelected() }
 function align(edge: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom'): void {
   const count = snapshot.value.slides[snapshot.value.activeSlideId]!.engineState.selection.length
   snapshot.value = host.alignSelected(edge, count >= 2 ? 'selection' : 'slide')
@@ -48,9 +49,15 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
 }
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key !== 'Delete' && event.key !== 'Backspace') return
   if (isEditableTarget(event.target)) return
   const selection = snapshot.value.slides[snapshot.value.activeSlideId]!.engineState.selection
+  if ((event.ctrlKey || event.metaKey) && (event.key === 'd' || event.key === 'D')) {
+    if (selection.length === 0) return
+    event.preventDefault()
+    snapshot.value = host.duplicateSelected()
+    return
+  }
+  if (event.key !== 'Delete' && event.key !== 'Backspace') return
   if (selection.length === 0) return
   event.preventDefault()
   snapshot.value = host.deleteSelected()
@@ -68,7 +75,7 @@ function onStageUpdate(next: typeof snapshot.value): void { snapshot.value = nex
     <AppToolbar
       :snapshot="snapshot"
       @undo="undo" @redo="redo" @copy="copySel" @paste="paste" @add="addSlide"
-      @insert-text="insertText" @insert-shape="insertShape" @reorder="reorder" @delete="deleteSelected" @align="align" @distribute="distribute"
+      @insert-text="insertText" @insert-shape="insertShape" @reorder="reorder" @delete="deleteSelected" @align="align" @distribute="distribute" @duplicate="duplicate"
       @group="group" @ungroup="ungroup" @rotate="rotate" @flip="flip" @zoom="onZoom"
     />
     <div class="grid min-h-0 grid-cols-[17rem_1fr_26rem]">

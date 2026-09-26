@@ -45,6 +45,7 @@ export interface PlaygroundPresentationHost {
   selectElement(elementId: string | undefined): PlaygroundPresentationSnapshot
   insertText(): PlaygroundPresentationSnapshot
   insertShape(preset: PresetGeometry): PlaygroundPresentationSnapshot
+  duplicateSelected(): PlaygroundPresentationSnapshot
   deleteSelected(): PlaygroundPresentationSnapshot
   alignSelected(edge: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom', relativeTo: 'slide' | 'selection'): PlaygroundPresentationSnapshot
   distributeSelected(axis: 'horizontal' | 'vertical'): PlaygroundPresentationSnapshot
@@ -197,6 +198,7 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
   let clipboard: PlaygroundClipboardPayload | undefined
   let pasteElementSequence = 1
   let pasteAssetSequence = 1
+  let duplicateElementSequence = 1
 
   const activeHost = (): PlaygroundAssetHost => pageHosts.get(activeSlideId)!
   const recordStructuralChange = (beforeOrder: string[], beforeActiveSlideId: string): void => {
@@ -476,6 +478,40 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     },
     insertShape(preset) {
       return forward((host) => host.insertShape(preset))
+    },
+    duplicateSelected() {
+      const state = activeHost().getSnapshot().engineState
+      const rootElementIds = clipboardRoots(state.document, state.selection)
+      if (rootElementIds.length === 0) {
+        status = { kind: 'error', message: 'element-operation-failed' }
+        return snapshot()
+      }
+      const elements = clipboardElements(state.document, rootElementIds)
+      const idMap = new Map<string, string>()
+      const taken = new Set<string>()
+      const nextId = (): string => {
+        let id = `element_dup_${duplicateElementSequence}`
+        duplicateElementSequence += 1
+        while (state.document.elements[id] || taken.has(id)) {
+          id = `element_dup_${duplicateElementSequence}`
+          duplicateElementSequence += 1
+        }
+        taken.add(id)
+        return id
+      }
+      for (const element of elements) idMap.set(element.id, nextId())
+      const offset = 200000 // nudge the copy so it does not sit exactly on the original
+      const cloned = elements.map((element) => {
+        const next = structuredClone(element)
+        next.id = idMap.get(element.id)!
+        next.bounds = { ...next.bounds, x: next.bounds.x + offset, y: next.bounds.y + offset }
+        if (next.kind === 'group') next.childIds = next.childIds.map((childId) => idMap.get(childId) ?? childId)
+        return next
+      })
+      const newRoots = rootElementIds.map((id) => idMap.get(id)!)
+      const result = activeHost().insertElements(newRoots, cloned, [])
+      status = result.status
+      return snapshot()
     },
     deleteSelected() {
       return forward((host) => host.deleteSelected())

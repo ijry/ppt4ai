@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Undo2, Redo2, Copy, ClipboardPaste, Plus, Type, Square, Group, Ungroup, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Trash2, BringToFront, SendToBack, ArrowUp, ArrowDown, AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, ZoomIn, ZoomOut, Maximize } from 'lucide-vue-next'
+import { Undo2, Redo2, Copy, ClipboardPaste, CopyPlus, Plus, Type, Square, Group, Ungroup, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Trash2, BringToFront, SendToBack, ArrowUp, ArrowDown, AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, ZoomIn, ZoomOut, Maximize } from 'lucide-vue-next'
 import { Toolbar, ToolbarGroup, IconButton, Divider } from '../ui'
 import { toolbarModel } from '../editor/toolbar-model'
 import type { PlaygroundPresentationSnapshot } from '../presentation-host'
 
 const props = defineProps<{ snapshot: PlaygroundPresentationSnapshot }>()
 const emit = defineEmits<{
-  undo: []; redo: []; copy: []; paste: []; add: []
+  undo: []; redo: []; copy: []; paste: []; add: []; duplicate: []
   'insert-text': []; 'insert-shape': []
   group: []; ungroup: []; rotate: [number]; flip: ['horizontal' | 'vertical']; delete: []
   align: ['left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom']
@@ -32,6 +32,7 @@ const m = computed(() => toolbarModel(props.snapshot))
     <ToolbarGroup>
       <IconButton data-act="copy" label="复制" :disabled="!m.canCopy" @click="emit('copy')"><Copy :size="18" /></IconButton>
       <IconButton data-act="paste" label="粘贴" :disabled="!m.canPaste" @click="emit('paste')"><ClipboardPaste :size="18" /></IconButton>
+      <IconButton data-act="duplicate" label="再制" :disabled="!m.hasSelection" @click="emit('duplicate')"><CopyPlus :size="18" /></IconButton>
       <IconButton data-act="add" label="新增页" @click="emit('add')"><Plus :size="18" /></IconButton>
     </ToolbarGroup>
     <Divider />

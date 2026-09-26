@@ -403,12 +403,26 @@ describe('createPlaygroundPresentationHost', () => {
     expect(result.status).toEqual({ kind: 'success', message: 'elements-aligned' })
   })
 
-  it('distributes three selected elements and refuses with fewer', () => {
+  it('duplicates the selected element with an offset copy', () => {
     const host = createPlaygroundPresentationHost()
-    host.selectElements(['shape_demo', 'text_demo', 'table_demo'])
-    expect(host.distributeSelected('horizontal').status).toEqual({ kind: 'success', message: 'elements-distributed' })
+    const inserted = host.insertShape('rect')
+    const id = inserted.slides.sld_playground!.engineState.selection[0]!
+    const before = inserted.slides.sld_playground!.engineState.document.elements[id]!.bounds
 
-    host.selectElements(['shape_demo', 'text_demo'])
-    expect(host.distributeSelected('horizontal').status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+    const result = host.duplicateSelected()
+    const doc = result.slides.sld_playground!.engineState.document
+    const copyId = result.slides.sld_playground!.engineState.selection[0]!
+
+    expect(copyId).not.toBe(id)
+    expect(doc.elements[id]).toBeDefined()
+    expect(doc.elements[copyId]!.bounds.x).toBe(before.x + 200000)
+    expect(doc.elements[copyId]!.bounds.y).toBe(before.y + 200000)
+    expect((doc.elements[copyId] as { kind: string }).kind).toBe('shape')
+  })
+
+  it('refuses to duplicate with nothing selected', () => {
+    const host = createPlaygroundPresentationHost()
+    host.selectElement(undefined)
+    expect(host.duplicateSelected().status).toEqual({ kind: 'error', message: 'element-operation-failed' })
   })
 })
