@@ -103,6 +103,7 @@ export type EngineCommand =
   | { type: 'group' }
   | { type: 'ungroup'; groupId: string }
   | { type: 'deleteElements'; elementIds: string[] }
+  | { type: 'alignElements'; edge: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom'; relativeTo: 'slide' | 'selection' }
 
 interface HistoryEntry {
   patch: Patch
@@ -825,6 +826,9 @@ export class EditorEngine {
       case 'deleteElements':
         this.deleteElements(command.elementIds)
         break
+      case 'alignElements':
+        this.alignElements(command.edge, command.relativeTo)
+        break
     }
     return this.getState()
   }
@@ -1336,6 +1340,42 @@ export class EditorEngine {
     this.commit(changes)
     this.selection = this.selection.filter((id) => !remove.has(id))
     this.tableCellSelection = undefined
+  }
+
+  /**
+   * Align the selected top-level elements to a reference box. `slide` uses the page rectangle; `selection`
+   * uses the union bounds of the selected elements (and needs at least two). Only x or y changes — sizes
+   * are untouched — so the result is always valid.
+   */
+  private alignElements(edge: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom', relativeTo: 'slide' | 'selection'): void {
+    const slide = this.activeSlide()
+    if (!slide) return
+    const ids = this.selection.filter((id) => slide.elementIds.includes(id) && this.document.elements[id])
+    if (ids.length === 0) return
+    const rects = ids.map((id) => this.document.elements[id]!.bounds)
+    let ref: Rect
+    if (relativeTo === 'slide') {
+      ref = { x: 0, y: 0, w: this.document.page.w, h: this.document.page.h }
+    } else {
+      if (ids.length < 2) return
+      const minX = Math.min(...rects.map((r) => r.x))
+      const minY = Math.min(...rects.map((r) => r.y))
+      const maxX = Math.max(...rects.map((r) => r.x + r.w))
+      const maxY = Math.max(...rects.map((r) => r.y + r.h))
+      ref = { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+    }
+    const changes = ids.map((id) => {
+      const b = this.document.elements[id]!.bounds
+      const next = { ...b }
+      if (edge === 'left') next.x = ref.x
+      else if (edge === 'right') next.x = ref.x + ref.w - b.w
+      else if (edge === 'centerX') next.x = Math.round(ref.x + (ref.w - b.w) / 2)
+      else if (edge === 'top') next.y = ref.y
+      else if (edge === 'bottom') next.y = ref.y + ref.h - b.h
+      else next.y = Math.round(ref.y + (ref.h - b.h) / 2)
+      return { path: ['elements', id, 'bounds'], value: next }
+    })
+    this.commit(changes)
   }
 
   /**

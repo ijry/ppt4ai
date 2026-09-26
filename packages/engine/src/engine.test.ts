@@ -1292,3 +1292,46 @@ describe('deleteElements', () => {
     expect(state.document.slides.sld_1!.elementIds).toEqual(['el_a', 'el_b'])
   })
 })
+
+describe('alignElements', () => {
+  it('aligns a single element to the slide left edge', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a'] })
+
+    const state = engine.dispatch({ type: 'alignElements', edge: 'left', relativeTo: 'slide' })
+
+    expect(state.document.elements.el_a!.bounds.x).toBe(0)
+    expect(state.history.undoDepth).toBe(1)
+  })
+
+  it('centers a single element horizontally on the slide', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a'] })
+
+    // page.w 10000000, element w 1000000 -> x = (10000000 - 1000000) / 2
+    const state = engine.dispatch({ type: 'alignElements', edge: 'centerX', relativeTo: 'slide' })
+
+    expect(state.document.elements.el_a!.bounds.x).toBe(4500000)
+  })
+
+  it('aligns multiple elements to the selection left edge', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a', 'el_b'] })
+
+    const state = engine.dispatch({ type: 'alignElements', edge: 'left', relativeTo: 'selection' })
+
+    // union left = min(1000000, 4000000) = 1000000
+    expect(state.document.elements.el_a!.bounds.x).toBe(1000000)
+    expect(state.document.elements.el_b!.bounds.x).toBe(1000000)
+  })
+
+  it('does not align to selection with fewer than two elements', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a'] })
+
+    const state = engine.dispatch({ type: 'alignElements', edge: 'left', relativeTo: 'selection' })
+
+    expect(state.document.elements.el_a!.bounds.x).toBe(1000000)
+    expect(state.history.undoDepth).toBe(0)
+  })
+})
