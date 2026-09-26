@@ -21,6 +21,7 @@ export interface PlaygroundAssetHost {
   insertElements(rootElementIds: string[], elements: Element[], assets: AssetMetadata[]): PlaygroundAssetHostSnapshot
   insertText(): PlaygroundAssetHostSnapshot
   insertShape(preset: PresetGeometry): PlaygroundAssetHostSnapshot
+  deleteSelected(): PlaygroundAssetHostSnapshot
   zOrder(action: 'front' | 'back' | 'forward' | 'backward'): PlaygroundAssetHostSnapshot
   selectElements(elementIds: string[]): PlaygroundAssetHostSnapshot
   selectElement(elementId: string | undefined): PlaygroundAssetHostSnapshot
@@ -267,6 +268,17 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
       try {
         engine.dispatch({ type: 'zOrder', action })
         status = { kind: 'success', message: 'element-reordered' }
+      } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    deleteSelected() {
+      const elementIds = [...engine.getState().selection]
+      if (elementIds.length === 0) return fail('element-operation-failed')
+      try {
+        engine.dispatch({ type: 'deleteElements', elementIds })
+        status = { kind: 'success', message: 'element-deleted' }
       } catch {
         return fail('element-operation-failed')
       }

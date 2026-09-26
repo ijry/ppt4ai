@@ -33,5 +33,6 @@ describe('AppToolbar', () => {
     const el = document.createElement('div'); document.body.append(el)
     createApp({ render: () => h(AppToolbar, { snapshot: snap() }) }).mount(el)
     expect((el.querySelector('[data-act="to-front"]') as HTMLButtonElement).disabled).toBe(true)
+    expect((el.querySelector('[data-act="delete"]') as HTMLButtonElement).disabled).toBe(true)
   })
 })

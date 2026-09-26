@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, shallowRef } from 'vue'
+import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { createPlaygroundPresentationHost } from './presentation-host'
 import { zoomIn, zoomOut, fitZoom } from './editor/zoom'
 import AppToolbar from './regions/AppToolbar.vue'
@@ -36,6 +36,22 @@ function reorder(action: 'front' | 'back' | 'forward' | 'backward'): void {
     : action === 'back' ? host.sendToBack()
       : action === 'forward' ? host.bringForward() : host.sendBackward()
 }
+function deleteSelected(): void { snapshot.value = host.deleteSelected() }
+
+// Delete/Backspace removes the selection, unless the user is typing in a field or editing text.
+function isEditableTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+}
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Delete' && event.key !== 'Backspace') return
+  if (isEditableTarget(event.target)) return
+  const selection = snapshot.value.slides[snapshot.value.activeSlideId]!.engineState.selection
+  if (selection.length === 0) return
+  event.preventDefault()
+  snapshot.value = host.deleteSelected()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 function onZoom(kind: 'in' | 'out' | 'fit'): void {
   const page = snapshot.value.slides[snapshot.value.activeSlideId]!.thumbnailScene.page
   zoom.value = kind === 'in' ? zoomIn(zoom.value) : kind === 'out' ? zoomOut(zoom.value) : fitZoom({ w: 960, h: 540 }, page)
@@ -47,7 +63,7 @@ function onStageUpdate(next: typeof snapshot.value): void { snapshot.value = nex
     <AppToolbar
       :snapshot="snapshot"
       @undo="undo" @redo="redo" @copy="copySel" @paste="paste" @add="addSlide"
-      @insert-text="insertText" @insert-shape="insertShape" @reorder="reorder"
+      @insert-text="insertText" @insert-shape="insertShape" @reorder="reorder" @delete="deleteSelected"
       @group="group" @ungroup="ungroup" @rotate="rotate" @flip="flip" @zoom="onZoom"
     />
     <div class="grid min-h-0 grid-cols-[17rem_1fr_26rem]">

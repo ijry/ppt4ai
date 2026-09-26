@@ -369,4 +369,25 @@ describe('createPlaygroundPresentationHost', () => {
     host.selectElement(undefined)
     expect(host.bringToFront().status).toEqual({ kind: 'error', message: 'element-operation-failed' })
   })
+
+  it('deletes the selected element', () => {
+    const host = createPlaygroundPresentationHost()
+    const before = Object.keys(host.getSnapshot().slides.sld_playground!.engineState.document.elements).length
+    const inserted = host.insertShape('rect')
+    const newId = inserted.slides.sld_playground!.engineState.selection[0]!
+
+    const result = host.deleteSelected()
+    const doc = result.slides.sld_playground!.engineState.document
+
+    expect(doc.elements[newId]).toBeUndefined()
+    expect(Object.keys(doc.elements).length).toBe(before)
+    expect(result.slides.sld_playground!.engineState.selection).toEqual([])
+    expect(result.status).toEqual({ kind: 'success', message: 'element-deleted' })
+  })
+
+  it('refuses to delete with nothing selected', () => {
+    const host = createPlaygroundPresentationHost()
+    host.selectElement(undefined)
+    expect(host.deleteSelected().status).toEqual({ kind: 'error', message: 'element-operation-failed' })
+  })
 })

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Undo2, Redo2, Copy, ClipboardPaste, Plus, Type, Square, Group, Ungroup, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, BringToFront, SendToBack, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize } from 'lucide-vue-next'
+import { Undo2, Redo2, Copy, ClipboardPaste, Plus, Type, Square, Group, Ungroup, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Trash2, BringToFront, SendToBack, ArrowUp, ArrowDown, ZoomIn, ZoomOut, Maximize } from 'lucide-vue-next'
 import { Toolbar, ToolbarGroup, IconButton, Divider } from '../ui'
 import { toolbarModel } from '../editor/toolbar-model'
 import type { PlaygroundPresentationSnapshot } from '../presentation-host'
@@ -9,7 +9,7 @@ const props = defineProps<{ snapshot: PlaygroundPresentationSnapshot }>()
 const emit = defineEmits<{
   undo: []; redo: []; copy: []; paste: []; add: []
   'insert-text': []; 'insert-shape': []
-  group: []; ungroup: []; rotate: [number]; flip: ['horizontal' | 'vertical']
+  group: []; ungroup: []; rotate: [number]; flip: ['horizontal' | 'vertical']; delete: []
   reorder: ['front' | 'back' | 'forward' | 'backward']
   zoom: ['in' | 'out' | 'fit']
 }>()
@@ -52,6 +52,10 @@ const m = computed(() => toolbarModel(props.snapshot))
       <IconButton label="上移一层" :disabled="!m.hasSelection" @click="emit('reorder', 'forward')"><ArrowUp :size="18" /></IconButton>
       <IconButton label="下移一层" :disabled="!m.hasSelection" @click="emit('reorder', 'backward')"><ArrowDown :size="18" /></IconButton>
       <IconButton label="置于底层" :disabled="!m.hasSelection" @click="emit('reorder', 'back')"><SendToBack :size="18" /></IconButton>
+    </ToolbarGroup>
+    <Divider />
+    <ToolbarGroup>
+      <IconButton data-act="delete" label="删除" :disabled="!m.hasSelection" @click="emit('delete')"><Trash2 :size="18" /></IconButton>
     </ToolbarGroup>
     <div class="ml-auto flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
       <IconButton label="缩小" @click="emit('zoom', 'out')"><ZoomOut :size="18" /></IconButton>
