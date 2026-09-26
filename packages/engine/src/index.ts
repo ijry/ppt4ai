@@ -104,6 +104,7 @@ export type EngineCommand =
   | { type: 'ungroup'; groupId: string }
   | { type: 'deleteElements'; elementIds: string[] }
   | { type: 'alignElements'; edge: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom'; relativeTo: 'slide' | 'selection' }
+  | { type: 'distributeElements'; axis: 'horizontal' | 'vertical' }
 
 interface HistoryEntry {
   patch: Patch
@@ -829,6 +830,9 @@ export class EditorEngine {
       case 'alignElements':
         this.alignElements(command.edge, command.relativeTo)
         break
+      case 'distributeElements':
+        this.distributeElements(command.axis)
+        break
     }
     return this.getState()
   }
@@ -1376,6 +1380,37 @@ export class EditorEngine {
       return { path: ['elements', id, 'bounds'], value: next }
     })
     this.commit(changes)
+  }
+
+  /**
+   * Evenly space three or more selected top-level elements along an axis: the outermost two (by centre)
+   * stay put and the rest are repositioned so their centres are equally spaced between them. Only the
+   * distributed axis changes.
+   */
+  private distributeElements(axis: 'horizontal' | 'vertical'): void {
+    const slide = this.activeSlide()
+    if (!slide) return
+    const ids = this.selection.filter((id) => slide.elementIds.includes(id) && this.document.elements[id])
+    if (ids.length < 3) return
+    const centre = (id: string): number => {
+      const b = this.document.elements[id]!.bounds
+      return axis === 'horizontal' ? b.x + b.w / 2 : b.y + b.h / 2
+    }
+    const ordered = [...ids].sort((a, b) => centre(a) - centre(b))
+    const first = centre(ordered[0]!)
+    const last = centre(ordered[ordered.length - 1]!)
+    const step = (last - first) / (ordered.length - 1)
+    const changes: Array<{ path: string[]; value: unknown }> = []
+    for (let i = 1; i < ordered.length - 1; i += 1) {
+      const id = ordered[i]!
+      const b = this.document.elements[id]!.bounds
+      const targetCentre = first + step * i
+      const next = axis === 'horizontal'
+        ? { ...b, x: Math.round(targetCentre - b.w / 2) }
+        : { ...b, y: Math.round(targetCentre - b.h / 2) }
+      changes.push({ path: ['elements', id, 'bounds'], value: next })
+    }
+    if (changes.length > 0) this.commit(changes)
   }
 
   /**

@@ -1335,3 +1335,33 @@ describe('alignElements', () => {
     expect(state.history.undoDepth).toBe(0)
   })
 })
+
+describe('distributeElements', () => {
+  function makeThree(): Ppt4aiDocument {
+    const document = makeDocument()
+    document.elements.el_c = { id: 'el_c', kind: 'shape', preset: 'rect', bounds: { x: 8000000, y: 1000000, w: 1000000, h: 1000000 } }
+    document.slides.sld_1!.elementIds = ['el_a', 'el_b', 'el_c']
+    return document
+  }
+
+  it('evenly spaces the middle element horizontally, keeping the ends fixed', () => {
+    const engine = new EditorEngine(makeThree())
+    engine.dispatch({ type: 'select', elementIds: ['el_a', 'el_b', 'el_c'] })
+
+    // centres: el_a 1500000, el_c 8500000 -> step 3500000 -> el_b centre 5000000 -> x 4500000
+    const state = engine.dispatch({ type: 'distributeElements', axis: 'horizontal' })
+
+    expect(state.document.elements.el_b!.bounds.x).toBe(4500000)
+    expect(state.document.elements.el_a!.bounds.x).toBe(1000000)
+    expect(state.document.elements.el_c!.bounds.x).toBe(8000000)
+  })
+
+  it('does nothing with fewer than three elements', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a', 'el_b'] })
+
+    const state = engine.dispatch({ type: 'distributeElements', axis: 'horizontal' })
+
+    expect(state.history.undoDepth).toBe(0)
+  })
+})
