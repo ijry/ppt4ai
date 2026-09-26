@@ -13,6 +13,33 @@ export interface CanvasPoint {
   y: number
 }
 
+export interface CanvasRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+function rectsIntersect(a: CanvasRect, b: CanvasRect): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+}
+
+/**
+ * Every top-level element whose axis-aligned bounds intersect the marquee rectangle (all in scene EMU).
+ * Top-level means a group with no ancestors, or a node that belongs to no group — the same targets
+ * `hitTestScene` picks from at the root, so a marquee selects whole groups, not their children.
+ * Rotation is ignored for the hit (marquee uses unrotated bounds), matching common editor behaviour.
+ */
+export function marqueeSelect(scene: SceneGraph, rect: CanvasRect, _groupPath: string[] = []): string[] {
+  const groups = scene.groups ?? []
+  const groupedElementIds = new Set(groups.flatMap((group) => group.childIds))
+  const targets = [
+    ...groups.filter((group) => group.ancestorIds.length === 0).map((group) => ({ id: group.id, bounds: group.bounds })),
+    ...scene.nodes.flatMap((node) => (!node || groupedElementIds.has(node.id) ? [] : [{ id: node.id, bounds: node.bounds }])),
+  ]
+  return targets.filter((target) => rectsIntersect(rect, target.bounds)).map((target) => target.id)
+}
+
 export function hitTestScene(scene: SceneGraph, point: CanvasPoint, groupPath: string[] = []): string | undefined {
   const groups = scene.groups ?? []
   if (groupPath.length > 0) {

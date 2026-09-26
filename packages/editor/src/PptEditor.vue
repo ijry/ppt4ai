@@ -181,6 +181,11 @@ function emitSelection(elementIds: string[]): void {
   emit('select', elementIds.length === 1 ? elementIds[0] : undefined)
 }
 
+function onMarquee(payload: { elementIds: string[] }): void {
+  // Marquee selects top-level elements; only meaningful when not drilled into a group.
+  if (groupPath.value.length === 0) emitSelection(payload.elementIds)
+}
+
 const isInsideGroup = computed(() => groupPath.value.length > 0)
 const selectedGroupId = computed(() => {
   if (selectedElementIds.value.length !== 1) return undefined
@@ -845,6 +850,7 @@ onBeforeUnmount(() => {
           @move-start="emit('move-start', $event)"
           @move="move"
           @move-end="moveEnd"
+          @marquee="onMarquee"
           @enter-group="enterGroup"
           @activate="activate"
         />
