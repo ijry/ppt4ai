@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { SlideBackgroundPanel, slideBackgroundModel, AssetLibrary, ThemePanel, THEME_SLOT_GROUPS, themeSlotGroup, themeFontModels, hexFromColor, type ThemePanelSlotModel, type ThemePanelFontModel } from '@ppt4ai/editor'
+import { SlideBackgroundPanel, slideBackgroundModel, backgroundGradientFrom, AssetLibrary, ThemePanel, THEME_SLOT_GROUPS, themeSlotGroup, themeFontModels, hexFromColor, type ThemePanelSlotModel, type ThemePanelFontModel } from '@ppt4ai/editor'
 import { DEFAULT_THEME_COLORS, type Color, type StrokeStyle, type ThemeColorSlot, type ThemeFontSlot, type ThemeFontScript } from '@ppt4ai/model'
 import { Panel, PanelSection, Field } from '../ui'
 import { inspectorContext } from '../editor/inspector-context'
@@ -29,12 +29,19 @@ const appearance = computed(() => {
   const slide = active()
   const selection = [...slide.engineState.selection]
   if (selection.length !== 1) return undefined
-  const el = slide.engineState.document.elements[selection[0]!] as { kind: string; fill?: { color?: Color }; stroke?: { color?: Color }; strokeWidth?: number; strokeStyle?: StrokeStyle | { custom: unknown } } | undefined
+  const el = slide.engineState.document.elements[selection[0]!] as { kind: string; fill?: { color?: Color; gradient?: { stops?: { pos: number; color: Color }[]; angle?: number } }; stroke?: { color?: Color }; strokeWidth?: number; strokeStyle?: StrokeStyle | { custom: unknown } } | undefined
   if (!el || (el.kind !== 'shape' && el.kind !== 'text')) return undefined
   const hex = (color: Color | undefined, fallback: string): string =>
     color && color.type === 'srgb' ? `#${color.v}` : fallback
+  const gradient = el.fill?.gradient
+  const stops = gradient?.stops ?? []
+  const solid = hex(el.fill?.color, '#4472C4')
   return {
-    fill: hex(el.fill?.color, '#4472C4'),
+    fillKind: gradient ? 'gradient' : 'solid',
+    fill: solid,
+    gradientStart: hex(stops[0]?.color, solid),
+    gradientEnd: hex(stops[stops.length - 1]?.color, '#FFFFFF'),
+    gradientAngle: Math.round(((gradient?.angle ?? 0) / 60000) % 360),
     stroke: hex(el.stroke?.color, '#000000'),
     strokeWidthPt: el.strokeWidth ? Math.round((el.strokeWidth / 12700) * 10) / 10 : 1,
     strokeStyle: typeof el.strokeStyle === 'string' ? el.strokeStyle : 'solid',
@@ -45,6 +52,23 @@ const STROKE_STYLES: { value: StrokeStyle; label: string }[] = [
 ]
 function setFillColor(hex: string): void {
   emit('update', props.host.setSelectedFill({ color: { type: 'srgb', v: hex.slice(1).toUpperCase() } }))
+}
+// Two-stop linear gradient fill, reusing the same builder the slide-background panel uses. Switching to
+// gradient defaults to "current colour → white"; switching back to solid keeps the gradient's start colour.
+function applyGradient(startHex: string, endHex: string, angle: number): void {
+  const fill = backgroundGradientFrom(startHex, endHex, angle)
+  if (fill) emit('update', props.host.setSelectedFill(fill))
+}
+function setFillKind(kind: string): void {
+  const a = appearance.value; if (!a) return
+  if (kind === 'gradient') applyGradient(a.gradientStart, a.gradientEnd, a.gradientAngle)
+  else emit('update', props.host.setSelectedFill({ color: { type: 'srgb', v: a.gradientStart.slice(1).toUpperCase() } }))
+}
+function setGradientStart(hex: string): void { const a = appearance.value; if (a) applyGradient(hex, a.gradientEnd, a.gradientAngle) }
+function setGradientEnd(hex: string): void { const a = appearance.value; if (a) applyGradient(a.gradientStart, hex, a.gradientAngle) }
+function setGradientAngle(deg: string): void {
+  const a = appearance.value; if (!a) return
+  const n = Number(deg); if (Number.isFinite(n)) applyGradient(a.gradientStart, a.gradientEnd, n)
 }
 function setStrokeColor(hex: string): void {
   emit('update', props.host.setSelectedStroke({ color: { type: 'srgb', v: hex.slice(1).toUpperCase() } }))
@@ -142,7 +166,18 @@ function resetThemeFont(slot: ThemeFontSlot, script: ThemeFontScript): void { em
     </Panel>
     <Panel v-if="appearance" title="外观">
       <PanelSection>
-        <Field label="填充"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.fill" data-fill @input="setFillColor(($event.target as HTMLInputElement).value)" /></Field>
+        <Field label="填充">
+          <select class="h-7 rounded border border-border bg-surface px-1 text-sm" :value="appearance.fillKind" data-fill-kind @change="setFillKind(($event.target as HTMLSelectElement).value)">
+            <option value="solid">纯色</option>
+            <option value="gradient">渐变</option>
+          </select>
+        </Field>
+        <Field v-if="appearance.fillKind === 'solid'" label="颜色"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.fill" data-fill @input="setFillColor(($event.target as HTMLInputElement).value)" /></Field>
+        <template v-else>
+          <Field label="渐变起"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.gradientStart" data-gradient-start @change="setGradientStart(($event.target as HTMLInputElement).value)" /></Field>
+          <Field label="渐变止"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.gradientEnd" data-gradient-end @change="setGradientEnd(($event.target as HTMLInputElement).value)" /></Field>
+          <Field label="角度°"><input class="w-20 rounded border border-border px-1 text-right" type="number" min="0" max="359" :value="appearance.gradientAngle" data-gradient-angle @change="setGradientAngle(($event.target as HTMLInputElement).value)" /></Field>
+        </template>
         <Field label="描边"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.stroke" data-stroke @input="setStrokeColor(($event.target as HTMLInputElement).value)" /></Field>
         <Field label="描边宽度"><input class="w-20 rounded border border-border px-1 text-right" type="number" min="0" step="0.5" :value="appearance.strokeWidthPt" data-stroke-width @change="setStrokeWidth(($event.target as HTMLInputElement).value)" /></Field>
         <Field label="线型">

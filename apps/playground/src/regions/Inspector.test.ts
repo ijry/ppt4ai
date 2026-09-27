@@ -40,6 +40,34 @@ describe('Inspector', () => {
     expect(host.setSelectedFill).toHaveBeenCalledWith({ color: { type: 'srgb', v: '00FF00' } })
   })
 
+  it('switches a solid fill to a gradient (current colour → white by default)', () => {
+    const host = { setSelectedFill: vi.fn(() => snap(['e1'])) }
+    const el = mount({ snapshot: snap(['e1'], { e1: { id: 'e1', kind: 'shape', bounds: { x: 0, y: 0, w: 100, h: 50 }, fill: { color: { type: 'srgb', v: 'FF0000' } } } }), host })
+    const kind = el.querySelector('[data-fill-kind]') as HTMLSelectElement
+    expect(kind.value).toBe('solid')
+    kind.value = 'gradient'; kind.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(host.setSelectedFill).toHaveBeenCalledWith({
+      color: { type: 'srgb', v: 'FF0000' },
+      gradient: { stops: [{ pos: 0, color: { type: 'srgb', v: 'FF0000' } }, { pos: 100000, color: { type: 'srgb', v: 'FFFFFF' } }], angle: 0 },
+    })
+  })
+
+  it('reflects an existing gradient fill and edits its angle', () => {
+    const host = { setSelectedFill: vi.fn(() => snap(['e1'])) }
+    const gradient = { stops: [{ pos: 0, color: { type: 'srgb', v: '112233' } }, { pos: 100000, color: { type: 'srgb', v: 'AABBCC' } }], angle: 5400000 }
+    const el = mount({ snapshot: snap(['e1'], { e1: { id: 'e1', kind: 'shape', bounds: { x: 0, y: 0, w: 100, h: 50 }, fill: { color: { type: 'srgb', v: '112233' }, gradient } } }), host })
+    expect((el.querySelector('[data-fill-kind]') as HTMLSelectElement).value).toBe('gradient')
+    expect((el.querySelector('[data-gradient-start]') as HTMLInputElement).value).toBe('#112233')
+    expect((el.querySelector('[data-gradient-end]') as HTMLInputElement).value).toBe('#aabbcc')
+    const angle = el.querySelector('[data-gradient-angle]') as HTMLInputElement
+    expect(angle.value).toBe('90')
+    angle.value = '45'; angle.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(host.setSelectedFill).toHaveBeenCalledWith({
+      color: { type: 'srgb', v: '112233' },
+      gradient: { stops: [{ pos: 0, color: { type: 'srgb', v: '112233' } }, { pos: 100000, color: { type: 'srgb', v: 'AABBCC' } }], angle: 2700000 },
+    })
+  })
+
   it('edits stroke width (pt→EMU) and line style for a selected shape', () => {
     const host = { setSelectedStrokeWidth: vi.fn(() => snap(['e1'])), setSelectedStrokeStyle: vi.fn(() => snap(['e1'])) }
     const el = mount({ snapshot: snap(['e1'], { e1: { id: 'e1', kind: 'shape', bounds: { x: 0, y: 0, w: 100, h: 50 }, strokeWidth: 12700, strokeStyle: 'solid' } }), host })
