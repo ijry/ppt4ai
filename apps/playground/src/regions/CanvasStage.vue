@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { PptEditor, type TableCellSelection } from '@ppt4ai/editor'
 import type { Fill, StrokeStyle, TableBorder, TextBody } from '@ppt4ai/model'
 import { stageBindings } from '../editor/stage-bindings'
@@ -7,6 +7,22 @@ import type { PlaygroundPresentationHost, PlaygroundPresentationSnapshot } from 
 
 const props = defineProps<{ snapshot: PlaygroundPresentationSnapshot; host: PlaygroundPresentationHost; zoom: number }>()
 const emit = defineEmits<{ update: [PlaygroundPresentationSnapshot] }>()
+
+// Right-click context menu, acting on the current selection.
+const menu = ref<{ x: number; y: number }>()
+const hasSelection = computed(() => props.snapshot.slides[props.snapshot.activeSlideId]!.engineState.selection.length > 0)
+function openMenu(event: MouseEvent): void {
+  if (!hasSelection.value) { menu.value = undefined; return }
+  menu.value = { x: event.clientX, y: event.clientY }
+}
+function closeMenu(): void { menu.value = undefined }
+function run(op: () => PlaygroundPresentationSnapshot): void { emit('update', op()); closeMenu() }
+function onDocPointer(event: PointerEvent): void {
+  if (menu.value && !(event.target as HTMLElement)?.closest?.('[data-context-menu]')) closeMenu()
+}
+function onKey(event: KeyboardEvent): void { if (event.key === 'Escape') closeMenu() }
+onMounted(() => { document.addEventListener('pointerdown', onDocPointer); document.addEventListener('keydown', onKey) })
+onBeforeUnmount(() => { document.removeEventListener('pointerdown', onDocPointer); document.removeEventListener('keydown', onKey) })
 
 const b = computed(() => stageBindings(props.snapshot))
 const tableCellSelection = computed(() => {
@@ -40,7 +56,7 @@ function setTableCellBorders(borders: Partial<Record<'left' | 'right' | 'top' | 
 function setTableCellText(p: { elementId: string; point: { row: number; column: number }; body: TextBody }): void { emit('update', props.host.setTableCellText(p.elementId, p.point.row, p.point.column, p.body)) }
 </script>
 <template>
-  <div data-region="stage" class="flex items-start justify-center overflow-auto bg-gradient-to-b from-surface-2 to-bg p-10">
+  <div data-region="stage" class="flex items-start justify-center overflow-auto bg-gradient-to-b from-surface-2 to-bg p-10" @contextmenu.prevent="openMenu">
     <div class="overflow-hidden rounded-xl bg-white shadow-slide ring-1 ring-black/5">
       <PptEditor
       :scene="b.scene" :adapter="props.host.adapter" :snap-options="props.host.snapOptions"
@@ -56,6 +72,20 @@ function setTableCellText(p: { elementId: string; point: { row: number; column: 
       @select-table-cell="selectTableCell" @set-table-cell-fill="setTableCellFill"
       @set-table-cell-borders="setTableCellBorders" @table-cell-text="setTableCellText"
       />
+    </div>
+    <div
+      v-if="menu"
+      data-context-menu
+      class="fixed z-50 min-w-36 rounded-lg border border-border bg-surface py-1 text-sm shadow-pop"
+      :style="{ left: `${menu.x}px`, top: `${menu.y}px` }"
+    >
+      <button type="button" class="block w-full px-3 py-1.5 text-left hover:bg-surface-2" data-ctx="duplicate" @click="run(() => props.host.duplicateSelected())">再制</button>
+      <button type="button" class="block w-full px-3 py-1.5 text-left text-danger hover:bg-danger-soft" data-ctx="delete" @click="run(() => props.host.deleteSelected())">删除</button>
+      <div class="my-1 border-t border-border" />
+      <button type="button" class="block w-full px-3 py-1.5 text-left hover:bg-surface-2" @click="run(() => props.host.bringToFront())">置于顶层</button>
+      <button type="button" class="block w-full px-3 py-1.5 text-left hover:bg-surface-2" @click="run(() => props.host.bringForward())">上移一层</button>
+      <button type="button" class="block w-full px-3 py-1.5 text-left hover:bg-surface-2" @click="run(() => props.host.sendBackward())">下移一层</button>
+      <button type="button" class="block w-full px-3 py-1.5 text-left hover:bg-surface-2" @click="run(() => props.host.sendToBack())">置于底层</button>
     </div>
   </div>
 </template>
