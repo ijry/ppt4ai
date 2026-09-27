@@ -120,6 +120,7 @@ export { default as SlideBackgroundPanel } from './SlideBackgroundPanel.vue'
 export {
   backgroundColorFrom,
   backgroundGradientFrom,
+  backgroundPatternFrom,
   slideBackgroundModel,
   type SlideBackgroundKind,
   type SlideBackgroundPanelEmit,

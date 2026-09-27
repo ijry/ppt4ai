@@ -2,6 +2,7 @@
 import { createApp, h } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createPpt4aiI18n } from '@ppt4ai/editor'
+import { PAINTED_PRESET_PATTERNS } from '@ppt4ai/model'
 import Inspector from './Inspector.vue'
 import type { PlaygroundPresentationSnapshot } from '../presentation-host'
 
@@ -65,6 +66,33 @@ describe('Inspector', () => {
     expect(host.setSelectedFill).toHaveBeenCalledWith({
       color: { type: 'srgb', v: '112233' },
       gradient: { stops: [{ pos: 0, color: { type: 'srgb', v: '112233' } }, { pos: 100000, color: { type: 'srgb', v: 'AABBCC' } }], angle: 2700000 },
+    })
+  })
+
+  it('switches a solid fill to a pattern (current colour on white by default)', () => {
+    const host = { setSelectedFill: vi.fn(() => snap(['e1'])) }
+    const el = mount({ snapshot: snap(['e1'], { e1: { id: 'e1', kind: 'shape', bounds: { x: 0, y: 0, w: 100, h: 50 }, fill: { color: { type: 'srgb', v: 'FF0000' } } } }), host })
+    const kind = el.querySelector('[data-fill-kind]') as HTMLSelectElement
+    kind.value = 'pattern'; kind.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(host.setSelectedFill).toHaveBeenCalledWith({
+      color: { type: 'srgb', v: 'FF0000' },
+      pattern: { preset: PAINTED_PRESET_PATTERNS[0], foreground: { type: 'srgb', v: 'FF0000' }, background: { type: 'srgb', v: 'FFFFFF' } },
+    })
+  })
+
+  it('reflects an existing pattern fill and edits its preset', () => {
+    const host = { setSelectedFill: vi.fn(() => snap(['e1'])) }
+    const pattern = { preset: 'vert', foreground: { type: 'srgb', v: '112233' }, background: { type: 'srgb', v: 'AABBCC' } }
+    const el = mount({ snapshot: snap(['e1'], { e1: { id: 'e1', kind: 'shape', bounds: { x: 0, y: 0, w: 100, h: 50 }, fill: { color: { type: 'srgb', v: '112233' }, pattern } } }), host })
+    expect((el.querySelector('[data-fill-kind]') as HTMLSelectElement).value).toBe('pattern')
+    expect((el.querySelector('[data-pattern-foreground]') as HTMLInputElement).value).toBe('#112233')
+    expect((el.querySelector('[data-pattern-background]') as HTMLInputElement).value).toBe('#aabbcc')
+    const preset = el.querySelector('[data-pattern-preset]') as HTMLSelectElement
+    expect(preset.value).toBe('vert')
+    preset.value = 'horz'; preset.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(host.setSelectedFill).toHaveBeenCalledWith({
+      color: { type: 'srgb', v: '112233' },
+      pattern: { preset: 'horz', foreground: { type: 'srgb', v: '112233' }, background: { type: 'srgb', v: 'AABBCC' } },
     })
   })
 

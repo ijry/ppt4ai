@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { SlideBackgroundPanel, slideBackgroundModel, backgroundGradientFrom, AssetLibrary, ThemePanel, THEME_SLOT_GROUPS, themeSlotGroup, themeFontModels, hexFromColor, type ThemePanelSlotModel, type ThemePanelFontModel } from '@ppt4ai/editor'
-import { DEFAULT_THEME_COLORS, type Color, type StrokeStyle, type ThemeColorSlot, type ThemeFontSlot, type ThemeFontScript } from '@ppt4ai/model'
+import { SlideBackgroundPanel, slideBackgroundModel, backgroundGradientFrom, backgroundPatternFrom, AssetLibrary, ThemePanel, THEME_SLOT_GROUPS, themeSlotGroup, themeFontModels, hexFromColor, type ThemePanelSlotModel, type ThemePanelFontModel } from '@ppt4ai/editor'
+import { DEFAULT_THEME_COLORS, PAINTED_PRESET_PATTERNS, type Color, type StrokeStyle, type ThemeColorSlot, type ThemeFontSlot, type ThemeFontScript } from '@ppt4ai/model'
 import { Panel, PanelSection, Field } from '../ui'
 import { inspectorContext } from '../editor/inspector-context'
 import type { PlaygroundPresentationHost, PlaygroundPresentationSnapshot } from '../presentation-host'
@@ -29,19 +29,24 @@ const appearance = computed(() => {
   const slide = active()
   const selection = [...slide.engineState.selection]
   if (selection.length !== 1) return undefined
-  const el = slide.engineState.document.elements[selection[0]!] as { kind: string; fill?: { color?: Color; gradient?: { stops?: { pos: number; color: Color }[]; angle?: number } }; stroke?: { color?: Color }; strokeWidth?: number; strokeStyle?: StrokeStyle | { custom: unknown } } | undefined
+  const el = slide.engineState.document.elements[selection[0]!] as { kind: string; fill?: { color?: Color; gradient?: { stops?: { pos: number; color: Color }[]; angle?: number }; pattern?: { preset?: string; foreground?: Color; background?: Color } }; stroke?: { color?: Color }; strokeWidth?: number; strokeStyle?: StrokeStyle | { custom: unknown } } | undefined
   if (!el || (el.kind !== 'shape' && el.kind !== 'text')) return undefined
   const hex = (color: Color | undefined, fallback: string): string =>
     color && color.type === 'srgb' ? `#${color.v}` : fallback
   const gradient = el.fill?.gradient
+  const pattern = el.fill?.pattern
   const stops = gradient?.stops ?? []
   const solid = hex(el.fill?.color, '#4472C4')
   return {
-    fillKind: gradient ? 'gradient' : 'solid',
+    fillKind: gradient ? 'gradient' : pattern ? 'pattern' : 'solid',
     fill: solid,
     gradientStart: hex(stops[0]?.color, solid),
     gradientEnd: hex(stops[stops.length - 1]?.color, '#FFFFFF'),
     gradientAngle: Math.round(((gradient?.angle ?? 0) / 60000) % 360),
+    patternPreset: pattern?.preset ?? PAINTED_PRESET_PATTERNS[0]!,
+    patternForeground: hex(pattern?.foreground, solid),
+    patternBackground: hex(pattern?.background, '#FFFFFF'),
+    patternPresets: PAINTED_PRESET_PATTERNS,
     stroke: hex(el.stroke?.color, '#000000'),
     strokeWidthPt: el.strokeWidth ? Math.round((el.strokeWidth / 12700) * 10) / 10 : 1,
     strokeStyle: typeof el.strokeStyle === 'string' ? el.strokeStyle : 'solid',
@@ -59,9 +64,16 @@ function applyGradient(startHex: string, endHex: string, angle: number): void {
   const fill = backgroundGradientFrom(startHex, endHex, angle)
   if (fill) emit('update', props.host.setSelectedFill(fill))
 }
+// Preset pattern fill, same builder as the slide-background panel; only presets the painter can draw are
+// offered. Switching to pattern defaults to "current colour on white".
+function applyPattern(preset: string, foregroundHex: string, backgroundHex: string): void {
+  const fill = backgroundPatternFrom(preset, foregroundHex, backgroundHex)
+  if (fill) emit('update', props.host.setSelectedFill(fill))
+}
 function setFillKind(kind: string): void {
   const a = appearance.value; if (!a) return
   if (kind === 'gradient') applyGradient(a.gradientStart, a.gradientEnd, a.gradientAngle)
+  else if (kind === 'pattern') applyPattern(a.patternPreset, a.patternForeground, a.patternBackground)
   else emit('update', props.host.setSelectedFill({ color: { type: 'srgb', v: a.gradientStart.slice(1).toUpperCase() } }))
 }
 function setGradientStart(hex: string): void { const a = appearance.value; if (a) applyGradient(hex, a.gradientEnd, a.gradientAngle) }
@@ -70,6 +82,9 @@ function setGradientAngle(deg: string): void {
   const a = appearance.value; if (!a) return
   const n = Number(deg); if (Number.isFinite(n)) applyGradient(a.gradientStart, a.gradientEnd, n)
 }
+function setPatternPreset(preset: string): void { const a = appearance.value; if (a) applyPattern(preset, a.patternForeground, a.patternBackground) }
+function setPatternForeground(hex: string): void { const a = appearance.value; if (a) applyPattern(a.patternPreset, hex, a.patternBackground) }
+function setPatternBackground(hex: string): void { const a = appearance.value; if (a) applyPattern(a.patternPreset, a.patternForeground, hex) }
 function setStrokeColor(hex: string): void {
   emit('update', props.host.setSelectedStroke({ color: { type: 'srgb', v: hex.slice(1).toUpperCase() } }))
 }
@@ -170,13 +185,23 @@ function resetThemeFont(slot: ThemeFontSlot, script: ThemeFontScript): void { em
           <select class="h-7 rounded border border-border bg-surface px-1 text-sm" :value="appearance.fillKind" data-fill-kind @change="setFillKind(($event.target as HTMLSelectElement).value)">
             <option value="solid">纯色</option>
             <option value="gradient">渐变</option>
+            <option value="pattern">图案</option>
           </select>
         </Field>
         <Field v-if="appearance.fillKind === 'solid'" label="颜色"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.fill" data-fill @input="setFillColor(($event.target as HTMLInputElement).value)" /></Field>
-        <template v-else>
+        <template v-else-if="appearance.fillKind === 'gradient'">
           <Field label="渐变起"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.gradientStart" data-gradient-start @change="setGradientStart(($event.target as HTMLInputElement).value)" /></Field>
           <Field label="渐变止"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.gradientEnd" data-gradient-end @change="setGradientEnd(($event.target as HTMLInputElement).value)" /></Field>
           <Field label="角度°"><input class="w-20 rounded border border-border px-1 text-right" type="number" min="0" max="359" :value="appearance.gradientAngle" data-gradient-angle @change="setGradientAngle(($event.target as HTMLInputElement).value)" /></Field>
+        </template>
+        <template v-else>
+          <Field label="图案">
+            <select class="h-7 rounded border border-border bg-surface px-1 text-sm" :value="appearance.patternPreset" data-pattern-preset @change="setPatternPreset(($event.target as HTMLSelectElement).value)">
+              <option v-for="preset in appearance.patternPresets" :key="preset" :value="preset">{{ preset }}</option>
+            </select>
+          </Field>
+          <Field label="前景"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.patternForeground" data-pattern-foreground @change="setPatternForeground(($event.target as HTMLInputElement).value)" /></Field>
+          <Field label="背景"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.patternBackground" data-pattern-background @change="setPatternBackground(($event.target as HTMLInputElement).value)" /></Field>
         </template>
         <Field label="描边"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.stroke" data-stroke @input="setStrokeColor(($event.target as HTMLInputElement).value)" /></Field>
         <Field label="描边宽度"><input class="w-20 rounded border border-border px-1 text-right" type="number" min="0" step="0.5" :value="appearance.strokeWidthPt" data-stroke-width @change="setStrokeWidth(($event.target as HTMLInputElement).value)" /></Field>
