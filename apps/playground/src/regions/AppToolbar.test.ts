@@ -26,16 +26,18 @@ describe('AppToolbar ribbon', () => {
     expect(events).toContain('add')
   })
 
-  it('reveals insert tools on the Insert tab and emits them', async () => {
-    const events: string[] = []
-    const el = mount({ snapshot: snap(), 'onInsert-text': () => events.push('text'), 'onInsert-shape': () => events.push('shape') })
-    // Insert tools are not present on the Home tab.
-    expect(el.querySelector('[data-act="insert-text"]')).toBeNull()
+  it('reveals insert tools on the Insert tab; shape gallery emits a preset', async () => {
+    const events: Array<[string, unknown]> = []
+    const el = mount({ snapshot: snap(), 'onInsert-text': () => events.push(['text', null]), 'onInsert-shape': (p: string) => events.push(['shape', p]), 'onInsert-image': () => events.push(['image', null]) })
+    expect(el.querySelector('[data-act="insert-text"]')).toBeNull() // not on Home tab
     ;(el.querySelector('[data-tab="insert"]') as HTMLElement).click()
     await nextTick()
     ;(el.querySelector('[data-act="insert-text"]') as HTMLElement).click()
-    ;(el.querySelector('[data-act="insert-shape"]') as HTMLElement).click()
-    expect(events).toEqual(['text', 'shape'])
+    ;(el.querySelector('[data-act="insert-image"]') as HTMLElement).click()
+    ;(el.querySelector('[data-act="insert-shape"]') as HTMLElement).click() // opens the shape popover
+    await nextTick()
+    ;(el.querySelector('[data-shape="ellipse"]') as HTMLElement).click()
+    expect(events).toEqual([['text', null], ['image', null], ['shape', 'ellipse']])
   })
 
   it('disables arrange tools with no selection', async () => {

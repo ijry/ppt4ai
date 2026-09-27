@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { createPlaygroundPresentationHost } from './presentation-host'
+import { readImageUploadFile } from './image-file-upload'
 import { zoomIn, zoomOut, fitZoom } from './editor/zoom'
 import AppToolbar from './regions/AppToolbar.vue'
 import SlideNavigator from './regions/SlideNavigator.vue'
@@ -30,7 +31,18 @@ function ungroup(): void {
 function rotate(deg: number): void { snapshot.value = host.rotateSelection(deg) }
 function flip(axis: 'horizontal' | 'vertical'): void { snapshot.value = host.flipSelection(axis) }
 function insertText(): void { snapshot.value = host.insertText() }
-function insertShape(): void { snapshot.value = host.insertShape('rect') }
+function insertShape(preset: string): void { snapshot.value = host.insertShape(preset) }
+const imageInput = ref<HTMLInputElement>()
+function insertImage(): void { imageInput.value?.click() }
+async function onImageFile(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  try {
+    snapshot.value = await host.uploadAndInsert(await readImageUploadFile(file))
+  } catch { /* a bad/unreadable image is surfaced via host status; ignore here */ }
+}
 function reorder(action: 'front' | 'back' | 'forward' | 'backward'): void {
   snapshot.value = action === 'front' ? host.bringToFront()
     : action === 'back' ? host.sendToBack()
@@ -72,10 +84,11 @@ function onStageUpdate(next: typeof snapshot.value): void { snapshot.value = nex
 </script>
 <template>
   <div class="grid h-screen grid-rows-[auto_1fr] bg-bg text-text font-sans antialiased">
+    <input ref="imageInput" type="file" accept="image/*" class="hidden" data-image-input @change="onImageFile" />
     <AppToolbar
       :snapshot="snapshot"
       @undo="undo" @redo="redo" @copy="copySel" @paste="paste" @add="addSlide"
-      @insert-text="insertText" @insert-shape="insertShape" @reorder="reorder" @delete="deleteSelected" @align="align" @distribute="distribute" @duplicate="duplicate"
+      @insert-text="insertText" @insert-shape="insertShape" @insert-image="insertImage" @reorder="reorder" @delete="deleteSelected" @align="align" @distribute="distribute" @duplicate="duplicate"
       @group="group" @ungroup="ungroup" @rotate="rotate" @flip="flip" @zoom="onZoom"
     />
     <div class="grid min-h-0 grid-cols-[17rem_1fr_26rem]">

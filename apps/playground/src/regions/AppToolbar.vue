@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Undo2, Redo2, Copy, ClipboardPaste, CopyPlus, Plus, Type, Square, Group, Ungroup, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Trash2, BringToFront, SendToBack, ArrowUp, ArrowDown, AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, ZoomIn, ZoomOut, Maximize } from 'lucide-vue-next'
-import { ToolbarGroup, IconButton, Divider } from '../ui'
+import { Undo2, Redo2, Copy, ClipboardPaste, CopyPlus, Plus, Type, Square, Circle, Triangle, Diamond, Pentagon, Hexagon, ArrowRight, ChevronRight, Image, Group, Ungroup, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Trash2, BringToFront, SendToBack, ArrowUp, ArrowDown, AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, ZoomIn, ZoomOut, Maximize } from 'lucide-vue-next'
+import { ToolbarGroup, IconButton, Divider, Popover } from '../ui'
 import { toolbarModel } from '../editor/toolbar-model'
 import type { PlaygroundPresentationSnapshot } from '../presentation-host'
 
 const props = defineProps<{ snapshot: PlaygroundPresentationSnapshot }>()
 const emit = defineEmits<{
   undo: []; redo: []; copy: []; paste: []; add: []; duplicate: []
-  'insert-text': []; 'insert-shape': []
+  'insert-text': []; 'insert-shape': [preset: string]; 'insert-image': []
   group: []; ungroup: []; rotate: [number]; flip: ['horizontal' | 'vertical']; delete: []
   align: ['left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom']
   distribute: ['horizontal' | 'vertical']
@@ -18,6 +18,17 @@ const emit = defineEmits<{
 const m = computed(() => toolbarModel(props.snapshot))
 const tabs = [{ id: 'home', label: '开始' }, { id: 'insert', label: '插入' }, { id: 'arrange', label: '排列' }] as const
 const tab = ref<'home' | 'insert' | 'arrange'>('home')
+const shapes = [
+  { preset: 'rect', label: '矩形', icon: Square },
+  { preset: 'roundRect', label: '圆角矩形', icon: Square },
+  { preset: 'ellipse', label: '椭圆', icon: Circle },
+  { preset: 'triangle', label: '三角形', icon: Triangle },
+  { preset: 'diamond', label: '菱形', icon: Diamond },
+  { preset: 'pentagon', label: '五边形', icon: Pentagon },
+  { preset: 'hexagon', label: '六边形', icon: Hexagon },
+  { preset: 'rightArrow', label: '箭头', icon: ArrowRight },
+  { preset: 'chevron', label: '燕尾形', icon: ChevronRight },
+] as const
 </script>
 <template>
   <div data-region="toolbar" class="border-b border-border bg-surface shadow-toolbar">
@@ -64,7 +75,26 @@ const tab = ref<'home' | 'insert' | 'arrange'>('home')
       <template v-else-if="tab === 'insert'">
         <ToolbarGroup>
           <IconButton data-act="insert-text" label="插入文本" @click="emit('insert-text')"><Type :size="18" /></IconButton>
-          <IconButton data-act="insert-shape" label="插入形状" @click="emit('insert-shape')"><Square :size="18" /></IconButton>
+          <Popover>
+            <template #trigger="{ toggle }">
+              <IconButton data-act="insert-shape" label="插入形状" @click="toggle"><Square :size="18" /></IconButton>
+            </template>
+            <template #default="{ close }">
+              <div class="grid w-48 grid-cols-5 gap-1" data-shape-gallery>
+                <button
+                  v-for="s in shapes"
+                  :key="s.preset"
+                  type="button"
+                  class="icon-btn"
+                  :data-shape="s.preset"
+                  :title="s.label"
+                  :aria-label="s.label"
+                  @click="emit('insert-shape', s.preset); close()"
+                ><component :is="s.icon" :size="18" /></button>
+              </div>
+            </template>
+          </Popover>
+          <IconButton data-act="insert-image" label="插入图片" @click="emit('insert-image')"><Image :size="18" /></IconButton>
         </ToolbarGroup>
       </template>
       <template v-else>
