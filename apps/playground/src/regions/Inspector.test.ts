@@ -39,6 +39,18 @@ describe('Inspector', () => {
     fill.value = '#00ff00'; fill.dispatchEvent(new Event('input', { bubbles: true }))
     expect(host.setSelectedFill).toHaveBeenCalledWith({ color: { type: 'srgb', v: '00FF00' } })
   })
+
+  it('edits stroke width (pt→EMU) and line style for a selected shape', () => {
+    const host = { setSelectedStrokeWidth: vi.fn(() => snap(['e1'])), setSelectedStrokeStyle: vi.fn(() => snap(['e1'])) }
+    const el = mount({ snapshot: snap(['e1'], { e1: { id: 'e1', kind: 'shape', bounds: { x: 0, y: 0, w: 100, h: 50 }, strokeWidth: 12700, strokeStyle: 'solid' } }), host })
+    const width = el.querySelector('[data-stroke-width]') as HTMLInputElement
+    expect(width.value).toBe('1')
+    width.value = '2'; width.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(host.setSelectedStrokeWidth).toHaveBeenCalledWith(25400)
+    const style = el.querySelector('[data-stroke-style]') as HTMLSelectElement
+    style.value = 'dash'; style.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(host.setSelectedStrokeStyle).toHaveBeenCalledWith('dash')
+  })
   it('shows a layout picker and switches layout via the host', () => {
     const host = { setSlideLayout: vi.fn(() => snap([])) }
     const s = snap([])

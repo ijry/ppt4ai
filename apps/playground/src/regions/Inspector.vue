@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { SlideBackgroundPanel, slideBackgroundModel, AssetLibrary, ThemePanel, THEME_SLOT_GROUPS, themeSlotGroup, themeFontModels, hexFromColor, type ThemePanelSlotModel, type ThemePanelFontModel } from '@ppt4ai/editor'
-import { DEFAULT_THEME_COLORS, type Color, type ThemeColorSlot, type ThemeFontSlot, type ThemeFontScript } from '@ppt4ai/model'
+import { DEFAULT_THEME_COLORS, type Color, type StrokeStyle, type ThemeColorSlot, type ThemeFontSlot, type ThemeFontScript } from '@ppt4ai/model'
 import { Panel, PanelSection, Field } from '../ui'
 import { inspectorContext } from '../editor/inspector-context'
 import type { PlaygroundPresentationHost, PlaygroundPresentationSnapshot } from '../presentation-host'
@@ -29,17 +29,32 @@ const appearance = computed(() => {
   const slide = active()
   const selection = [...slide.engineState.selection]
   if (selection.length !== 1) return undefined
-  const el = slide.engineState.document.elements[selection[0]!] as { kind: string; fill?: { color?: Color }; stroke?: { color?: Color } } | undefined
+  const el = slide.engineState.document.elements[selection[0]!] as { kind: string; fill?: { color?: Color }; stroke?: { color?: Color }; strokeWidth?: number; strokeStyle?: StrokeStyle | { custom: unknown } } | undefined
   if (!el || (el.kind !== 'shape' && el.kind !== 'text')) return undefined
   const hex = (color: Color | undefined, fallback: string): string =>
     color && color.type === 'srgb' ? `#${color.v}` : fallback
-  return { fill: hex(el.fill?.color, '#4472C4'), stroke: hex(el.stroke?.color, '#000000') }
+  return {
+    fill: hex(el.fill?.color, '#4472C4'),
+    stroke: hex(el.stroke?.color, '#000000'),
+    strokeWidthPt: el.strokeWidth ? Math.round((el.strokeWidth / 12700) * 10) / 10 : 1,
+    strokeStyle: typeof el.strokeStyle === 'string' ? el.strokeStyle : 'solid',
+  }
 })
+const STROKE_STYLES: { value: StrokeStyle; label: string }[] = [
+  { value: 'solid', label: '实线' }, { value: 'dash', label: '虚线' }, { value: 'dot', label: '点线' }, { value: 'dashDot', label: '点划线' },
+]
 function setFillColor(hex: string): void {
   emit('update', props.host.setSelectedFill({ color: { type: 'srgb', v: hex.slice(1).toUpperCase() } }))
 }
 function setStrokeColor(hex: string): void {
   emit('update', props.host.setSelectedStroke({ color: { type: 'srgb', v: hex.slice(1).toUpperCase() } }))
+}
+function setStrokeWidth(pt: string): void {
+  const n = Number(pt)
+  if (Number.isFinite(n) && n >= 0) emit('update', props.host.setSelectedStrokeWidth(Math.round(n * 12700)))
+}
+function setStrokeStyleValue(style: string): void {
+  emit('update', props.host.setSelectedStrokeStyle(style as StrokeStyle))
 }
 
 function setGeom(field: 'x' | 'y' | 'w' | 'h', value: string): void {
@@ -129,6 +144,12 @@ function resetThemeFont(slot: ThemeFontSlot, script: ThemeFontScript): void { em
       <PanelSection>
         <Field label="填充"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.fill" data-fill @input="setFillColor(($event.target as HTMLInputElement).value)" /></Field>
         <Field label="描边"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.stroke" data-stroke @input="setStrokeColor(($event.target as HTMLInputElement).value)" /></Field>
+        <Field label="描边宽度"><input class="w-20 rounded border border-border px-1 text-right" type="number" min="0" step="0.5" :value="appearance.strokeWidthPt" data-stroke-width @change="setStrokeWidth(($event.target as HTMLInputElement).value)" /></Field>
+        <Field label="线型">
+          <select class="h-7 rounded border border-border bg-surface px-1 text-sm" :value="appearance.strokeStyle" data-stroke-style @change="setStrokeStyleValue(($event.target as HTMLSelectElement).value)">
+            <option v-for="s in STROKE_STYLES" :key="s.value" :value="s.value">{{ s.label }}</option>
+          </select>
+        </Field>
       </PanelSection>
     </Panel>
   </div>
