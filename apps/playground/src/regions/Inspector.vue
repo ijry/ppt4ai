@@ -23,6 +23,25 @@ const selected = computed(() => {
   return el && el.bounds ? { id: el.id, bounds: el.bounds, rotation: el.transform?.rotation ?? 0 } : undefined
 })
 
+// Fill/stroke appearance for a single selected shape or text element. Reflects an srgb colour exactly;
+// scheme/other colours fall back to a sensible default in the swatch, and editing always writes srgb.
+const appearance = computed(() => {
+  const slide = active()
+  const selection = [...slide.engineState.selection]
+  if (selection.length !== 1) return undefined
+  const el = slide.engineState.document.elements[selection[0]!] as { kind: string; fill?: { color?: Color }; stroke?: { color?: Color } } | undefined
+  if (!el || (el.kind !== 'shape' && el.kind !== 'text')) return undefined
+  const hex = (color: Color | undefined, fallback: string): string =>
+    color && color.type === 'srgb' ? `#${color.v}` : fallback
+  return { fill: hex(el.fill?.color, '#4472C4'), stroke: hex(el.stroke?.color, '#000000') }
+})
+function setFillColor(hex: string): void {
+  emit('update', props.host.setSelectedFill({ color: { type: 'srgb', v: hex.slice(1).toUpperCase() } }))
+}
+function setStrokeColor(hex: string): void {
+  emit('update', props.host.setSelectedStroke({ color: { type: 'srgb', v: hex.slice(1).toUpperCase() } }))
+}
+
 function setGeom(field: 'x' | 'y' | 'w' | 'h', value: string): void {
   const sel = selected.value; if (!sel) return
   const n = Number(value); if (!Number.isFinite(n)) return
@@ -104,6 +123,12 @@ function resetThemeFont(slot: ThemeFontSlot, script: ThemeFontScript): void { em
         <Field label="宽"><input class="w-24 rounded border border-border px-1 text-right" type="number" :value="selected.bounds.w" data-geom="w" @change="setGeom('w', ($event.target as HTMLInputElement).value)" /></Field>
         <Field label="高"><input class="w-24 rounded border border-border px-1 text-right" type="number" :value="selected.bounds.h" data-geom="h" @change="setGeom('h', ($event.target as HTMLInputElement).value)" /></Field>
         <Field label="旋转°"><input class="w-24 rounded border border-border px-1 text-right" type="number" :value="Math.round(selected.rotation / 60000)" data-geom="r" @change="setRotation(($event.target as HTMLInputElement).value)" /></Field>
+      </PanelSection>
+    </Panel>
+    <Panel v-if="appearance" title="外观">
+      <PanelSection>
+        <Field label="填充"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.fill" data-fill @input="setFillColor(($event.target as HTMLInputElement).value)" /></Field>
+        <Field label="描边"><input class="h-7 w-10 rounded border border-border" type="color" :value="appearance.stroke" data-stroke @input="setStrokeColor(($event.target as HTMLInputElement).value)" /></Field>
       </PanelSection>
     </Panel>
   </div>

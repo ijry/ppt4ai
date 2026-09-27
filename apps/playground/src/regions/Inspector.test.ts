@@ -30,6 +30,15 @@ describe('Inspector', () => {
     w.value = '200'; w.dispatchEvent(new Event('change', { bubbles: true }))
     expect(host.resizeElement).toHaveBeenCalledWith('e1', { x: 0, y: 0, w: 200, h: 50 })
   })
+
+  it('shows fill/stroke for a selected shape and writes srgb on change', () => {
+    const host = { setSelectedFill: vi.fn(() => snap(['e1'])) }
+    const el = mount({ snapshot: snap(['e1'], { e1: { id: 'e1', kind: 'shape', bounds: { x: 0, y: 0, w: 100, h: 50 }, fill: { color: { type: 'srgb', v: 'FF0000' } } } }), host })
+    const fill = el.querySelector('[data-fill]') as HTMLInputElement
+    expect(fill.value).toBe('#ff0000')
+    fill.value = '#00ff00'; fill.dispatchEvent(new Event('input', { bubbles: true }))
+    expect(host.setSelectedFill).toHaveBeenCalledWith({ color: { type: 'srgb', v: '00FF00' } })
+  })
   it('shows a layout picker and switches layout via the host', () => {
     const host = { setSlideLayout: vi.fn(() => snap([])) }
     const s = snap([])
