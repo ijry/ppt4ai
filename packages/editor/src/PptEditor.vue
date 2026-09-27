@@ -752,7 +752,8 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="ppt-editor" aria-labelledby="ppt-editor-toolbar" tabindex="0" @keydown.capture="handleEditorKeyDown">
-    <header v-if="showObjectToolbar" id="ppt-editor-toolbar" class="ppt-editor__toolbar flex items-center gap-2 border-b border-slate-200 bg-white p-2">
+    <header v-if="showObjectToolbar || (textEditorProps && textFormatting) || selectedTableNode" id="ppt-editor-toolbar" class="ppt-editor__toolbar flex items-center gap-2 border-b border-slate-200 bg-white p-2">
+      <template v-if="showObjectToolbar">
       <button type="button" class="ppt-editor__button">
         {{ t('toolbar.insert.shape') }}
       </button>
@@ -816,6 +817,7 @@ onBeforeUnmount(() => {
           </button>
         </template>
       </div>
+      </template>
       <TextFormattingToolbar
         v-if="textEditorProps && textFormatting"
         active
