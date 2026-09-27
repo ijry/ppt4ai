@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { createPlaygroundPresentationHost } from './presentation-host'
 import { readImageUploadFile } from './image-file-upload'
 import { zoomIn, zoomOut, fitZoom } from './editor/zoom'
@@ -7,10 +7,15 @@ import AppToolbar from './regions/AppToolbar.vue'
 import SlideNavigator from './regions/SlideNavigator.vue'
 import CanvasStage from './regions/CanvasStage.vue'
 import Inspector from './regions/Inspector.vue'
+import PresentationView from './PresentationView.vue'
 
 const host = createPlaygroundPresentationHost()
 const snapshot = shallowRef(host.getSnapshot())
 const zoom = ref(0.6)
+const presenting = ref(false)
+const scenes = computed(() => snapshot.value.slideOrder.map((id) => snapshot.value.slides[id]!.thumbnailScene))
+const activeIndex = computed(() => snapshot.value.slideOrder.indexOf(snapshot.value.activeSlideId))
+function present(): void { presenting.value = true }
 
 function selectSlide(id: string): void { snapshot.value = host.selectSlide(id) }
 function addSlide(): void { snapshot.value = host.addSlide() }
@@ -89,7 +94,7 @@ function onStageUpdate(next: typeof snapshot.value): void { snapshot.value = nex
       :snapshot="snapshot"
       @undo="undo" @redo="redo" @copy="copySel" @paste="paste" @add="addSlide"
       @insert-text="insertText" @insert-shape="insertShape" @insert-image="insertImage" @reorder="reorder" @delete="deleteSelected" @align="align" @distribute="distribute" @duplicate="duplicate"
-      @group="group" @ungroup="ungroup" @rotate="rotate" @flip="flip" @zoom="onZoom"
+      @group="group" @ungroup="ungroup" @rotate="rotate" @flip="flip" @zoom="onZoom" @present="present"
     />
     <div class="grid min-h-0 grid-cols-[17rem_1fr_26rem]">
       <SlideNavigator
@@ -101,5 +106,6 @@ function onStageUpdate(next: typeof snapshot.value): void { snapshot.value = nex
       <CanvasStage :snapshot="snapshot" :host="host" :zoom="zoom" class="min-h-0 overflow-auto" @update="onStageUpdate" />
       <Inspector :snapshot="snapshot" :host="host" class="min-h-0 overflow-y-auto border-l border-border bg-bg" @update="onStageUpdate" />
     </div>
+    <PresentationView v-if="presenting" :scenes="scenes" :adapter="host.adapter" :start-index="activeIndex" @exit="presenting = false" />
   </div>
 </template>

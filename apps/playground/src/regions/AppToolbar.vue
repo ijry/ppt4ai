@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Undo2, Redo2, Copy, ClipboardPaste, CopyPlus, Plus, Type, Square, Circle, Triangle, Diamond, Pentagon, Hexagon, ArrowRight, ChevronRight, Image, Group, Ungroup, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Trash2, BringToFront, SendToBack, ArrowUp, ArrowDown, AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, ZoomIn, ZoomOut, Maximize } from 'lucide-vue-next'
+import { Undo2, Redo2, Copy, ClipboardPaste, CopyPlus, Plus, Type, Square, Circle, Triangle, Diamond, Pentagon, Hexagon, ArrowRight, ChevronRight, Image, Group, Ungroup, RotateCcw, RotateCw, FlipHorizontal, FlipVertical, Trash2, BringToFront, SendToBack, ArrowUp, ArrowDown, AlignStartVertical, AlignCenterVertical, AlignEndVertical, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter, Play, ZoomIn, ZoomOut, Maximize } from 'lucide-vue-next'
 import { ToolbarGroup, IconButton, Divider, Popover } from '../ui'
 import { toolbarModel } from '../editor/toolbar-model'
 import type { PlaygroundPresentationSnapshot } from '../presentation-host'
@@ -14,6 +14,7 @@ const emit = defineEmits<{
   distribute: ['horizontal' | 'vertical']
   reorder: ['front' | 'back' | 'forward' | 'backward']
   zoom: ['in' | 'out' | 'fit']
+  present: []
 }>()
 const m = computed(() => toolbarModel(props.snapshot))
 const tabs = [{ id: 'home', label: '开始' }, { id: 'insert', label: '插入' }, { id: 'arrange', label: '排列' }] as const
@@ -47,10 +48,13 @@ const shapes = [
         :data-tab="t.id"
         @click="tab = t.id"
       >{{ t.label }}</button>
-      <div class="ml-auto flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
-        <IconButton label="缩小" @click="emit('zoom', 'out')"><ZoomOut :size="18" /></IconButton>
-        <IconButton label="适应" @click="emit('zoom', 'fit')"><Maximize :size="18" /></IconButton>
-        <IconButton label="放大" @click="emit('zoom', 'in')"><ZoomIn :size="18" /></IconButton>
+      <div class="ml-auto flex items-center gap-2">
+        <button type="button" class="btn-primary h-8" data-act="present" @click="emit('present')"><Play :size="15" />演示</button>
+        <div class="flex items-center gap-0.5 rounded-lg bg-surface-2 p-0.5">
+          <IconButton label="缩小" @click="emit('zoom', 'out')"><ZoomOut :size="18" /></IconButton>
+          <IconButton label="适应" @click="emit('zoom', 'fit')"><Maximize :size="18" /></IconButton>
+          <IconButton label="放大" @click="emit('zoom', 'in')"><ZoomIn :size="18" /></IconButton>
+        </div>
       </div>
     </div>
     <!-- Tool row for the active tab. -->
