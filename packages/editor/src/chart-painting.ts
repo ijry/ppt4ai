@@ -14,31 +14,66 @@ function mapRect(bounds: Rect, mapping: ShapePageMapping): Rect {
   }
 }
 
+const CANVAS_ALIGN = { start: 'left', center: 'center', end: 'right' } as const
+
+/** Draw the laid-out primitives (bars/axes/labels) mapped from EMU into the canvas. */
+function paintPrimitives(context: ChartContext, node: SceneChartNode, mapping: ShapePageMapping, boxPx: Rect): void {
+  const primitives = node.primitives!
+  const mapX = (value: number): number => mapping.offsetX + value * mapping.scale
+  const mapY = (value: number): number => mapping.offsetY + value * mapping.scale
+  context.globalAlpha = mapping.alpha ?? 1
+  for (const bar of primitives.bars) {
+    context.fillStyle = bar.color ?? '#4472C4'
+    context.fillRect(mapX(bar.x), mapY(bar.y), bar.w * mapping.scale, bar.h * mapping.scale)
+  }
+  context.strokeStyle = '#868e96'
+  context.lineWidth = Math.max(1, 9525 * mapping.scale) // ~0.75pt
+  for (const axis of primitives.axes) {
+    context.beginPath()
+    context.moveTo(mapX(axis.x1), mapY(axis.y1))
+    context.lineTo(mapX(axis.x2), mapY(axis.y2))
+    context.stroke()
+  }
+  const fontPx = Math.max(8, boxPx.h * 0.04)
+  context.font = `${fontPx}px sans-serif`
+  context.fillStyle = '#495057'
+  for (const label of primitives.labels) {
+    context.textAlign = CANVAS_ALIGN[label.align]
+    context.textBaseline = label.baseline
+    context.fillText(label.text, mapX(label.x), mapY(label.y))
+  }
+}
+
+/** The Phase 0 fallback panel, drawn when the chart type/data cannot be laid out. */
+function paintPlaceholder(context: ChartContext, bounds: Rect, mapping: ShapePageMapping): void {
+  context.globalAlpha = mapping.alpha ?? 1
+  context.fillStyle = '#f1f3f5'
+  context.fillRect(bounds.x, bounds.y, bounds.w, bounds.h)
+  context.strokeStyle = '#adb5bd'
+  context.lineWidth = Math.max(1, mapping.scale)
+  const dash = Math.max(2, 6 * mapping.scale)
+  context.setLineDash([dash, dash * 0.6])
+  context.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h)
+  context.setLineDash([])
+  context.fillStyle = '#868e96'
+  const fontPx = Math.max(10, Math.min(bounds.w, bounds.h) * 0.16)
+  context.font = `${fontPx}px sans-serif`
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  context.fillText('图表', bounds.x + bounds.w / 2, bounds.y + bounds.h / 2)
+}
+
 /**
- * Phase 0 placeholder for a chart: a light panel with a dashed border and a centred "图表" label. The
- * chart part is preserved verbatim through import/export; this only makes the frame visible (and, via
- * the element, selectable) on the canvas and in thumbnails until Phase 1 renders the real series.
+ * Paint a chart node: its laid-out primitives when the type/data could be resolved (Phase 1), otherwise
+ * a placeholder panel (Phase 0). The chart part is preserved verbatim on export regardless.
  */
 export function paintChartNode(context: ChartContext, node: SceneChartNode, mapping: ShapePageMapping): void {
   const bounds = mapRect(node.bounds, mapping)
   context.save()
   try {
     withFlipAndRotation(context, bounds, node.transform, () => {
-      context.globalAlpha = mapping.alpha ?? 1
-      context.fillStyle = '#f1f3f5'
-      context.fillRect(bounds.x, bounds.y, bounds.w, bounds.h)
-      context.strokeStyle = '#adb5bd'
-      context.lineWidth = Math.max(1, mapping.scale)
-      const dash = Math.max(2, 6 * mapping.scale)
-      context.setLineDash([dash, dash * 0.6])
-      context.strokeRect(bounds.x, bounds.y, bounds.w, bounds.h)
-      context.setLineDash([])
-      context.fillStyle = '#868e96'
-      const fontPx = Math.max(10, Math.min(bounds.w, bounds.h) * 0.16)
-      context.font = `${fontPx}px sans-serif`
-      context.textAlign = 'center'
-      context.textBaseline = 'middle'
-      context.fillText('图表', bounds.x + bounds.w / 2, bounds.y + bounds.h / 2)
+      if (node.primitives) paintPrimitives(context, node, mapping, bounds)
+      else paintPlaceholder(context, bounds, mapping)
     })
   } finally {
     context.restore()

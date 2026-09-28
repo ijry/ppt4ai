@@ -18,6 +18,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ppt4ai/charts": "workspace:*",
     "@ppt4ai/engine": "workspace:*",
     "@ppt4ai/geometry": "workspace:*",
     "@ppt4ai/model": "workspace:*",

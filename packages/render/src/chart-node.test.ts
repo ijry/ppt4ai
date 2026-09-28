@@ -32,4 +32,15 @@ describe('chart scene node', () => {
   it('omits the transform when the frame is upright', () => {
     expect(chartNode(documentWithChart())?.transform).toBeUndefined()
   })
+
+  it('lays out primitives for a column chart with data', () => {
+    const node = chartNode(documentWithChart({ chartType: 'column', categories: ['A', 'B'], series: [{ values: [10, 20] }] }))
+    expect(node?.primitives?.bars).toHaveLength(2)
+    expect(node?.primitives?.axes.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('has no primitives for a chart with no drawable data (placeholder falls back)', () => {
+    expect(chartNode(documentWithChart())?.primitives).toBeUndefined()
+    expect(chartNode(documentWithChart({ chartType: 'unknown' }))?.primitives).toBeUndefined()
+  })
 })

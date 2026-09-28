@@ -90,6 +90,9 @@ importers:
 
   packages/editor:
     dependencies:
+      '@ppt4ai/charts':
+        specifier: workspace:*
+        version: link:../charts
       '@ppt4ai/engine':
         specifier: workspace:*
         version: link:../engine
@@ -190,6 +193,9 @@ importers:
 
   packages/render:
     dependencies:
+      '@ppt4ai/charts':
+        specifier: workspace:*
+        version: link:../charts
       '@ppt4ai/geometry':
         specifier: workspace:*
         version: link:../geometry
