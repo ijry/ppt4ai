@@ -1,4 +1,4 @@
-import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AdjustValue, type AssetMetadata, type ChartElement, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type DashSegment, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type SlideTimeline, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AdjustValue, type AssetMetadata, type ChartElement, type ChartSeries, type ChartType, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type DashSegment, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type SlideTimeline, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 import { parseSlideTiming } from './timing'
@@ -890,14 +890,14 @@ function parseTable(frame: XmlNode, id: string, media?: TableMediaContext): Tabl
  * is preserved verbatim on writeback. Returns undefined for a graphicFrame that is not a chart (no
  * `<c:chart>`) or one without bounds, so the caller can fall through to dropping it as before.
  */
-function parseChart(frame: XmlNode, id: string): ChartElement | undefined {
+function parseChart(frame: XmlNode, id: string, media?: Pick<TableMediaContext, 'slidePath' | 'slideRelations' | 'entries'>): ChartElement | undefined {
   const bounds = parseBounds(frame)
   const chart = findDescendants(frame, 'chart')[0]
   if (!bounds || !chart) return undefined
   const chartRelId = attribute(chart, 'id')
   if (!chartRelId) return undefined
   const rotation = parseRotation(frame)
-  return {
+  const base: ChartElement = {
     id,
     kind: 'chart',
     bounds,
@@ -905,6 +905,75 @@ function parseChart(frame: XmlNode, id: string): ChartElement | undefined {
     ...(rotation === undefined ? {} : { rotation }),
     ...parseShapeFlips(frame),
   }
+  // Phase 1: reflect the chart part's cached data when it can be reached and parsed. Any failure keeps
+  // the Phase 0 placeholder (chartRelId only) — the part is preserved verbatim on writeback either way,
+  // so this reflection is read-only and has no writeback mirror.
+  const partPath = media ? relationshipTarget(media.slidePath, media.slideRelations, chartRelId, 'chart') : undefined
+  const part = partPath ? parsePart(media!.entries, partPath) : undefined
+  const data = part ? parseChartPart(part.xml) : undefined
+  return data ? { ...base, ...data } : base
+}
+
+/** Cached numbers from a `c:val`/`c:numRef/c:numCache`; `c:pt/@idx` is honoured so gaps become `null`. */
+function parseNumberCache(node: XmlNode | undefined): (number | null)[] {
+  const cache = node ? findDescendants(node, 'numCache')[0] : undefined
+  if (!cache) return []
+  const byIndex = new Map<number, number>()
+  let max = -1
+  for (const point of children(cache, 'pt')) {
+    const index = Number(attribute(point, 'idx'))
+    const valueNode = child(point, 'v')
+    const value = valueNode ? Number(textContent(valueNode)) : NaN
+    if (!Number.isInteger(index) || !Number.isFinite(value)) continue
+    byIndex.set(index, value)
+    if (index > max) max = index
+  }
+  return Array.from({ length: max + 1 }, (_, i) => (byIndex.has(i) ? byIndex.get(i)! : null))
+}
+
+/** Cached strings from a `c:strCache` (or a numeric cache stringified), same `@idx` handling. */
+function parseStringCache(node: XmlNode | undefined): string[] {
+  const cache = node ? findDescendants(node, 'strCache')[0] ?? findDescendants(node, 'numCache')[0] : undefined
+  if (!cache) return []
+  const byIndex = new Map<number, string>()
+  let max = -1
+  for (const point of children(cache, 'pt')) {
+    const index = Number(attribute(point, 'idx'))
+    const valueNode = child(point, 'v')
+    if (!Number.isInteger(index) || !valueNode) continue
+    byIndex.set(index, textContent(valueNode))
+    if (index > max) max = index
+  }
+  return Array.from({ length: max + 1 }, (_, i) => byIndex.get(i) ?? '')
+}
+
+/** A series' explicit `c:spPr/a:solidFill/a:srgbClr`; scheme colours are left to the renderer's palette. */
+function parseSeriesColor(spPr: XmlNode | undefined): Color | undefined {
+  const srgb = spPr ? findDescendants(spPr, 'srgbClr')[0] : undefined
+  const value = srgb ? attribute(srgb, 'val') : undefined
+  return value && /^[0-9A-Fa-f]{6}$/u.test(value) ? { type: 'srgb', v: value.toUpperCase() } : undefined
+}
+
+/**
+ * Read a chart part's cached type/series/categories. Block 3 handles `c:barChart` (column and bar);
+ * other chart types return undefined so the caller keeps the placeholder. Only cached values are read
+ * — a chart with formula refs but no cache yields empty series, never a guessed number.
+ */
+function parseChartPart(root: XmlNode): Pick<ChartElement, 'chartType' | 'categories' | 'series' | 'legend'> | undefined {
+  const barChart = findDescendants(root, 'barChart')[0]
+  if (!barChart) return undefined
+  const barDirNode = child(barChart, 'barDir')
+  const chartType: ChartType = (barDirNode && attribute(barDirNode, 'val') === 'bar') ? 'bar' : 'column'
+  const series: ChartSeries[] = []
+  let categories: string[] = []
+  for (const ser of children(barChart, 'ser')) {
+    const name = parseStringCache(child(ser, 'tx'))[0]
+    const color = parseSeriesColor(child(ser, 'spPr'))
+    series.push({ ...(name ? { name } : {}), values: parseNumberCache(child(ser, 'val')), ...(color ? { color } : {}) })
+    if (categories.length === 0) categories = parseStringCache(child(ser, 'cat'))
+  }
+  const legend = findDescendants(root, 'legend').length > 0
+  return { chartType, categories, series, ...(legend ? { legend: true } : {}) }
 }
 
 interface SlideShape {
@@ -2090,7 +2159,7 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
         : (layoutId ? layouts[layoutId]?.defaults?.[inheritedKey]?.bounds : undefined)
           ?? (masterId ? masters[masterId]?.defaults?.[inheritedKey]?.bounds : undefined)
       const element = localName(shape.node.name) === 'graphicFrame'
-        ? parseTable(shape.node, id, tableMedia) ?? parseChart(shape.node, id)
+        ? parseTable(shape.node, id, tableMedia) ?? parseChart(shape.node, id, tableMedia)
         : parseElement(shape.node, id, true, inheritedBounds)
       if (!element) continue
       // A shape's picture fill is resolved here rather than in `parseElement`, because only this loop
