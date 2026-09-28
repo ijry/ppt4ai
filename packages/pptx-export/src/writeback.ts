@@ -819,6 +819,12 @@ function isImportableTable(element: XmlElement): boolean {
     && rows.length > 0 && rows.every((row) => numericAttribute(row, 'h'))
 }
 
+// Mirror of the importer's parseChart: a graphicFrame is a chart when it has bounds and a `<c:chart>`.
+// The scan must keep the same frames the importer keeps, or the two `el_N` numberings drift.
+function isChartFrame(element: XmlElement): boolean {
+  return hasBounds(element) && firstDescendant(element, 'chart') !== undefined
+}
+
 function groupHasBounds(element: XmlElement): boolean {
   const properties = element.children.find((child) => child.localName === 'grpSpPr')
   const transform = properties?.children.find((child) => child.localName === 'xfrm')
@@ -871,7 +877,7 @@ function slideElements(xml: string, slideId: string, slidePath: string, relation
       if (expectedId && element.localName === 'sp' && (hasBounds(element) || isPlaceholder(element))) {
         const sourceBody = sourceTextBody(element)
         result.push({ element, expectedId, ...(sourceBody !== undefined ? { sourceBody } : {}) })
-      } else if (expectedId && element.localName === 'graphicFrame' && isImportableTable(element)) {
+      } else if (expectedId && element.localName === 'graphicFrame' && (isImportableTable(element) || isChartFrame(element))) {
         result.push({ element, expectedId })
       }
       if (expectedId && element.localName === 'pic') {
@@ -1600,6 +1606,12 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
       }
       continue
     }
+    if (element.kind === 'chart') {
+      // Phase 0: the chart part is preserved verbatim; only the frame's box and rotation/flip move here.
+      replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
+      replacements.push(...transformReplacements(xml, sourceElement, element))
+      continue
+    }
     if (element.kind !== 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
     const table = firstDescendant(sourceElement, 'tbl')
     if (!table) throw new Error(`PPTX export table source missing for element ${element.id}`)
@@ -1981,8 +1993,8 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       }
       if (sourceElement) {
         if (element.kind === 'image') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
-        if (sourceElement.localName === 'graphicFrame' && element.kind !== 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
-        if (sourceElement.localName !== 'graphicFrame' && element.kind === 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
+        if (sourceElement.localName === 'graphicFrame' && element.kind !== 'table' && element.kind !== 'chart') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
+        if (sourceElement.localName !== 'graphicFrame' && (element.kind === 'table' || element.kind === 'chart')) throw new Error(`PPTX export table source mismatch for element ${element.id}`)
         continue
       }
       if (element.kind !== 'image') throw new Error(`PPTX export only supports trailing image additions for slide ${slideId}`)

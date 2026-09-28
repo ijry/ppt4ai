@@ -1,4 +1,4 @@
-import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AdjustValue, type AssetMetadata, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type DashSegment, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type SlideTimeline, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
+import { colorTransformValueIsValid, fingerprintBytes, fingerprintDocument, isOoxmlToken, parseBitmapMetadata as parseSharedBitmapMetadata, type AssetAdapter, type AdjustValue, type AssetMetadata, type ChartElement, type Color, type ColorMap, type ColorMapKey, type ColorTransform, type ColorTransformType, type CustomGeometry, type CustomGeometryCommand, type CustomGeometryPath, type DashSegment, type Element, type ElementDefaults, type ElementTransform, type Fill, type GradientStop, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type PictureFill, type PictureStretch, type PictureTile, type Ppt4aiDocument, type PresetGeometry, type Rect, type ShapeStyleReference, type SlideBackground, type SlideLayout, type SlideTimeline, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type StyleReference, type SlideMaster, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableStyle, type TableStyleBorders, type TableStyleReference, type TableStyleRegion, type TableStyleRegionName, type TableStyleText, type TextAutofit, type TextBody, type TextBodyProperties, type TextBullet, type TextMarks, type TextParagraph, type TextParagraphAttrs, type TextRun, type TextStyles, type Theme, type ThemeEffectStyleEntry, type ThemeFormatScheme, type ThemeLineStyleEntry, type ThemeStyleEntry, type ThemeColorSlot, type ThemeFontFace, type ThemeFonts, type ThemeFontScript } from '@ppt4ai/model'
 import { attribute, child, children, localName, parseXml, textContent, type XmlNode } from './xml'
 import { readZipEntries } from './zip'
 import { parseSlideTiming } from './timing'
@@ -880,6 +880,30 @@ function parseTable(frame: XmlNode, id: string, media?: TableMediaContext): Tabl
     ...parseShapeFlips(frame),
     ...(tableFill ? { fill: tableFill } : {}),
     ...(style ? { style } : {}),
+  }
+}
+
+/**
+ * A chart's `<p:graphicFrame>`: its `a:graphicData` holds a `<c:chart r:id>` pointing at the chart part.
+ * Phase 0 keeps only the frame — bounds, rotation and flips, and the relationship id — so the chart can
+ * show a placeholder and stay first-class (selectable / movable / deletable) while the chart part itself
+ * is preserved verbatim on writeback. Returns undefined for a graphicFrame that is not a chart (no
+ * `<c:chart>`) or one without bounds, so the caller can fall through to dropping it as before.
+ */
+function parseChart(frame: XmlNode, id: string): ChartElement | undefined {
+  const bounds = parseBounds(frame)
+  const chart = findDescendants(frame, 'chart')[0]
+  if (!bounds || !chart) return undefined
+  const chartRelId = attribute(chart, 'id')
+  if (!chartRelId) return undefined
+  const rotation = parseRotation(frame)
+  return {
+    id,
+    kind: 'chart',
+    bounds,
+    chartRelId,
+    ...(rotation === undefined ? {} : { rotation }),
+    ...parseShapeFlips(frame),
   }
 }
 
@@ -2066,7 +2090,7 @@ export async function importPptx(input: Uint8Array, options: ImportPptxOptions =
         : (layoutId ? layouts[layoutId]?.defaults?.[inheritedKey]?.bounds : undefined)
           ?? (masterId ? masters[masterId]?.defaults?.[inheritedKey]?.bounds : undefined)
       const element = localName(shape.node.name) === 'graphicFrame'
-        ? parseTable(shape.node, id, tableMedia)
+        ? parseTable(shape.node, id, tableMedia) ?? parseChart(shape.node, id)
         : parseElement(shape.node, id, true, inheritedBounds)
       if (!element) continue
       // A shape's picture fill is resolved here rather than in `parseElement`, because only this loop

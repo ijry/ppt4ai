@@ -46,11 +46,10 @@ async function slideXmlOf(bytes: Uint8Array): Promise<string> {
 }
 
 describe('Phase 0 guardrail: a chart survives import → edit → export', () => {
-  // Documents current behaviour; this assertion flips when the importer starts keeping charts (step 3).
-  it('drops the chart from the model today, keeping the sibling shape at el_1', async () => {
+  it('imports the sibling shape at el_1 and the chart at el_2', async () => {
     const document = await importPptx(source())
     expect(document.elements.el_1?.kind).toBe('shape')
-    expect(document.elements.el_2).toBeUndefined()
+    expect(document.elements.el_2?.kind).toBe('chart')
   })
 
   it('preserves the chart part and graphicFrame when the sibling shape is edited', async () => {
@@ -71,5 +70,19 @@ describe('Phase 0 guardrail: a chart survives import → edit → export', () =>
   it('leaves the whole package byte-identical when nothing is edited', async () => {
     const src = source()
     expect(await exportPptx(await importPptx(src), src)).toEqual(src)
+  })
+
+  it('patches the frame box when the chart itself is moved, keeping the chart part', async () => {
+    const src = source()
+    const document = await importPptx(src)
+    const chart = document.elements.el_2
+    if (chart?.kind !== 'chart') throw new Error('fixture chart did not import')
+    chart.bounds = { ...chart.bounds, x: 500000, y: 600000 }
+
+    const out = await exportPptx(document, src)
+    const slideXml = await slideXmlOf(out)
+    expect(slideXml).toContain('<a:off x="500000" y="600000"/>') // frame box moved
+    expect(slideXml).toContain('<c:chart r:id="rId1"/>') // reference untouched
+    expect((await entriesOf(out)).has('ppt/charts/chart1.xml')).toBe(true) // part carried
   })
 })
