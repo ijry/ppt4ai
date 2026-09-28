@@ -118,3 +118,13 @@ describe('pie layout', () => {
     expect(layoutChart(pieSpec([5, null, -2, 5]), box).sectors).toHaveLength(2)
   })
 })
+
+describe('bar (horizontal) layout', () => {
+  it('lays bars along x from a shared left baseline, widths proportional to value', () => {
+    const bars = layoutChart({ type: 'bar', categories: ['C1', 'C2'], series: [{ values: [10, 20] }] }, box).bars
+    expect(bars).toHaveLength(2)
+    expect(bars[1]!.w / bars[0]!.w).toBeCloseTo(2, 5)
+    expect(bars[0]!.x).toBeCloseTo(bars[1]!.x, 5) // same left baseline
+    expect(bars[0]!.y).toBeLessThan(bars[1]!.y) // categories run top to bottom
+  })
+})

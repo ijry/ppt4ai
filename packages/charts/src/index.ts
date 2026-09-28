@@ -253,10 +253,53 @@ function layoutPie(spec: ChartSpec, box: Rect, doughnut: boolean): ChartPrimitiv
 
 const EMPTY: ChartPrimitives = { bars: [], axes: [], gridlines: [], labels: [] }
 
-/** Lay out a chart into primitives within `box`. Cartesian types: `column`, `line`, `area`; radial
- * types: `pie`, `doughnut`. Other types return empty, so the renderer falls back to the placeholder. */
+/** Horizontal bar: column's transpose — categories run down the Y axis, values along X from a zero
+ * baseline. Bars are still rects, so the painter needs no new path. */
+function layoutBar(spec: ChartSpec, box: Rect): ChartPrimitives {
+  const plot = plotArea(box)
+  const { lo, hi } = valueDomain(spec.series)
+  const span = hi - lo
+  const xOf = (value: number): number => plot.x + plot.w * (value - lo) / span
+  const baseline = xOf(0)
+  const slotHeight = plot.h / Math.max(1, spec.categories.length)
+  const groupHeight = slotHeight * GROUP_FRACTION
+  const barHeight = groupHeight / Math.max(1, spec.series.length)
+  const bars: ChartBar[] = []
+  const labels: ChartLabel[] = []
+  spec.categories.forEach((text, categoryIndex) => {
+    const groupY = plot.y + categoryIndex * slotHeight + (slotHeight - groupHeight) / 2
+    spec.series.forEach((entry, seriesIndex) => {
+      const value = entry.values[categoryIndex]
+      if (value === null || value === undefined || !Number.isFinite(value)) return
+      const x = xOf(value)
+      bars.push({
+        x: Math.min(x, baseline),
+        y: groupY + seriesIndex * barHeight,
+        w: Math.abs(x - baseline),
+        h: barHeight,
+        ...(entry.color ? { color: entry.color } : {}),
+        seriesIndex,
+        categoryIndex,
+      })
+    })
+    labels.push({ text, x: plot.x, y: plot.y + categoryIndex * slotHeight + slotHeight / 2, align: 'end', baseline: 'middle', role: 'category' })
+  })
+  const axes: ChartLine[] = [
+    { x1: baseline, y1: plot.y, x2: baseline, y2: plot.y + plot.h },
+    { x1: plot.x, y1: plot.y + plot.h, x2: plot.x + plot.w, y2: plot.y + plot.h },
+  ]
+  labels.push(
+    { text: formatValue(lo), x: plot.x, y: plot.y + plot.h, align: 'start', baseline: 'top', role: 'value' },
+    { text: formatValue(hi), x: plot.x + plot.w, y: plot.y + plot.h, align: 'end', baseline: 'top', role: 'value' },
+  )
+  return { bars, axes, gridlines: [], labels }
+}
+
+/** Lay out a chart into primitives within `box`. Cartesian types: `column`, `bar`, `line`, `area`;
+ * radial types: `pie`, `doughnut`. Other types return empty, so the renderer falls back to the placeholder. */
 export function layoutChart(spec: ChartSpec, box: Rect): ChartPrimitives {
   if (spec.type === 'column') return layoutColumn(spec, box)
+  if (spec.type === 'bar') return layoutBar(spec, box)
   if (spec.type === 'line') return layoutLine(spec, box, false)
   if (spec.type === 'area') return layoutLine(spec, box, true)
   if (spec.type === 'pie') return layoutPie(spec, box, false)
