@@ -832,10 +832,20 @@ export interface ImageElement {
 
 /**
  * A chart lives in a `<p:graphicFrame>` whose `a:graphicData` points at a `/ppt/charts/chartN.xml`
- * part. Phase 0 models only the frame: its box and the relationship id on `<c:chart>` — enough to show
- * a placeholder and keep the element first-class (selectable / movable / deletable) while the chart part
- * itself is preserved verbatim through writeback. The chart's type and data are not modeled yet.
+ * part. Phase 0 modeled only the frame (bounds + `chartRelId`); Phase 1 adds a **read-only reflection**
+ * of the chart part's cached data (type, categories, series) so the renderer can draw the real chart.
+ * The chart part itself is still preserved verbatim on writeback — these fields are not serialized back
+ * until editing lands (Phase 2), so importer and writeback do not mirror them.
  */
+export type ChartType = 'column' | 'bar' | 'line' | 'area' | 'pie' | 'doughnut' | 'unknown'
+
+export interface ChartSeries {
+  name?: string
+  /** Cached category values (`c:val`); `null` is an explicit gap the renderer skips. */
+  values: (number | null)[]
+  color?: Color
+}
+
 export interface ChartElement {
   id: string
   kind: 'chart'
@@ -845,6 +855,11 @@ export interface ChartElement {
   flipV?: boolean
   /** `r:id` on `<c:chart>` inside the graphicFrame — the handle to the preserved chart part. */
   chartRelId: string
+  chartType?: ChartType
+  categories?: string[]
+  series?: ChartSeries[]
+  legend?: boolean
+  dataLabels?: boolean
 }
 
 export type Element = ShapeElement | TextElement | TableElement | GroupElement | ImageElement | ChartElement
@@ -2699,6 +2714,19 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       validateImageAppearance(element, `elements.${elementId}`, errors)
     } else if (element.kind === 'chart') {
       if (typeof element.chartRelId !== 'string' || element.chartRelId.length === 0) errors.push(`chart element ${elementId} chartRelId must be a non-empty string`)
+      const chartTypes = ['column', 'bar', 'line', 'area', 'pie', 'doughnut', 'unknown']
+      if (element.chartType !== undefined && !chartTypes.includes(element.chartType)) errors.push(`chart element ${elementId} chartType is invalid: ${String(element.chartType)}`)
+      if (element.categories !== undefined && (!Array.isArray(element.categories) || element.categories.some((entry) => typeof entry !== 'string'))) {
+        errors.push(`chart element ${elementId} categories must be an array of strings`)
+      }
+      if (element.series !== undefined) {
+        if (!Array.isArray(element.series)) errors.push(`chart element ${elementId} series must be an array`)
+        else element.series.forEach((entry, index) => {
+          if (!entry || !Array.isArray(entry.values) || entry.values.some((value) => value !== null && typeof value !== 'number')) {
+            errors.push(`chart element ${elementId} series[${index}].values must be numbers or null`)
+          }
+        })
+      }
     } else if (element.kind === 'text' && element.preset !== undefined && !isOoxmlToken(element.preset)) {
       errors.push(`elements.${elementId}.preset must be a preset geometry token`)
     } else if (element.kind === 'shape' && !isOoxmlToken(element.preset)) {

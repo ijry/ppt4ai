@@ -40,4 +40,27 @@ describe('chart element validation', () => {
   it('rejects a chart with non-positive bounds', () => {
     expect(errorsFor({ ...validChart, bounds: { x: 0, y: 0, w: 0, h: 100 } })).toContain('element el_chart bounds must be positive')
   })
+
+  it('accepts read-only chart data (type, categories, series)', () => {
+    expect(errorsFor({
+      ...validChart,
+      chartType: 'column',
+      categories: ['Q1', 'Q2'],
+      series: [{ name: 'Revenue', values: [10, null] }, { values: [3, 4], color: { type: 'srgb', v: 'FF0000' } }],
+      legend: true,
+      dataLabels: false,
+    })).toEqual([])
+  })
+
+  it('rejects an unknown chart type', () => {
+    expect(errorsFor({ ...validChart, chartType: 'radar' })).toContain('chart element el_chart chartType is invalid: radar')
+  })
+
+  it('rejects non-string categories', () => {
+    expect(errorsFor({ ...validChart, categories: ['ok', 3] })).toContain('chart element el_chart categories must be an array of strings')
+  })
+
+  it('rejects series values that are not numbers or null', () => {
+    expect(errorsFor({ ...validChart, series: [{ values: [1, 'x'] }] })).toContain('chart element el_chart series[0].values must be numbers or null')
+  })
 })

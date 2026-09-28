@@ -1,10 +1,12 @@
-import type { Rect } from '@ppt4ai/model'
+import type { ChartType, Rect } from '@ppt4ai/model'
 
 // Phase 1 chart-layout kernel: pure geometry, no canvas/DOM. `layoutChart` turns a normalized chart
 // spec + a box (EMU, absolute) into drawable primitives in that same space; the renderer maps them to
 // the canvas like any other node. Block 1 implements the column type; bar/line/area/pie follow.
+// The chart-type vocabulary is owned by @ppt4ai/model so the model, importer and this kernel cannot
+// drift apart on what a "column" is.
 
-export type ChartType = 'column' | 'bar' | 'line' | 'area' | 'pie' | 'doughnut' | 'unknown'
+export type { ChartType }
 
 export interface ChartSeries {
   name?: string
