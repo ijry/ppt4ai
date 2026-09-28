@@ -159,6 +159,18 @@ export interface SceneImageNode {
   effects?: ImageEffect[]
 }
 
+/**
+ * A chart's frame. Phase 0 carries only geometry — the painter draws a placeholder box rather than the
+ * chart, and the chart part itself is preserved verbatim through import/export. Phase 1 will add the
+ * resolved series/type this node needs to draw the real chart.
+ */
+export interface SceneChartNode {
+  id: string
+  kind: 'chart'
+  bounds: Rect
+  transform?: ElementTransform
+}
+
 export interface SceneTableLayoutCell extends TableLayoutCell {
   textLayout: SceneTextLayout
   /** `a:tcPr/a:blipFill`, with metadata inlined so painting can decode it like any other picture. */
@@ -175,7 +187,7 @@ export interface SceneTableLayout extends Omit<TableLayout, 'cells'> {
   cells: SceneTableLayoutCell[]
 }
 
-export type SceneNode = SceneShapeNode | SceneTextNode | SceneTableNode | SceneImageNode
+export type SceneNode = SceneShapeNode | SceneTextNode | SceneTableNode | SceneImageNode | SceneChartNode
 
 export interface SceneResolvedTableTextStyle extends Omit<TableStyleText, 'color'> {
   color?: ResolvedColor
@@ -686,6 +698,16 @@ function cascadeElement(element: Element, ancestors: readonly GroupTransform[], 
   return flipped
 }
 
+function createChartNode(element: Extract<Element, { kind: 'chart' }>): SceneChartNode {
+  const transform = elementTransform(element)
+  return {
+    id: element.id,
+    kind: 'chart',
+    bounds: structuredClone(element.bounds),
+    ...(transform ? { transform } : {}),
+  }
+}
+
 function createNode(
   element: Element,
   context: SceneThemeContext,
@@ -703,6 +725,8 @@ function createNode(
       return createTableNode(element, context, tableStyles, assets)
     case 'image':
       return createImageNode(element, assets)
+    case 'chart':
+      return createChartNode(element)
     case 'group':
       return undefined
     default:

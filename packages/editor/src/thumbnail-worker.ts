@@ -1,11 +1,12 @@
 import type { Rect, ResolvedColor, ResolvedGradient } from '@ppt4ai/model'
 import { gradientAxis, gradientFocus } from '@ppt4ai/geometry'
-import type { SceneGraph, SceneImageNode, SceneShapeNode, SceneTableNode, SceneTextNode } from '@ppt4ai/render'
+import type { SceneGraph, SceneImageNode, SceneNode, SceneShapeNode, SceneTableNode, SceneTextNode } from '@ppt4ai/render'
 import { decodeBrowserImage } from './browser-image-decoder'
 import { paintImageNode } from './image-painting'
 import { paintPatternFill, paintPictureFill, paintShapeNode, type ShapePageMapping } from './shape-painting'
 import { paintTableNode } from './table-painting'
 import { paintTextNode } from './text-painting'
+import { paintChartNode } from './chart-painting'
 import type { DecodedImage, ImageDecoder, ImageLoadRequest } from './image-canvas-renderer'
 import {
   isThumbnailMessage,
@@ -45,7 +46,7 @@ function errorMessage(error: unknown): string {
 }
 
 function issue(
-  node: SceneImageNode | SceneShapeNode | SceneTableNode | SceneTextNode,
+  node: SceneNode,
   code: 'missing-asset' | 'resource-failed' | 'decode-failed' | 'draw-failed',
   error: unknown,
 ) {
@@ -242,7 +243,7 @@ export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): 
       }
       for (const node of request.scene.nodes) {
         if (isCancelled(request.requestId)) return
-        if (node.kind !== 'shape' && node.kind !== 'text' && node.kind !== 'table' && node.kind !== 'image') continue
+        if (node.kind !== 'shape' && node.kind !== 'text' && node.kind !== 'table' && node.kind !== 'image' && node.kind !== 'chart') continue
         try {
           if (node.kind === 'shape' || node.kind === 'text') {
             // Same policy the slide renderer uses: a picture fill that will not load costs the fill,
@@ -283,6 +284,8 @@ export function createThumbnailWorkerRuntime(deps: ThumbnailWorkerRuntimeDeps): 
               if (isCancelled(request.requestId)) return
             }
             paintTableNode(context, node, mapping, cellPictures)
+          } else if (node.kind === 'chart') {
+            paintChartNode(context, node, mapping)
           } else {
             const image = await loadAsset(request, node)
             if (isCancelled(request.requestId)) return
