@@ -11,6 +11,7 @@ import {
   stableAssetId,
 } from './image-writeback.js'
 import { rewritePictureAppearance } from './image-appearance-writeback.js'
+import { patchChartCache } from './chart-writeback.js'
 import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } from './dependency-graph.js'
 import { decodeXml, descendants, attributeReplacements, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 import {
@@ -2021,6 +2022,20 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       ? rewriteSlideColorMapXml(materializedSlide, slide.colorMapOverride, slideId)
       : materializedSlide
     entry.data = encoder.encode(rewrittenSlide)
+    // Chart parts (Tier A): if a chart element's data changed, patch its part's cached values in place.
+    // The part is a separate, verbatim-retained entry — an unedited chart re-encodes to the same bytes.
+    const sourcePartPath = plan.source?.partPath ?? slidePath
+    for (const elementId of slide.elementIds) {
+      const chart = document.elements[elementId]
+      if (chart?.kind !== 'chart' || !chart.series) continue
+      const relationship = slideRelationships.find((candidate) => candidate.id === chart.chartRelId && candidate.type === 'chart')
+      if (!relationship) continue
+      const chartEntry = entriesByName.get(resolveTarget(sourcePartPath, relationship.target))
+      if (!chartEntry) continue
+      const sourceChartXml = decoder.decode(chartEntry.data)
+      const patchedChartXml = patchChartCache(sourceChartXml, chart.categories ?? [], chart.series)
+      if (patchedChartXml !== sourceChartXml) chartEntry.data = encoder.encode(patchedChartXml)
+    }
     if (newRelationships.length > 0) {
       const relationshipXml = relationshipEntry ? decoder.decode(relationshipEntry.data) : undefined
       const relationshipData = encoder.encode(appendRelationships(relationshipXml, newRelationships))

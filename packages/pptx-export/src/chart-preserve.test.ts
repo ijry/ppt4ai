@@ -24,15 +24,19 @@ const slide = '<p:sld xmlns:p="p" xmlns:a="a" xmlns:c="c" xmlns:r="r"><p:cSld><p
   + '</p:spTree></p:cSld></p:sld>'
 const slideRels = `<Relationships xmlns="r"><Relationship Id="rId1" Type="${CHART_REL_TYPE}" Target="../charts/chart1.xml"/></Relationships>`
 const chartXml = '<c:chartSpace xmlns:c="c"><c:chart><c:plotArea><c:barChart/></c:plotArea></c:chart></c:chartSpace>'
+const chartXmlWithData = '<c:chartSpace xmlns:c="c"><c:chart><c:plotArea><c:barChart>'
+  + '<c:ser><c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>A</c:v></c:pt><c:pt idx="1"><c:v>B</c:v></c:pt></c:strCache></c:strRef></c:cat>'
+  + '<c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>10</c:v></c:pt><c:pt idx="1"><c:v>20</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>'
+  + '</c:barChart></c:plotArea></c:chart></c:chartSpace>'
 
-function source(): Uint8Array {
+function source(chartPart: string = chartXml): Uint8Array {
   const encode = (value: string): Uint8Array => new TextEncoder().encode(value)
   return writeStoredZip([
     { name: 'ppt/presentation.xml', data: encode(presentation) },
     { name: 'ppt/_rels/presentation.xml.rels', data: encode(presentationRels) },
     { name: 'ppt/slides/slide1.xml', data: encode(slide) },
     { name: 'ppt/slides/_rels/slide1.xml.rels', data: encode(slideRels) },
-    { name: 'ppt/charts/chart1.xml', data: encode(chartXml) },
+    { name: 'ppt/charts/chart1.xml', data: encode(chartPart) },
   ])
 }
 
@@ -84,5 +88,19 @@ describe('Phase 0 guardrail: a chart survives import → edit → export', () =>
     expect(slideXml).toContain('<a:off x="500000" y="600000"/>') // frame box moved
     expect(slideXml).toContain('<c:chart r:id="rId1"/>') // reference untouched
     expect((await entriesOf(out)).has('ppt/charts/chart1.xml')).toBe(true) // part carried
+  })
+
+  it('writes edited chart values and categories back into the chart part cache (Tier A round-trip)', async () => {
+    const src = source(chartXmlWithData)
+    const document = await importPptx(src)
+    const chart = document.elements.el_2
+    if (chart?.kind !== 'chart' || !chart.series?.[0]) throw new Error('fixture chart did not import with data')
+    chart.series = [{ ...chart.series[0], values: [10, 99] }]
+    chart.categories = ['A', 'Z']
+
+    const reimported = await importPptx(await exportPptx(document, src))
+    const chart2 = reimported.elements.el_2
+    expect(chart2?.kind === 'chart' ? chart2.series?.[0]?.values : undefined).toEqual([10, 99])
+    expect(chart2?.kind === 'chart' ? chart2.categories : undefined).toEqual(['A', 'Z'])
   })
 })
