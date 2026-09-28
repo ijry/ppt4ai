@@ -107,6 +107,19 @@ describe('Inspector', () => {
     style.value = 'dash'; style.dispatchEvent(new Event('change', { bubbles: true }))
     expect(host.setSelectedStrokeStyle).toHaveBeenCalledWith('dash')
   })
+  it('shows a chart panel and edits chart type and data via the host', () => {
+    const host = { setChartType: vi.fn(() => snap(['e1'])), setChartData: vi.fn(() => snap(['e1'])) }
+    const el = mount({ snapshot: snap(['e1'], { e1: { id: 'e1', kind: 'chart', bounds: { x: 0, y: 0, w: 100, h: 50 }, chartType: 'column', categories: ['A', 'B'], series: [{ name: 'S1', values: [10, 20] }] } }), host })
+    const type = el.querySelector('[data-chart-type]') as HTMLSelectElement
+    expect(type.value).toBe('column')
+    type.value = 'line'; type.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(host.setChartType).toHaveBeenCalledWith('e1', 'line')
+    const value = el.querySelector('[data-chart-value="0:1"]') as HTMLInputElement
+    expect(value.value).toBe('20')
+    value.value = '35'; value.dispatchEvent(new Event('change', { bubbles: true }))
+    expect(host.setChartData).toHaveBeenCalledWith('e1', ['A', 'B'], [{ name: 'S1', values: [10, 35] }])
+  })
+
   it('shows a layout picker and switches layout via the host', () => {
     const host = { setSlideLayout: vi.fn(() => snap([])) }
     const s = snap([])

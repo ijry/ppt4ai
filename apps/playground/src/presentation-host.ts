@@ -1,6 +1,6 @@
 import type { EngineState, ImageFlipAxis, SnapOptions } from '@ppt4ai/engine'
 import { documentToSceneGraph, type SceneGraph } from '@ppt4ai/render'
-import type { AssetAdapter, AssetMetadata, Color, Element, Fill, Ppt4aiDocument, PresetGeometry, Rect, SlideBackground, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, ChartSeries, ChartType, Color, Element, Fill, Ppt4aiDocument, PresetGeometry, Rect, SlideBackground, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import { createPlaygroundAssetHost, type PlaygroundAssetHost, type PlaygroundAssetHostSnapshot } from './asset-host'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
@@ -65,6 +65,8 @@ export interface PlaygroundPresentationHost {
   toggleSelectedElementFlip(elementId: string, axis: ImageFlipAxis): PlaygroundPresentationSnapshot
   flipSelection(axis: ImageFlipAxis): PlaygroundPresentationSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundPresentationSnapshot
+  setChartData(elementId: string, categories: string[], series: ChartSeries[]): PlaygroundPresentationSnapshot
+  setChartType(elementId: string, chartType: ChartType): PlaygroundPresentationSnapshot
   selectTableCell(elementId: string, row: number, column: number, extend?: boolean): PlaygroundPresentationSnapshot
   setTableCellText(elementId: string, row: number, column: number, body: TextBody): PlaygroundPresentationSnapshot
   setTableCellFill(fill: Fill | null): PlaygroundPresentationSnapshot
@@ -558,6 +560,12 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     },
     updateTextElement(elementId, body) {
       return forward((host) => host.updateTextElement(elementId, body))
+    },
+    setChartData(elementId, categories, series) {
+      return forward((host) => host.setChartData(elementId, categories, series))
+    },
+    setChartType(elementId, chartType) {
+      return forward((host) => host.setChartType(elementId, chartType))
     },
     selectTableCell(elementId, row, column, extend) {
       return forward((host) => host.selectTableCell(elementId, row, column, extend))

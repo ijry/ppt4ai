@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { SlideBackgroundPanel, slideBackgroundModel, backgroundGradientFrom, backgroundPatternFrom, AssetLibrary, ThemePanel, THEME_SLOT_GROUPS, themeSlotGroup, themeFontModels, hexFromColor, type ThemePanelSlotModel, type ThemePanelFontModel } from '@ppt4ai/editor'
-import { DEFAULT_THEME_COLORS, PAINTED_PRESET_PATTERNS, type Color, type StrokeStyle, type ThemeColorSlot, type ThemeFontSlot, type ThemeFontScript } from '@ppt4ai/model'
+import { DEFAULT_THEME_COLORS, PAINTED_PRESET_PATTERNS, type ChartSeries, type ChartType, type Color, type StrokeStyle, type ThemeColorSlot, type ThemeFontSlot, type ThemeFontScript } from '@ppt4ai/model'
 import { Panel, PanelSection, Field } from '../ui'
 import { inspectorContext } from '../editor/inspector-context'
 import type { PlaygroundPresentationHost, PlaygroundPresentationSnapshot } from '../presentation-host'
@@ -85,6 +85,39 @@ function setGradientAngle(deg: string): void {
 function setPatternPreset(preset: string): void { const a = appearance.value; if (a) applyPattern(preset, a.patternForeground, a.patternBackground) }
 function setPatternForeground(hex: string): void { const a = appearance.value; if (a) applyPattern(a.patternPreset, hex, a.patternBackground) }
 function setPatternBackground(hex: string): void { const a = appearance.value; if (a) applyPattern(a.patternPreset, a.patternForeground, hex) }
+
+// Chart data editing for a single selected chart element (Phase 2). Writes the read-only reflection back
+// through the host; the render updates from it immediately. Fixed dimensions this turn — edit values,
+// category labels and type, not add/remove rows or series.
+const CHART_TYPES: { value: ChartType; label: string }[] = [
+  { value: 'column', label: '柱状图' }, { value: 'bar', label: '条形图' }, { value: 'line', label: '折线图' },
+  { value: 'area', label: '面积图' }, { value: 'pie', label: '饼图' }, { value: 'doughnut', label: '环形图' },
+]
+const chart = computed(() => {
+  const slide = active()
+  const selection = [...slide.engineState.selection]
+  if (selection.length !== 1) return undefined
+  const el = slide.engineState.document.elements[selection[0]!] as { id: string; kind: string; chartType?: ChartType; categories?: string[]; series?: ChartSeries[] } | undefined
+  if (!el || el.kind !== 'chart') return undefined
+  return { id: el.id, chartType: el.chartType ?? 'unknown', categories: el.categories ?? [], series: el.series ?? [] }
+})
+function setChartType(type: string): void {
+  const c = chart.value; if (c) emit('update', props.host.setChartType(c.id, type as ChartType))
+}
+function setChartValue(seriesIndex: number, categoryIndex: number, raw: string): void {
+  const c = chart.value; if (!c) return
+  const value = raw.trim() === '' ? null : Number(raw)
+  if (value !== null && !Number.isFinite(value)) return
+  const series = c.series.map((entry, index) => index === seriesIndex
+    ? { ...entry, values: entry.values.map((existing, i) => (i === categoryIndex ? value : existing)) }
+    : entry)
+  emit('update', props.host.setChartData(c.id, c.categories, series))
+}
+function setChartCategory(categoryIndex: number, label: string): void {
+  const c = chart.value; if (!c) return
+  const categories = c.categories.map((entry, i) => (i === categoryIndex ? label : entry))
+  emit('update', props.host.setChartData(c.id, categories, c.series))
+}
 function setStrokeColor(hex: string): void {
   emit('update', props.host.setSelectedStroke({ color: { type: 'srgb', v: hex.slice(1).toUpperCase() } }))
 }
@@ -210,6 +243,26 @@ function resetThemeFont(slot: ThemeFontSlot, script: ThemeFontScript): void { em
             <option v-for="s in STROKE_STYLES" :key="s.value" :value="s.value">{{ s.label }}</option>
           </select>
         </Field>
+      </PanelSection>
+    </Panel>
+    <Panel v-if="chart" title="图表">
+      <PanelSection>
+        <Field label="类型">
+          <select class="h-7 rounded border border-border bg-surface px-1 text-sm" :value="chart.chartType" data-chart-type @change="setChartType(($event.target as HTMLSelectElement).value)">
+            <option v-for="t in CHART_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
+          </select>
+        </Field>
+      </PanelSection>
+      <PanelSection v-if="chart.categories.length">
+        <table class="text-xs" data-chart-grid>
+          <thead><tr><th class="px-1 text-left font-medium text-muted"></th><th v-for="(s, si) in chart.series" :key="si" class="px-1 text-left font-medium text-muted">{{ s.name || `系列${si + 1}` }}</th></tr></thead>
+          <tbody>
+            <tr v-for="(cat, ci) in chart.categories" :key="ci">
+              <td><input class="my-0.5 w-16 rounded border border-border px-1" :value="cat" :data-chart-cat="ci" @change="setChartCategory(ci, ($event.target as HTMLInputElement).value)" /></td>
+              <td v-for="(s, si) in chart.series" :key="si"><input class="my-0.5 ml-1 w-14 rounded border border-border px-1 text-right" type="number" :value="s.values[ci] ?? ''" :data-chart-value="`${si}:${ci}`" @change="setChartValue(si, ci, ($event.target as HTMLInputElement).value)" /></td>
+            </tr>
+          </tbody>
+        </table>
       </PanelSection>
     </Panel>
   </div>

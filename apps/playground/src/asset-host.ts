@@ -1,6 +1,6 @@
 import { EditorEngine, type EngineCommand, type EngineState, type ImageFlipAxis, type SnapOptions } from '@ppt4ai/engine'
 import { createImageAssetController, createTableCellTextEditingController, ImageAssetControllerError } from '@ppt4ai/editor'
-import type { AssetAdapter, AssetMetadata, Color, Element, Fill, ImageElement, Ppt4aiDocument, PresetGeometry, Rect, ShapeElement, SlideBackground, StrokeStyle, TableBorder, TextBody, TextElement, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, ChartSeries, ChartType, Color, Element, Fill, ImageElement, Ppt4aiDocument, PresetGeometry, Rect, ShapeElement, SlideBackground, StrokeStyle, TableBorder, TextBody, TextElement, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
 export interface PlaygroundAssetHostSnapshot {
@@ -39,6 +39,8 @@ export interface PlaygroundAssetHost {
   toggleSelectedElementFlip(elementId: string, axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   flipSelection(axis: ImageFlipAxis): PlaygroundAssetHostSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundAssetHostSnapshot
+  setChartData(elementId: string, categories: string[], series: ChartSeries[]): PlaygroundAssetHostSnapshot
+  setChartType(elementId: string, chartType: ChartType): PlaygroundAssetHostSnapshot
   selectTableCell(elementId: string, row: number, column: number, extend?: boolean): PlaygroundAssetHostSnapshot
   setTableCellText(elementId: string, row: number, column: number, body: TextBody): PlaygroundAssetHostSnapshot
   setTableCellFill(fill: Fill | null): PlaygroundAssetHostSnapshot
@@ -438,6 +440,28 @@ export function createPlaygroundAssetHost(options: PlaygroundAssetHostOptions = 
         engine.dispatch({ type: 'setTextBody', elementId, body })
         engine.dispatch({ type: 'select', elementIds: [elementId] })
         status = { kind: 'success', message: 'text-updated' }
+      } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    setChartData(elementId, categories, series) {
+      if (engine.getState().document.elements[elementId]?.kind !== 'chart') return fail('element-missing')
+      try {
+        engine.dispatch({ type: 'setChartData', elementId, categories, series })
+        engine.dispatch({ type: 'select', elementIds: [elementId] })
+        status = { kind: 'success', message: 'chart-updated' }
+      } catch {
+        return fail('element-operation-failed')
+      }
+      return snapshot()
+    },
+    setChartType(elementId, chartType) {
+      if (engine.getState().document.elements[elementId]?.kind !== 'chart') return fail('element-missing')
+      try {
+        engine.dispatch({ type: 'setChartType', elementId, chartType })
+        engine.dispatch({ type: 'select', elementIds: [elementId] })
+        status = { kind: 'success', message: 'chart-updated' }
       } catch {
         return fail('element-operation-failed')
       }
