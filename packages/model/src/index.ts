@@ -830,7 +830,24 @@ export interface ImageElement {
   effects?: ImageEffect[]
 }
 
-export type Element = ShapeElement | TextElement | TableElement | GroupElement | ImageElement
+/**
+ * A chart lives in a `<p:graphicFrame>` whose `a:graphicData` points at a `/ppt/charts/chartN.xml`
+ * part. Phase 0 models only the frame: its box and the relationship id on `<c:chart>` — enough to show
+ * a placeholder and keep the element first-class (selectable / movable / deletable) while the chart part
+ * itself is preserved verbatim through writeback. The chart's type and data are not modeled yet.
+ */
+export interface ChartElement {
+  id: string
+  kind: 'chart'
+  bounds: Rect
+  rotation?: number
+  flipH?: boolean
+  flipV?: boolean
+  /** `r:id` on `<c:chart>` inside the graphicFrame — the handle to the preserved chart part. */
+  chartRelId: string
+}
+
+export type Element = ShapeElement | TextElement | TableElement | GroupElement | ImageElement | ChartElement
 
 /**
  * What a master or layout placeholder hands to the slide shape that inherits from it.
@@ -1423,7 +1440,8 @@ export function resolveStyleFontFamily(
 }
 
 function elementKey(element: Element): string {
-  return element.kind === 'group' ? element.id : element.placeholder ?? element.id
+  if (element.kind === 'group' || element.kind === 'chart') return element.id
+  return element.placeholder ?? element.id
 }
 
 function findDefaults(element: Element, layout?: SlideLayout, master?: SlideMaster): ElementDefaults[] {
@@ -1483,7 +1501,7 @@ function mergeLevelChain(chain: ReadonlyArray<LevelDefaults[] | undefined>, leve
 export function resolveTextBodyDefaults(element: Element, layout?: SlideLayout, master?: SlideMaster): TextBody | undefined {
   const body = element.kind === 'text' ? element.body : undefined
   if (!body) return undefined
-  const placeholder = element.kind === 'group' ? undefined : element.placeholder
+  const placeholder = element.kind === 'group' || element.kind === 'chart' ? undefined : element.placeholder
   const chain: Array<LevelDefaults[] | undefined> = [
     textStyleFor(master?.textStyles, placeholder),
     ...findDefaults(element, layout, master).map((defaults) => defaults.listStyle),
@@ -2679,6 +2697,8 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       if (typeof element.assetId !== 'string' || element.assetId.length === 0) errors.push(`image element ${elementId} assetId must be a non-empty string`)
       else if (!value.assets?.[element.assetId]) errors.push(`image element ${elementId} references missing asset: ${element.assetId}`)
       validateImageAppearance(element, `elements.${elementId}`, errors)
+    } else if (element.kind === 'chart') {
+      if (typeof element.chartRelId !== 'string' || element.chartRelId.length === 0) errors.push(`chart element ${elementId} chartRelId must be a non-empty string`)
     } else if (element.kind === 'text' && element.preset !== undefined && !isOoxmlToken(element.preset)) {
       errors.push(`elements.${elementId}.preset must be a preset geometry token`)
     } else if (element.kind === 'shape' && !isOoxmlToken(element.preset)) {
