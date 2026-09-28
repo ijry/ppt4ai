@@ -58,4 +58,21 @@ describe('chart element is first-class for generic ops', () => {
     expect(state.document.elements.el_chart).toBeUndefined()
     expect(state.document.slides.sld_1!.elementIds).toEqual(['el_a'])
   })
+
+  it('edits chart data (categories + series) and can undo it', () => {
+    const engine = new EditorEngine(chartDocument())
+    const state = engine.dispatch({ type: 'setChartData', elementId: 'el_chart', categories: ['X', 'Y', 'Z'], series: [{ name: 'S', values: [1, 2, 3] }] })
+    expect(state.document.elements.el_chart).toMatchObject({ categories: ['X', 'Y', 'Z'], series: [{ name: 'S', values: [1, 2, 3] }] })
+    expect(engine.dispatch({ type: 'undo' }).document.elements.el_chart).not.toHaveProperty('categories')
+  })
+
+  it('changes the chart type', () => {
+    const engine = new EditorEngine(chartDocument())
+    expect(engine.dispatch({ type: 'setChartType', elementId: 'el_chart', chartType: 'line' }).document.elements.el_chart).toMatchObject({ chartType: 'line' })
+  })
+
+  it('rejects chart-data edits on a non-chart element', () => {
+    const engine = new EditorEngine(chartDocument())
+    expect(() => engine.dispatch({ type: 'setChartData', elementId: 'el_a', categories: [], series: [] })).toThrow('element is not a chart: el_a')
+  })
 })

@@ -1,5 +1,5 @@
 import { boundsCentre, cascadeTransform, mapChildSpace, rotatePointAround, type GeometryPoint, type GroupTransform } from '@ppt4ai/geometry'
-import { validateDocument, validateTextBody, type AssetMetadata, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type SlideBackground, type StrokeStyle, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot, type ThemeFonts, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
+import { validateDocument, validateTextBody, type AssetMetadata, type ChartSeries, type ChartType, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type SlideBackground, type StrokeStyle, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot, type ThemeFonts, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -77,6 +77,8 @@ export type EngineCommand =
   | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
   | { type: 'setTableCellText'; body: TextBody }
   | { type: 'setTextBody'; elementId: string; body: TextBody }
+  | { type: 'setChartData'; elementId: string; categories: string[]; series: ChartSeries[] }
+  | { type: 'setChartType'; elementId: string; chartType: ChartType }
   | { type: 'setTableCellFill'; fill: Fill | null }
   | { type: 'setTableCellBorders'; borders: Partial<Record<TableBorderSide, TableBorder | null>> }
   | { type: 'setSlideBackground'; slideId: string; background: SlideBackground | null }
@@ -732,6 +734,14 @@ export class EditorEngine {
         this.setTextBody(command.elementId, command.body)
         break
       }
+      case 'setChartData': {
+        this.setChartData(command.elementId, command.categories, command.series)
+        break
+      }
+      case 'setChartType': {
+        this.setChartType(command.elementId, command.chartType)
+        break
+      }
       case 'setTableCellFill': {
         this.setTableCellFill(command.fill)
         break
@@ -877,6 +887,38 @@ export class EditorEngine {
     const validation = validateTextBody(body)
     if (!validation.valid) throw new Error(`text body is invalid: ${validation.errors.join('; ')}`)
     this.commit([{ path: ['elements', elementId, 'body'], value: body }])
+  }
+
+  /** Replace a chart's read-only data reflection (categories + series). Phase 2: the render updates from
+   * this; the writeback that pushes it back into the chart part's cache is a separate path. */
+  private setChartData(elementId: string, categories: string[], series: ChartSeries[]): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`element does not exist: ${elementId}`)
+    if (element.kind !== 'chart') throw new Error(`element is not a chart: ${elementId}`)
+    const nextDocument = clone(this.document)
+    const next = nextDocument.elements[elementId]!
+    if (next.kind !== 'chart') throw new Error(`element is not a chart: ${elementId}`)
+    next.categories = categories
+    next.series = series
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`chart data is invalid: ${elementId}: ${validation.errors.join('; ')}`)
+    this.commit([
+      { path: ['elements', elementId, 'categories'], value: categories },
+      { path: ['elements', elementId, 'series'], value: series },
+    ])
+  }
+
+  private setChartType(elementId: string, chartType: ChartType): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`element does not exist: ${elementId}`)
+    if (element.kind !== 'chart') throw new Error(`element is not a chart: ${elementId}`)
+    const nextDocument = clone(this.document)
+    const next = nextDocument.elements[elementId]!
+    if (next.kind !== 'chart') throw new Error(`element is not a chart: ${elementId}`)
+    next.chartType = chartType
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`chart type is invalid: ${elementId}: ${validation.errors.join('; ')}`)
+    this.commit([{ path: ['elements', elementId, 'chartType'], value: chartType }])
   }
 
   private selectedTableSourceCells(): { elementId: string; table: TableElement; sources: TableSourceCell[] } | undefined {
