@@ -16,15 +16,35 @@ function mapRect(bounds: Rect, mapping: ShapePageMapping): Rect {
 
 const CANVAS_ALIGN = { start: 'left', center: 'center', end: 'right' } as const
 
-/** Draw the laid-out primitives (bars/axes/labels) mapped from EMU into the canvas. */
+/** Draw the laid-out primitives (areas/bars/lines/axes/labels) mapped from EMU into the canvas. */
 function paintPrimitives(context: ChartContext, node: SceneChartNode, mapping: ShapePageMapping, boxPx: Rect): void {
   const primitives = node.primitives!
   const mapX = (value: number): number => mapping.offsetX + value * mapping.scale
   const mapY = (value: number): number => mapping.offsetY + value * mapping.scale
+  const trace = (points: readonly { x: number; y: number }[]): void => {
+    points.forEach((point, index) => (index === 0 ? context.moveTo(mapX(point.x), mapY(point.y)) : context.lineTo(mapX(point.x), mapY(point.y))))
+  }
+
+  // Areas sit behind everything, translucent so an overlapping series still reads.
+  for (const area of primitives.areas ?? []) {
+    context.beginPath()
+    trace(area.points)
+    context.closePath()
+    context.fillStyle = area.color ?? '#4472C4'
+    context.globalAlpha = (mapping.alpha ?? 1) * 0.3
+    context.fill()
+  }
   context.globalAlpha = mapping.alpha ?? 1
   for (const bar of primitives.bars) {
     context.fillStyle = bar.color ?? '#4472C4'
     context.fillRect(mapX(bar.x), mapY(bar.y), bar.w * mapping.scale, bar.h * mapping.scale)
+  }
+  for (const line of primitives.polylines ?? []) {
+    context.beginPath()
+    trace(line.points)
+    context.strokeStyle = line.color ?? '#4472C4'
+    context.lineWidth = Math.max(1.5, 19050 * mapping.scale) // ~1.5pt
+    context.stroke()
   }
   context.strokeStyle = '#868e96'
   context.lineWidth = Math.max(1, 9525 * mapping.scale) // ~0.75pt

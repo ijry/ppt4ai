@@ -2,16 +2,17 @@ import type { SceneChartNode } from '@ppt4ai/render'
 import { describe, expect, it } from 'vitest'
 import { paintChartNode } from './chart-painting'
 
-function context(): CanvasRenderingContext2D & { calls: { rects: unknown[][]; strokeRects: unknown[][]; texts: unknown[][] } } {
-  const calls = { rects: [] as unknown[][], strokeRects: [] as unknown[][], texts: [] as unknown[][] }
+function context(): CanvasRenderingContext2D & { calls: { rects: unknown[][]; strokeRects: unknown[][]; texts: unknown[][]; strokes: number } } {
+  const calls = { rects: [] as unknown[][], strokeRects: [] as unknown[][], texts: [] as unknown[][], strokes: 0 }
   return {
     calls,
     save() {}, restore() {}, translate() {}, rotate() {}, scale() {}, setLineDash() {},
-    beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
+    beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {},
+    stroke: () => { calls.strokes += 1 },
     fillRect: (...args: unknown[]) => { calls.rects.push(args) },
     strokeRect: (...args: unknown[]) => { calls.strokeRects.push(args) },
     fillText: (...args: unknown[]) => { calls.texts.push(args) },
-  } as unknown as CanvasRenderingContext2D & { calls: { rects: unknown[][]; strokeRects: unknown[][]; texts: unknown[][] } }
+  } as unknown as CanvasRenderingContext2D & { calls: { rects: unknown[][]; strokeRects: unknown[][]; texts: unknown[][]; strokes: number } }
 }
 
 describe('chart placeholder painting', () => {
@@ -45,5 +46,26 @@ describe('chart placeholder painting', () => {
     expect(drawingContext.calls.rects).toEqual([[20, 100, 40, 60], [80, 40, 40, 120]]) // bars mapped by scale 2
     expect(drawingContext.calls.strokeRects).toHaveLength(0) // no placeholder border
     expect(drawingContext.calls.texts.map((args) => args[0])).toEqual(['A']) // the category label, not 图表
+  })
+
+  it('strokes a path and no bars for a line chart', () => {
+    const drawingContext = context()
+    const node: SceneChartNode = {
+      id: 'el_chart',
+      kind: 'chart',
+      bounds: { x: 0, y: 0, w: 200, h: 100 },
+      primitives: {
+        bars: [],
+        polylines: [{ points: [{ x: 10, y: 80 }, { x: 50, y: 40 }, { x: 90, y: 20 }], color: '#4472C4' }],
+        axes: [{ x1: 0, y1: 0, x2: 0, y2: 100 }],
+        gridlines: [],
+        labels: [],
+      },
+    }
+
+    paintChartNode(drawingContext, node, { scale: 2, offsetX: 0, offsetY: 0 })
+
+    expect(drawingContext.calls.rects).toHaveLength(0) // no bars
+    expect(drawingContext.calls.strokes).toBeGreaterThanOrEqual(2) // the polyline and the axis
   })
 })

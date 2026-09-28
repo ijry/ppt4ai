@@ -48,8 +48,27 @@ export interface ChartLabel {
   role: 'category' | 'value'
 }
 
+export interface ChartPoint {
+  x: number
+  y: number
+}
+
+export interface ChartPolyline {
+  points: ChartPoint[]
+  color?: string
+}
+
+export interface ChartArea {
+  points: ChartPoint[]
+  color?: string
+}
+
 export interface ChartPrimitives {
   bars: ChartBar[]
+  /** Line-chart series, one polyline each (gaps split into separate points). */
+  polylines?: ChartPolyline[]
+  /** Area-chart series, each closed down to the baseline. */
+  areas?: ChartArea[]
   axes: ChartLine[]
   gridlines: ChartLine[]
   labels: ChartLabel[]
@@ -92,55 +111,106 @@ function formatValue(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2)
 }
 
-function layoutColumn(spec: ChartSpec, box: Rect): ChartPrimitives {
+interface Cartesian {
+  plot: Rect
+  lo: number
+  hi: number
+  yOf: (value: number) => number
+  baseline: number
+  slotWidth: number
+  slotCenter: (index: number) => number
+}
+
+/** The shared cartesian frame column/line/area all sit in: plot area, a zero-anchored value scale, and
+ * evenly spaced category slots. */
+function cartesian(spec: ChartSpec, box: Rect): Cartesian {
   const plot = plotArea(box)
   const { lo, hi } = valueDomain(spec.series)
   const span = hi - lo
-  const yOf = (value: number): number => plot.y + plot.h * (hi - value) / span
-  const baseline = yOf(0)
-  const categoryCount = Math.max(1, spec.categories.length)
-  const seriesCount = Math.max(1, spec.series.length)
-  const slotWidth = plot.w / categoryCount
-  const groupWidth = slotWidth * GROUP_FRACTION
-  const barWidth = groupWidth / seriesCount
+  const slotWidth = plot.w / Math.max(1, spec.categories.length)
+  return {
+    plot,
+    lo,
+    hi,
+    yOf: (value) => plot.y + plot.h * (hi - value) / span,
+    baseline: plot.y + plot.h * hi / span,
+    slotWidth,
+    slotCenter: (index) => plot.x + (index + 0.5) * slotWidth,
+  }
+}
 
+function cartesianDecorations(spec: ChartSpec, frame: Cartesian): { axes: ChartLine[]; labels: ChartLabel[] } {
+  const { plot } = frame
+  const axes: ChartLine[] = [
+    { x1: plot.x, y1: plot.y, x2: plot.x, y2: plot.y + plot.h },
+    { x1: plot.x, y1: frame.baseline, x2: plot.x + plot.w, y2: frame.baseline },
+  ]
+  const labels: ChartLabel[] = spec.categories.map((text, index) => ({
+    text, x: frame.slotCenter(index), y: plot.y + plot.h, align: 'center', baseline: 'top', role: 'category',
+  }))
+  labels.push(
+    { text: formatValue(frame.hi), x: plot.x, y: plot.y, align: 'end', baseline: 'middle', role: 'value' },
+    { text: formatValue(frame.lo), x: plot.x, y: plot.y + plot.h, align: 'end', baseline: 'middle', role: 'value' },
+  )
+  return { axes, labels }
+}
+
+function layoutColumn(spec: ChartSpec, box: Rect): ChartPrimitives {
+  const frame = cartesian(spec, box)
+  const groupWidth = frame.slotWidth * GROUP_FRACTION
+  const barWidth = groupWidth / Math.max(1, spec.series.length)
   const bars: ChartBar[] = []
-  const labels: ChartLabel[] = []
-  spec.categories.forEach((text, categoryIndex) => {
-    const groupX = plot.x + categoryIndex * slotWidth + (slotWidth - groupWidth) / 2
+  spec.categories.forEach((_, categoryIndex) => {
+    const groupX = frame.plot.x + categoryIndex * frame.slotWidth + (frame.slotWidth - groupWidth) / 2
     spec.series.forEach((entry, seriesIndex) => {
       const value = entry.values[categoryIndex]
       if (value === null || value === undefined || !Number.isFinite(value)) return
-      const y = yOf(value)
+      const y = frame.yOf(value)
       bars.push({
         x: groupX + seriesIndex * barWidth,
-        y: Math.min(y, baseline),
+        y: Math.min(y, frame.baseline),
         w: barWidth,
-        h: Math.abs(y - baseline),
+        h: Math.abs(y - frame.baseline),
         ...(entry.color ? { color: entry.color } : {}),
         seriesIndex,
         categoryIndex,
       })
     })
-    labels.push({ text, x: plot.x + categoryIndex * slotWidth + slotWidth / 2, y: plot.y + plot.h, align: 'center', baseline: 'top', role: 'category' })
   })
-
-  const axes: ChartLine[] = [
-    { x1: plot.x, y1: plot.y, x2: plot.x, y2: plot.y + plot.h },
-    { x1: plot.x, y1: baseline, x2: plot.x + plot.w, y2: baseline },
-  ]
-  labels.push(
-    { text: formatValue(hi), x: plot.x, y: plot.y, align: 'end', baseline: 'middle', role: 'value' },
-    { text: formatValue(lo), x: plot.x, y: plot.y + plot.h, align: 'end', baseline: 'middle', role: 'value' },
-  )
+  const { axes, labels } = cartesianDecorations(spec, frame)
   return { bars, axes, gridlines: [], labels }
+}
+
+/** Line and area share their geometry: one polyline per series over the category slots, plus (for area)
+ * a copy closed down to the baseline. Gaps (`null`) simply drop their point. */
+function layoutLine(spec: ChartSpec, box: Rect, filled: boolean): ChartPrimitives {
+  const frame = cartesian(spec, box)
+  const polylines: ChartPolyline[] = []
+  const areas: ChartArea[] = []
+  for (const entry of spec.series) {
+    const points: ChartPoint[] = []
+    entry.values.forEach((value, categoryIndex) => {
+      if (value === null || value === undefined || !Number.isFinite(value)) return
+      points.push({ x: frame.slotCenter(categoryIndex), y: frame.yOf(value) })
+    })
+    if (points.length === 0) continue
+    polylines.push({ points, ...(entry.color ? { color: entry.color } : {}) })
+    if (filled) {
+      const closed = [...points, { x: points[points.length - 1]!.x, y: frame.baseline }, { x: points[0]!.x, y: frame.baseline }]
+      areas.push({ points: closed, ...(entry.color ? { color: entry.color } : {}) })
+    }
+  }
+  const { axes, labels } = cartesianDecorations(spec, frame)
+  return { bars: [], axes, gridlines: [], labels, ...(polylines.length ? { polylines } : {}), ...(filled && areas.length ? { areas } : {}) }
 }
 
 const EMPTY: ChartPrimitives = { bars: [], axes: [], gridlines: [], labels: [] }
 
-/** Lay out a chart into primitives within `box`. Block 1 handles `column`; other types return empty
- * until their blocks land, so the renderer falls back to the placeholder. */
+/** Lay out a chart into primitives within `box`. Cartesian types so far: `column`, `line`, `area`;
+ * other types return empty, so the renderer falls back to the placeholder. */
 export function layoutChart(spec: ChartSpec, box: Rect): ChartPrimitives {
   if (spec.type === 'column') return layoutColumn(spec, box)
+  if (spec.type === 'line') return layoutLine(spec, box, false)
+  if (spec.type === 'area') return layoutLine(spec, box, true)
   return EMPTY
 }

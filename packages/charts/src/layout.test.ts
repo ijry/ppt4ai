@@ -58,3 +58,40 @@ describe('column layout', () => {
     expect(primitives.axes.length).toBeGreaterThanOrEqual(2)
   })
 })
+
+function lineSpec(values: (number | null)[][], type: 'line' | 'area' = 'line'): ChartSpec {
+  return { type, categories: values[0]!.map((_, i) => `C${i + 1}`), series: values.map((v, i) => ({ name: `S${i + 1}`, values: v })) }
+}
+
+describe('line layout', () => {
+  it('produces one polyline per series with a point per category, higher values sitting higher', () => {
+    const primitives = layoutChart(lineSpec([[10, 20, 30]]), box)
+    expect(primitives.polylines).toHaveLength(1)
+    const points = primitives.polylines![0]!.points
+    expect(points).toHaveLength(3)
+    expect(points[0]!.x).toBeLessThan(points[1]!.x) // categories left to right
+    expect(points[0]!.y).toBeGreaterThan(points[2]!.y) // value 10 sits below value 30
+  })
+
+  it('drops a null point, leaving a gap', () => {
+    expect(layoutChart(lineSpec([[10, null, 30]]), box).polylines![0]!.points).toHaveLength(2)
+  })
+
+  it('shares the cartesian axes and category labels with the column layout', () => {
+    const primitives = layoutChart(lineSpec([[10, 20]]), box)
+    expect(primitives.bars).toHaveLength(0)
+    expect(primitives.axes.length).toBeGreaterThanOrEqual(2)
+    expect(primitives.labels.filter((label) => label.role === 'category')).toHaveLength(2)
+  })
+})
+
+describe('area layout', () => {
+  it('closes each series polygon down to the baseline', () => {
+    const primitives = layoutChart(lineSpec([[10, 20]], 'area'), box)
+    expect(primitives.polylines).toHaveLength(1)
+    const area = primitives.areas![0]!.points
+    expect(area).toHaveLength(4) // 2 data points + 2 baseline corners
+    expect(area[2]!.y).toBeCloseTo(area[3]!.y, 5) // both corners on the baseline
+    expect(area[2]!.y).toBeGreaterThanOrEqual(primitives.polylines![0]!.points[0]!.y) // baseline below the data
+  })
+})
