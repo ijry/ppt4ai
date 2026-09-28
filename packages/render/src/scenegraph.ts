@@ -718,10 +718,13 @@ function chartPrimitives(element: Extract<Element, { kind: 'chart' }>, context: 
         color: resolved ? `#${resolved.rgb}` : CHART_PALETTE[index % CHART_PALETTE.length]!,
       }
     }),
+    palette: CHART_PALETTE,
   }
   const primitives = layoutChart(spec, element.bounds)
-  // The kernel returns empty for types it does not lay out yet (bar/line/…), which read as a placeholder.
-  return primitives.bars.length > 0 || primitives.axes.length > 0 ? primitives : undefined
+  // The kernel returns empty for types it does not lay out yet (e.g. horizontal bar), which read as a placeholder.
+  const drawable = primitives.bars.length > 0 || (primitives.polylines?.length ?? 0) > 0
+    || (primitives.areas?.length ?? 0) > 0 || (primitives.sectors?.length ?? 0) > 0 || primitives.axes.length > 0
+  return drawable ? primitives : undefined
 }
 
 function createChartNode(element: Extract<Element, { kind: 'chart' }>, context: SceneThemeContext): SceneChartNode {

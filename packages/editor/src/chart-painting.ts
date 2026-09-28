@@ -46,6 +46,24 @@ function paintPrimitives(context: ChartContext, node: SceneChartNode, mapping: S
     context.lineWidth = Math.max(1.5, 19050 * mapping.scale) // ~1.5pt
     context.stroke()
   }
+  for (const sector of primitives.sectors ?? []) {
+    const cx = mapX(sector.cx)
+    const cy = mapY(sector.cy)
+    const radius = sector.r * mapping.scale
+    const innerRadius = sector.innerR * mapping.scale
+    context.beginPath()
+    if (innerRadius > 0) {
+      context.arc(cx, cy, radius, sector.start, sector.end)
+      context.arc(cx, cy, innerRadius, sector.end, sector.start, true)
+    } else {
+      context.moveTo(cx, cy)
+      context.arc(cx, cy, radius, sector.start, sector.end)
+    }
+    context.closePath()
+    context.fillStyle = sector.color ?? '#4472C4'
+    context.globalAlpha = mapping.alpha ?? 1
+    context.fill()
+  }
   context.strokeStyle = '#868e96'
   context.lineWidth = Math.max(1, 9525 * mapping.scale) // ~0.75pt
   for (const axis of primitives.axes) {

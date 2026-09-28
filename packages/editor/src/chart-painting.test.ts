@@ -2,17 +2,18 @@ import type { SceneChartNode } from '@ppt4ai/render'
 import { describe, expect, it } from 'vitest'
 import { paintChartNode } from './chart-painting'
 
-function context(): CanvasRenderingContext2D & { calls: { rects: unknown[][]; strokeRects: unknown[][]; texts: unknown[][]; strokes: number } } {
-  const calls = { rects: [] as unknown[][], strokeRects: [] as unknown[][], texts: [] as unknown[][], strokes: 0 }
+function context(): CanvasRenderingContext2D & { calls: { rects: unknown[][]; strokeRects: unknown[][]; texts: unknown[][]; strokes: number; fills: number } } {
+  const calls = { rects: [] as unknown[][], strokeRects: [] as unknown[][], texts: [] as unknown[][], strokes: 0, fills: 0 }
   return {
     calls,
     save() {}, restore() {}, translate() {}, rotate() {}, scale() {}, setLineDash() {},
-    beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {},
+    beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, arc() {},
+    fill: () => { calls.fills += 1 },
     stroke: () => { calls.strokes += 1 },
     fillRect: (...args: unknown[]) => { calls.rects.push(args) },
     strokeRect: (...args: unknown[]) => { calls.strokeRects.push(args) },
     fillText: (...args: unknown[]) => { calls.texts.push(args) },
-  } as unknown as CanvasRenderingContext2D & { calls: { rects: unknown[][]; strokeRects: unknown[][]; texts: unknown[][]; strokes: number } }
+  } as unknown as CanvasRenderingContext2D & { calls: { rects: unknown[][]; strokeRects: unknown[][]; texts: unknown[][]; strokes: number; fills: number } }
 }
 
 describe('chart placeholder painting', () => {
@@ -67,5 +68,29 @@ describe('chart placeholder painting', () => {
 
     expect(drawingContext.calls.rects).toHaveLength(0) // no bars
     expect(drawingContext.calls.strokes).toBeGreaterThanOrEqual(2) // the polyline and the axis
+  })
+
+  it('fills a wedge per slice for a pie chart', () => {
+    const drawingContext = context()
+    const node: SceneChartNode = {
+      id: 'el_chart',
+      kind: 'chart',
+      bounds: { x: 0, y: 0, w: 200, h: 200 },
+      primitives: {
+        bars: [],
+        sectors: [
+          { cx: 100, cy: 100, r: 90, innerR: 0, start: 0, end: 1, color: '#111111' },
+          { cx: 100, cy: 100, r: 90, innerR: 0, start: 1, end: 6.28, color: '#222222' },
+        ],
+        axes: [],
+        gridlines: [],
+        labels: [],
+      },
+    }
+
+    paintChartNode(drawingContext, node, { scale: 2, offsetX: 0, offsetY: 0 })
+
+    expect(drawingContext.calls.rects).toHaveLength(0) // no bars
+    expect(drawingContext.calls.fills).toBe(2) // one fill per slice
   })
 })

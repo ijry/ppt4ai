@@ -95,3 +95,26 @@ describe('area layout', () => {
     expect(area[2]!.y).toBeGreaterThanOrEqual(primitives.polylines![0]!.points[0]!.y) // baseline below the data
   })
 })
+
+function pieSpec(values: (number | null)[], type: 'pie' | 'doughnut' = 'pie'): ChartSpec {
+  return { type, categories: values.map((_, i) => `C${i + 1}`), series: [{ values }], palette: ['#111111', '#222222', '#333333'] }
+}
+
+describe('pie layout', () => {
+  it('makes one sector per positive value, together sweeping a full turn in proportion', () => {
+    const sectors = layoutChart(pieSpec([1, 3]), box).sectors!
+    expect(sectors).toHaveLength(2)
+    expect(sectors.reduce((sum, sector) => sum + (sector.end - sector.start), 0)).toBeCloseTo(Math.PI * 2, 5)
+    expect(sectors[1]!.end - sectors[1]!.start).toBeCloseTo((sectors[0]!.end - sectors[0]!.start) * 3, 5)
+    expect(sectors[0]!.innerR).toBe(0) // a pie has no hole
+    expect(sectors[0]!.color).toBe('#111111') // coloured per slice from the palette
+  })
+
+  it('gives a doughnut an inner radius', () => {
+    expect(layoutChart(pieSpec([1, 1], 'doughnut'), box).sectors![0]!.innerR).toBeGreaterThan(0)
+  })
+
+  it('skips null and non-positive values', () => {
+    expect(layoutChart(pieSpec([5, null, -2, 5]), box).sectors).toHaveLength(2)
+  })
+})

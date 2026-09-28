@@ -20,6 +20,8 @@ export interface ChartSpec {
   type: ChartType
   categories: string[]
   series: ChartSeries[]
+  /** Fallback colours for slices/series with no explicit colour, indexed round-robin. */
+  palette?: string[]
 }
 
 export interface ChartBar {
@@ -63,12 +65,26 @@ export interface ChartArea {
   color?: string
 }
 
+/** A pie/doughnut slice: an annular wedge from `start` to `end` radians (clockwise from 12 o'clock),
+ * with `innerR` 0 for a full pie. */
+export interface ChartSector {
+  cx: number
+  cy: number
+  r: number
+  innerR: number
+  start: number
+  end: number
+  color?: string
+}
+
 export interface ChartPrimitives {
   bars: ChartBar[]
   /** Line-chart series, one polyline each (gaps split into separate points). */
   polylines?: ChartPolyline[]
   /** Area-chart series, each closed down to the baseline. */
   areas?: ChartArea[]
+  /** Pie/doughnut slices. */
+  sectors?: ChartSector[]
   axes: ChartLine[]
   gridlines: ChartLine[]
   labels: ChartLabel[]
@@ -204,13 +220,46 @@ function layoutLine(spec: ChartSpec, box: Rect, filled: boolean): ChartPrimitive
   return { bars: [], axes, gridlines: [], labels, ...(polylines.length ? { polylines } : {}), ...(filled && areas.length ? { areas } : {}) }
 }
 
+const PIE_RADIUS_FRACTION = 0.9
+const DOUGHNUT_INNER_FRACTION = 0.5
+
+function paletteColor(spec: ChartSpec, index: number): string | undefined {
+  return spec.palette && spec.palette.length > 0 ? spec.palette[index % spec.palette.length] : undefined
+}
+
+/** Pie/doughnut: the first series' positive values become slices of a circle centred in the box,
+ * clockwise from 12 o'clock. `null`/non-positive values are skipped. Slices are coloured by the
+ * palette (per point), since our model carries one colour per series, not per point. */
+function layoutPie(spec: ChartSpec, box: Rect, doughnut: boolean): ChartPrimitives {
+  const values = spec.series[0]?.values ?? []
+  const total = values.reduce<number>((sum, value) => sum + (value !== null && Number.isFinite(value) && value > 0 ? value : 0), 0)
+  const cx = box.x + box.w / 2
+  const cy = box.y + box.h / 2
+  const r = (Math.min(box.w, box.h) / 2) * PIE_RADIUS_FRACTION
+  const innerR = doughnut ? r * DOUGHNUT_INNER_FRACTION : 0
+  const sectors: ChartSector[] = []
+  if (total > 0) {
+    let angle = -Math.PI / 2
+    values.forEach((value, index) => {
+      if (value === null || !Number.isFinite(value) || value <= 0) return
+      const sweep = (value / total) * Math.PI * 2
+      const color = paletteColor(spec, index)
+      sectors.push({ cx, cy, r, innerR, start: angle, end: angle + sweep, ...(color ? { color } : {}) })
+      angle += sweep
+    })
+  }
+  return { bars: [], axes: [], gridlines: [], labels: [], ...(sectors.length ? { sectors } : {}) }
+}
+
 const EMPTY: ChartPrimitives = { bars: [], axes: [], gridlines: [], labels: [] }
 
-/** Lay out a chart into primitives within `box`. Cartesian types so far: `column`, `line`, `area`;
- * other types return empty, so the renderer falls back to the placeholder. */
+/** Lay out a chart into primitives within `box`. Cartesian types: `column`, `line`, `area`; radial
+ * types: `pie`, `doughnut`. Other types return empty, so the renderer falls back to the placeholder. */
 export function layoutChart(spec: ChartSpec, box: Rect): ChartPrimitives {
   if (spec.type === 'column') return layoutColumn(spec, box)
   if (spec.type === 'line') return layoutLine(spec, box, false)
   if (spec.type === 'area') return layoutLine(spec, box, true)
+  if (spec.type === 'pie') return layoutPie(spec, box, false)
+  if (spec.type === 'doughnut') return layoutPie(spec, box, true)
   return EMPTY
 }

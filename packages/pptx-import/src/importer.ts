@@ -955,18 +955,30 @@ function parseSeriesColor(spPr: XmlNode | undefined): Color | undefined {
 }
 
 /**
- * Read a chart part's cached type/series/categories. Block 3 handles `c:barChart` (column and bar);
- * other chart types return undefined so the caller keeps the placeholder. Only cached values are read
- * — a chart with formula refs but no cache yields empty series, never a guessed number.
+ * Read a chart part's cached type/series/categories. Handles `c:barChart` (column/bar), `c:lineChart`,
+ * `c:areaChart`, `c:pieChart` and `c:doughnutChart` — all share the `c:ser` (tx/cat/val) shape. Other
+ * plot types return undefined so the caller keeps the placeholder. Only cached values are read — a chart
+ * with formula refs but no cache yields empty series, never a guessed number.
  */
 function parseChartPart(root: XmlNode): Pick<ChartElement, 'chartType' | 'categories' | 'series' | 'legend'> | undefined {
   const barChart = findDescendants(root, 'barChart')[0]
-  if (!barChart) return undefined
-  const barDirNode = child(barChart, 'barDir')
-  const chartType: ChartType = (barDirNode && attribute(barDirNode, 'val') === 'bar') ? 'bar' : 'column'
+  const lineChart = findDescendants(root, 'lineChart')[0]
+  const areaChart = findDescendants(root, 'areaChart')[0]
+  const pieChart = findDescendants(root, 'pieChart')[0]
+  const doughnutChart = findDescendants(root, 'doughnutChart')[0]
+  const plot = barChart ?? lineChart ?? areaChart ?? pieChart ?? doughnutChart
+  if (!plot) return undefined
+  let chartType: ChartType
+  if (barChart) {
+    const barDirNode = child(barChart, 'barDir')
+    chartType = (barDirNode && attribute(barDirNode, 'val') === 'bar') ? 'bar' : 'column'
+  } else if (lineChart) chartType = 'line'
+  else if (areaChart) chartType = 'area'
+  else if (pieChart) chartType = 'pie'
+  else chartType = 'doughnut'
   const series: ChartSeries[] = []
   let categories: string[] = []
-  for (const ser of children(barChart, 'ser')) {
+  for (const ser of children(plot, 'ser')) {
     const name = parseStringCache(child(ser, 'tx'))[0]
     const color = parseSeriesColor(child(ser, 'spPr'))
     series.push({ ...(name ? { name } : {}), values: parseNumberCache(child(ser, 'val')), ...(color ? { color } : {}) })

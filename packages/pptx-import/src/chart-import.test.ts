@@ -75,4 +75,18 @@ describe('chart import', () => {
     expect(element).toMatchObject({ kind: 'chart', chartRelId: 'rId7' })
     expect(element).not.toHaveProperty('series')
   })
+
+  it('recognizes line, area, pie and doughnut plot types', async () => {
+    const oneSeries = '<c:ser><c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>A</c:v></c:pt><c:pt idx="1"><c:v>B</c:v></c:pt></c:strCache></c:strRef></c:cat>'
+      + '<c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>60</c:v></c:pt><c:pt idx="1"><c:v>40</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>'
+    const importedChart = async (plotInner: string): Promise<unknown> => {
+      const part = `<c:chartSpace xmlns:c="c"><c:chart><c:plotArea>${plotInner}</c:plotArea></c:chart></c:chartSpace>`
+      const document = await importPptx(createStoredZip({ ...files, 'ppt/slides/slide1.xml': chartSlide(), 'ppt/slides/_rels/slide1.xml.rels': chartRels, 'ppt/charts/chart1.xml': part }))
+      return document.elements.el_1
+    }
+    expect(await importedChart(`<c:lineChart>${oneSeries}</c:lineChart>`)).toMatchObject({ chartType: 'line', categories: ['A', 'B'], series: [{ values: [60, 40] }] })
+    expect(await importedChart(`<c:areaChart>${oneSeries}</c:areaChart>`)).toMatchObject({ chartType: 'area' })
+    expect(await importedChart(`<c:pieChart>${oneSeries}</c:pieChart>`)).toMatchObject({ chartType: 'pie' })
+    expect(await importedChart(`<c:doughnutChart>${oneSeries}</c:doughnutChart>`)).toMatchObject({ chartType: 'doughnut' })
+  })
 })
