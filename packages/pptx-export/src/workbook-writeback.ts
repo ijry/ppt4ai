@@ -98,25 +98,52 @@ function resolveSheetPaths(entries: readonly ZipEntry[]): Map<string, string> {
 }
 
 /**
- * Sync edited values into the embedded workbook (Tier B1). Reads the nested xlsx (DEFLATE inflated),
- * patches the numeric cells named per sheet, and re-writes it (stored). Returns the original bytes
- * unchanged when nothing changed, so an unedited chart's workbook entry stays byte-identical.
+ * Rewrite category-label cells to inline strings (Tier B2). Each named cell becomes
+ * `<c r=".." [s=".."] t="inlineStr"><is><t>label</t></is></c>`, preserving its ref and style. Only the
+ * cells passed in are touched (the caller passes just the ones whose label changed), so an unedited
+ * sheet is untouched. Converting to inlineStr sidesteps shared-string index surgery and cannot disturb
+ * another cell that happened to share the same string.
  */
-export async function patchEmbeddedWorkbook(xlsxBytes: Uint8Array, editsBySheet: ReadonlyMap<string, ReadonlyMap<string, number>>): Promise<Uint8Array> {
-  if (editsBySheet.size === 0) return xlsxBytes
+export function patchSheetCellStrings(sheetXml: string, cellLabels: ReadonlyMap<string, string>): string {
+  const replacements: Replacement[] = []
+  for (const cell of descendants(scanXml(sheetXml), 'c')) {
+    const ref = cell.attributes.r
+    const label = ref ? cellLabels.get(ref) : undefined
+    if (label === undefined) continue
+    const style = cell.attributes.s !== undefined ? ` s="${cell.attributes.s}"` : ''
+    replacements.push({ start: cell.start, end: cell.end, value: `<${cell.name} r="${ref}"${style} t="inlineStr"><is><t>${escapeXml(label)}</t></is></${cell.name}>` })
+  }
+  return replaceRanges(sheetXml, replacements)
+}
+
+/**
+ * Sync edited chart data into the embedded workbook (Tier B). Reads the nested xlsx (DEFLATE inflated),
+ * patches numeric cells (B1) and category-label cells (B2) per sheet, and re-writes it (stored). Returns
+ * the original bytes unchanged when nothing changed, so an unedited chart's workbook stays byte-identical.
+ */
+export async function patchEmbeddedWorkbook(
+  xlsxBytes: Uint8Array,
+  numberEdits: ReadonlyMap<string, ReadonlyMap<string, number>>,
+  stringEdits: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map(),
+): Promise<Uint8Array> {
+  if (numberEdits.size === 0 && stringEdits.size === 0) return xlsxBytes
   const entries = await readZipEntries(xlsxBytes)
   const sheetPaths = resolveSheetPaths(entries)
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
   let changed = false
-  for (const [sheetName, cells] of editsBySheet) {
+  for (const sheetName of new Set([...numberEdits.keys(), ...stringEdits.keys()])) {
     const path = sheetPaths.get(sheetName)
     const entry = path ? entries.find((candidate) => candidate.name === path) : undefined
     if (!entry) continue
-    const sheetXml = decoder.decode(entry.data)
-    const patched = patchSheetCells(sheetXml, cells)
-    if (patched !== sheetXml) {
-      entry.data = encoder.encode(patched)
+    const sourceXml = decoder.decode(entry.data)
+    let sheetXml = sourceXml
+    const numbers = numberEdits.get(sheetName)
+    if (numbers) sheetXml = patchSheetCells(sheetXml, numbers)
+    const strings = stringEdits.get(sheetName)
+    if (strings) sheetXml = patchSheetCellStrings(sheetXml, strings)
+    if (sheetXml !== sourceXml) {
+      entry.data = encoder.encode(sheetXml)
       changed = true
     }
   }

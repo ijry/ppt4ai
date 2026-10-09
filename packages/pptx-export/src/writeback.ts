@@ -11,7 +11,7 @@ import {
   stableAssetId,
 } from './image-writeback.js'
 import { rewritePictureAppearance } from './image-appearance-writeback.js'
-import { chartValueCellEdits, patchChartCache } from './chart-writeback.js'
+import { chartCategoryCellEdits, chartValueCellEdits, patchChartCache } from './chart-writeback.js'
 import { patchEmbeddedWorkbook } from './workbook-writeback.js'
 import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } from './dependency-graph.js'
 import { decodeXml, descendants, attributeReplacements, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
@@ -2041,7 +2041,11 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       const workbookRelationship = readRelationships(entriesByName, chartPath).find((candidate) => candidate.type === 'package')
       const workbookEntry = workbookRelationship ? entriesByName.get(resolveTarget(chartPath, workbookRelationship.target)) : undefined
       if (workbookEntry) {
-        const patchedWorkbook = await patchEmbeddedWorkbook(workbookEntry.data, chartValueCellEdits(sourceChartXml, chart.series))
+        const patchedWorkbook = await patchEmbeddedWorkbook(
+          workbookEntry.data,
+          chartValueCellEdits(sourceChartXml, chart.series),
+          chartCategoryCellEdits(sourceChartXml, chart.categories ?? []),
+        )
         if (patchedWorkbook !== workbookEntry.data) workbookEntry.data = patchedWorkbook
       }
     }

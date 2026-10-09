@@ -85,3 +85,46 @@ export function chartValueCellEdits(chartXml: string, series: readonly Pick<Char
   })
   return edits
 }
+
+function strCacheLabels(cache: XmlElement | undefined): string[] {
+  if (!cache) return []
+  const byIndex = new Map<number, string>()
+  let max = -1
+  for (const point of descendants([cache], 'pt')) {
+    const idx = Number(point.attributes.idx)
+    const valueNode = descendants([point], 'v')[0]
+    if (!Number.isInteger(idx) || !valueNode) continue
+    byIndex.set(idx, decodeXml(valueNode.text))
+    if (idx > max) max = idx
+  }
+  return Array.from({ length: max + 1 }, (_, index) => byIndex.get(index) ?? '')
+}
+
+/**
+ * Map changed category labels to the workbook cells that back them (Tier B2). Compares the model's new
+ * categories against the chart's cached labels (`c:cat/c:strCache`) and emits only the cells that
+ * changed, keyed by sheet via the category `c:f` range. Categories come from the first series that
+ * carries them, mirroring the importer.
+ */
+export function chartCategoryCellEdits(chartXml: string, categories: readonly string[]): Map<string, Map<string, string>> {
+  const edits = new Map<string, Map<string, string>>()
+  const plot = plotNode(scanXml(chartXml))
+  if (!plot) return edits
+  for (const ser of plot.children.filter((child) => child.localName === 'ser')) {
+    const catNode = ser.children.find((child) => child.localName === 'cat')
+    if (!catNode) continue
+    const formulaNode = descendants([catNode], 'f')[0]
+    if (!formulaNode) return edits
+    const range = parseCellRange(decodeXml(formulaNode.text))
+    if (!range) return edits
+    const oldLabels = strCacheLabels(descendants([catNode], 'strCache')[0])
+    const sheetEdits = new Map<string, string>()
+    range.cells.forEach((cell, index) => {
+      const next = categories[index]
+      if (next !== undefined && next !== oldLabels[index]) sheetEdits.set(cell, next)
+    })
+    if (sheetEdits.size > 0) edits.set(range.sheet, sheetEdits)
+    return edits
+  }
+  return edits
+}

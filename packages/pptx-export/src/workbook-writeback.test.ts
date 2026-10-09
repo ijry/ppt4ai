@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseCellRange, patchEmbeddedWorkbook, patchSheetCells } from './workbook-writeback.js'
+import { parseCellRange, patchEmbeddedWorkbook, patchSheetCells, patchSheetCellStrings } from './workbook-writeback.js'
 import { readZipEntries, writeStoredZip } from './zip.js'
 
 describe('parseCellRange', () => {
@@ -50,6 +50,18 @@ describe('patchSheetCells', () => {
   })
 })
 
+describe('patchSheetCellStrings', () => {
+  it('rewrites a cell to an inline string, keeping its ref and style', () => {
+    const out = patchSheetCellStrings(sheet('<c r="A2" s="3" t="s"><v>0</v></c>'), new Map([['A2', 'New']]))
+    expect(out).toContain('<c r="A2" s="3" t="inlineStr"><is><t>New</t></is></c>')
+  })
+
+  it('leaves cells not named in the map untouched', () => {
+    const src = sheet('<c r="A2" t="s"><v>0</v></c>')
+    expect(patchSheetCellStrings(src, new Map([['Z9', 'x']]))).toBe(src)
+  })
+})
+
 const enc = (value: string): Uint8Array => new TextEncoder().encode(value)
 function xlsx(sheetCells: string): Uint8Array {
   return writeStoredZip([
@@ -71,5 +83,13 @@ describe('patchEmbeddedWorkbook', () => {
   it('returns the exact same bytes when no cell changed', async () => {
     const bytes = xlsx('<c r="B2"><v>10</v></c>')
     expect(await patchEmbeddedWorkbook(bytes, new Map([['Sheet1', new Map([['B2', 10]])]]))).toBe(bytes)
+  })
+
+  it('rewrites a category cell to an inline string via string edits', async () => {
+    const out = await patchEmbeddedWorkbook(xlsx('<c r="A2" t="s"><v>0</v></c>'), new Map(), new Map([['Sheet1', new Map([['A2', 'New']])]]))
+    const inner = await readZipEntries(out)
+    const sheetXml = new TextDecoder().decode(inner.find((entry) => entry.name === 'xl/worksheets/sheet1.xml')!.data)
+    expect(sheetXml).toContain('t="inlineStr"')
+    expect(sheetXml).toContain('<t>New</t>')
   })
 })
