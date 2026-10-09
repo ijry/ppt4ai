@@ -1538,7 +1538,21 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
   const slide = document.slides[slideId]
   if (!slide) throw new Error(`PPTX export document slide missing: ${slideId}`)
   const sourceElements = scanned.elements
-  if (slide.elementIds.length < sourceElements.length) throw new Error(`PPTX export element count mismatch for slide ${slideId}`)
+  const modelElementIds = new Set(slide.elementIds)
+  // A reused slide pairs by id, so a shorter model just means elements were deleted — handled per element
+  // below. A cloned slide still pairs by position, so a short count there is a real mismatch (cloned-slide
+  // deletion is a follow-up).
+  if (!strictIdentity && slide.elementIds.length < sourceElements.length) throw new Error(`PPTX export element count mismatch for slide ${slideId}`)
+  // Deletion is allowed, reordering is not: the kept source elements must keep their source order in the
+  // model. (Pairing by id would silently ignore a reorder, so reject it rather than drop it.)
+  if (strictIdentity) {
+    const sourceIds = new Set(sourceElements.map((entry) => entry.expectedId))
+    const keptSourceOrder = sourceElements.map((entry) => entry.expectedId).filter((id) => modelElementIds.has(id))
+    const keptModelOrder = slide.elementIds.filter((id) => sourceIds.has(id))
+    if (keptSourceOrder.length !== keptModelOrder.length || keptSourceOrder.some((id, position) => id !== keptModelOrder[position])) {
+      throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
+    }
+  }
 
   // Animations target elements by id; map each back to the shape's drawingML `cNvPr/@id` (the spid the
   // importer recorded), so a `targetId` becomes the right `p:spTgt/@spid` in the output.
@@ -1554,11 +1568,19 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
   ]
   for (let index = 0; index < sourceElements.length; index += 1) {
     const source = sourceElements[index]
-    const elementId = slide.elementIds[index]
-    const element = elementId ? document.elements[elementId] : undefined
-    if (!source || !element) throw new Error(`PPTX export element mapping missing for slide ${slideId}`)
+    if (!source) throw new Error(`PPTX export element mapping missing for slide ${slideId}`)
     const sourceElement = source.element
-    if (strictIdentity && elementId !== source.expectedId) throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
+    // Reuse pairs by id, so a deletion elsewhere does not shift the mapping. A source element whose el_N
+    // is gone from the model was deleted: drop its node. Groups (whose node spans a whole subtree) are a
+    // follow-up — removing one needs its child scan entries skipped too.
+    if (strictIdentity && !modelElementIds.has(source.expectedId)) {
+      if (source.group) throw new Error(`PPTX export group deletion is not yet supported for slide ${slideId}`)
+      replacements.push({ start: sourceElement.start, end: sourceElement.end, value: '' })
+      continue
+    }
+    const elementId = strictIdentity ? source.expectedId : slide.elementIds[index]
+    const element = elementId ? document.elements[elementId] : undefined
+    if (!element) throw new Error(`PPTX export element mapping missing for slide ${slideId}`)
     if (source.group) {
       if (element.kind !== 'group') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
       replacements.push(...transformReplacements(xml, sourceElement, element))
