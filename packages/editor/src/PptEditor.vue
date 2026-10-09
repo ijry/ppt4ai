@@ -43,7 +43,9 @@ const props = withDefaults(defineProps<{
   fontFamilies?: readonly string[]
   /** Typefaces for the east asian slot; falls back to `fontFamilies` when the host gives only one list. */
   eaFontFamilies?: readonly string[]
-}>(), { zoom: 1 })
+  /** A host that supplies its own toolbar (e.g. a product shell) sets this false to hide the built-in one. */
+  showObjectToolbar?: boolean
+}>(), { zoom: 1, showObjectToolbar: true })
 
 const emit = defineEmits<{
   select: [nodeId: string | undefined]
@@ -177,6 +179,11 @@ function selectedBounds(): ScreenBounds | undefined {
 function emitSelection(elementIds: string[]): void {
   emit('selection-change', { elementIds })
   emit('select', elementIds.length === 1 ? elementIds[0] : undefined)
+}
+
+function onMarquee(payload: { elementIds: string[] }): void {
+  // Marquee selects top-level elements; only meaningful when not drilled into a group.
+  if (groupPath.value.length === 0) emitSelection(payload.elementIds)
 }
 
 const isInsideGroup = computed(() => groupPath.value.length > 0)
@@ -745,7 +752,8 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="ppt-editor" aria-labelledby="ppt-editor-toolbar" tabindex="0" @keydown.capture="handleEditorKeyDown">
-    <header id="ppt-editor-toolbar" class="ppt-editor__toolbar flex items-center gap-2 border-b border-slate-200 bg-white p-2">
+    <header v-if="showObjectToolbar || (textEditorProps && textFormatting) || selectedTableNode" id="ppt-editor-toolbar" class="ppt-editor__toolbar flex items-center gap-2 border-b border-slate-200 bg-white p-2">
+      <template v-if="showObjectToolbar">
       <button type="button" class="ppt-editor__button">
         {{ t('toolbar.insert.shape') }}
       </button>
@@ -809,6 +817,7 @@ onBeforeUnmount(() => {
           </button>
         </template>
       </div>
+      </template>
       <TextFormattingToolbar
         v-if="textEditorProps && textFormatting"
         active
@@ -843,6 +852,7 @@ onBeforeUnmount(() => {
           @move-start="emit('move-start', $event)"
           @move="move"
           @move-end="moveEnd"
+          @marquee="onMarquee"
           @enter-group="enterGroup"
           @activate="activate"
         />

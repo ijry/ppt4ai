@@ -93,6 +93,9 @@ function validateElementKinds(document: Ppt4aiDocument): void {
         validate(node.children)
         continue
       }
+      if (element.kind === 'chart') {
+        throw new Error(`PPTX generation does not support charts yet: ${element.id}`)
+      }
       if (element.kind !== 'shape' && element.kind !== 'text' && element.kind !== 'table' && element.kind !== 'image') {
         throw new Error(`PPTX generation unsupported element kind: ${unmodeledKind(element)}`)
       }
@@ -220,6 +223,7 @@ function serializeSlideElements(
     }
     if (element.kind === 'table') return serializeTableFrameXml(element, shapeId, relationshipFor)
     if (element.kind === 'image') return serializePictureXml(element, relationshipFor(element.assetId), shapeId)
+    if (element.kind === 'chart') throw new Error(`PPTX generation does not support charts yet: ${element.id}`)
     throw new Error(`PPTX generation unsupported element kind: ${unmodeledKind(element)}`)
   }
   const serializedElements = slideTree(document, slideId).map(serializeNode)

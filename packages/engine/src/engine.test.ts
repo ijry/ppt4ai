@@ -1249,3 +1249,119 @@ describe('EditorEngine', () => {
     expect(engine.dispatch({ type: 'setThemeColor', themeId: 'thm_1', slot: 'accent1', color: { type: 'srgb', v: 'FF0000' } }).history.undoDepth).toBe(0)
   })
 })
+
+describe('deleteElements', () => {
+  it('removes a top-level element and clears it from selection', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a'] })
+
+    const state = engine.dispatch({ type: 'deleteElements', elementIds: ['el_a'] })
+
+    expect(state.document.elements.el_a).toBeUndefined()
+    expect(state.document.slides.sld_1!.elementIds).toEqual(['el_b'])
+    expect(state.selection).toEqual([])
+    expect(state.history.undoDepth).toBe(1)
+  })
+
+  it('deletes a group and its whole subtree', () => {
+    const engine = new EditorEngine(makeNestedGroupDocument())
+
+    const state = engine.dispatch({ type: 'deleteElements', elementIds: ['grp_outer'] })
+
+    expect(Object.keys(state.document.elements)).toEqual([])
+    expect(state.document.slides.sld_1!.elementIds).toEqual([])
+  })
+
+  it('ignores ids that are not top-level slide elements', () => {
+    const engine = new EditorEngine(makeNestedGroupDocument())
+
+    // el_b is a group child, not a top-level element — deleting it directly is a no-op.
+    const state = engine.dispatch({ type: 'deleteElements', elementIds: ['el_b'] })
+
+    expect(state.document.elements.el_b).toBeDefined()
+    expect(state.history.undoDepth).toBe(0)
+  })
+
+  it('undoes a deletion', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'deleteElements', elementIds: ['el_a'] })
+
+    const state = engine.dispatch({ type: 'undo' })
+
+    expect(state.document.elements.el_a).toBeDefined()
+    expect(state.document.slides.sld_1!.elementIds).toEqual(['el_a', 'el_b'])
+  })
+})
+
+describe('alignElements', () => {
+  it('aligns a single element to the slide left edge', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a'] })
+
+    const state = engine.dispatch({ type: 'alignElements', edge: 'left', relativeTo: 'slide' })
+
+    expect(state.document.elements.el_a!.bounds.x).toBe(0)
+    expect(state.history.undoDepth).toBe(1)
+  })
+
+  it('centers a single element horizontally on the slide', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a'] })
+
+    // page.w 10000000, element w 1000000 -> x = (10000000 - 1000000) / 2
+    const state = engine.dispatch({ type: 'alignElements', edge: 'centerX', relativeTo: 'slide' })
+
+    expect(state.document.elements.el_a!.bounds.x).toBe(4500000)
+  })
+
+  it('aligns multiple elements to the selection left edge', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a', 'el_b'] })
+
+    const state = engine.dispatch({ type: 'alignElements', edge: 'left', relativeTo: 'selection' })
+
+    // union left = min(1000000, 4000000) = 1000000
+    expect(state.document.elements.el_a!.bounds.x).toBe(1000000)
+    expect(state.document.elements.el_b!.bounds.x).toBe(1000000)
+  })
+
+  it('does not align to selection with fewer than two elements', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a'] })
+
+    const state = engine.dispatch({ type: 'alignElements', edge: 'left', relativeTo: 'selection' })
+
+    expect(state.document.elements.el_a!.bounds.x).toBe(1000000)
+    expect(state.history.undoDepth).toBe(0)
+  })
+})
+
+describe('distributeElements', () => {
+  function makeThree(): Ppt4aiDocument {
+    const document = makeDocument()
+    document.elements.el_c = { id: 'el_c', kind: 'shape', preset: 'rect', bounds: { x: 8000000, y: 1000000, w: 1000000, h: 1000000 } }
+    document.slides.sld_1!.elementIds = ['el_a', 'el_b', 'el_c']
+    return document
+  }
+
+  it('evenly spaces the middle element horizontally, keeping the ends fixed', () => {
+    const engine = new EditorEngine(makeThree())
+    engine.dispatch({ type: 'select', elementIds: ['el_a', 'el_b', 'el_c'] })
+
+    // centres: el_a 1500000, el_c 8500000 -> step 3500000 -> el_b centre 5000000 -> x 4500000
+    const state = engine.dispatch({ type: 'distributeElements', axis: 'horizontal' })
+
+    expect(state.document.elements.el_b!.bounds.x).toBe(4500000)
+    expect(state.document.elements.el_a!.bounds.x).toBe(1000000)
+    expect(state.document.elements.el_c!.bounds.x).toBe(8000000)
+  })
+
+  it('does nothing with fewer than three elements', () => {
+    const engine = new EditorEngine(makeDocument())
+    engine.dispatch({ type: 'select', elementIds: ['el_a', 'el_b'] })
+
+    const state = engine.dispatch({ type: 'distributeElements', axis: 'horizontal' })
+
+    expect(state.history.undoDepth).toBe(0)
+  })
+})

@@ -1,6 +1,7 @@
 export {
   documentToSceneGraph,
   type SceneGraph,
+  type SceneChartNode,
   type SceneImageNode,
   type SceneNode,
   type ScenePictureFill,

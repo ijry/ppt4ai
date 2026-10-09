@@ -1,4 +1,5 @@
 import { boundsCentre, cascadeTransform, createCustomPath, createPresetPath, mapChildSpace, type GroupTransform, type PathCommand } from '@ppt4ai/geometry'
+import { layoutChart, type ChartPrimitives, type ChartSpec } from '@ppt4ai/charts'
 import { layoutTable, type TableLayout, type TableLayoutCell } from '@ppt4ai/layout'
 import { mergeColorMaps, resolveColor, resolveInheritedElement, resolveSlideBackground, resolveSlideBackgroundPattern, resolveStyleFill, resolveStyleFillGradient, resolveStyleFillPattern, resolveStyleEffect, resolveStyleFontColor, resolveStyleFontFamily, resolveStyleLine, resolveStyleLineGradient, resolveStyleLinePattern, resolveStyleLineStroke, resolveTableCellStyle, resolveThemeFontFamily, type AssetMetadata, type ColorMap, type CustomGeometry, type DashSegment, type Element, type ElementTransform, type Fill, type ImageCrop, type ImageEffect, type LevelDefaults, type OuterShadow, type Ppt4aiDocument, type PictureFill, type PictureStretch, type PictureTile, type PresetGeometry, type Rect, type ResolvedColor, type ResolvedGradient, type ResolvedPattern, type ResolvedShadow, type ResolvedTableCellStyle, type ShapeStyleReference, type SlideLayout, type SlideMaster, type StrokeAlign, type StrokeCap, type StrokeCompound, type StrokeJoin, type StrokeStyle, type TableCellBorders, type TableStyleText, type TextBody, type TextMarks, type Theme } from '@ppt4ai/model'
 import { layoutText, normalizeTextElement, type TextLayout, type TextLayoutLine, type TextLayoutMarker, type TextLayoutRun } from '@ppt4ai/text'
@@ -159,6 +160,21 @@ export interface SceneImageNode {
   effects?: ImageEffect[]
 }
 
+/**
+ * A chart's frame. Phase 0 carries only geometry — the painter draws a placeholder box rather than the
+ * chart, and the chart part itself is preserved verbatim through import/export. Phase 1 will add the
+ * resolved series/type this node needs to draw the real chart.
+ */
+export interface SceneChartNode {
+  id: string
+  kind: 'chart'
+  bounds: Rect
+  transform?: ElementTransform
+  /** Laid-out chart geometry (EMU, in the node's box). Absent when the type/data cannot be drawn yet,
+   *  in which case the painter falls back to the placeholder. */
+  primitives?: ChartPrimitives
+}
+
 export interface SceneTableLayoutCell extends TableLayoutCell {
   textLayout: SceneTextLayout
   /** `a:tcPr/a:blipFill`, with metadata inlined so painting can decode it like any other picture. */
@@ -175,7 +191,7 @@ export interface SceneTableLayout extends Omit<TableLayout, 'cells'> {
   cells: SceneTableLayoutCell[]
 }
 
-export type SceneNode = SceneShapeNode | SceneTextNode | SceneTableNode | SceneImageNode
+export type SceneNode = SceneShapeNode | SceneTextNode | SceneTableNode | SceneImageNode | SceneChartNode
 
 export interface SceneResolvedTableTextStyle extends Omit<TableStyleText, 'color'> {
   color?: ResolvedColor
@@ -686,6 +702,43 @@ function cascadeElement(element: Element, ancestors: readonly GroupTransform[], 
   return flipped
 }
 
+/** Default categorical palette for series with no explicit colour (Office-like, brand-neutral). */
+const CHART_PALETTE = ['#4472C4', '#ED7D31', '#A5A5A5', '#FFC000', '#5B9BD5', '#70AD47']
+
+function chartPrimitives(element: Extract<Element, { kind: 'chart' }>, context: SceneThemeContext): ChartPrimitives | undefined {
+  if (!element.chartType || element.chartType === 'unknown' || !element.series || element.series.length === 0) return undefined
+  const spec: ChartSpec = {
+    type: element.chartType,
+    categories: element.categories ?? [],
+    series: element.series.map((entry, index) => {
+      const resolved = entry.color ? resolveColor(entry.color, context.theme, context.colorMap) : undefined
+      return {
+        ...(entry.name ? { name: entry.name } : {}),
+        values: entry.values,
+        color: resolved ? `#${resolved.rgb}` : CHART_PALETTE[index % CHART_PALETTE.length]!,
+      }
+    }),
+    palette: CHART_PALETTE,
+  }
+  const primitives = layoutChart(spec, element.bounds)
+  // The kernel returns empty for types it does not lay out yet (e.g. horizontal bar), which read as a placeholder.
+  const drawable = primitives.bars.length > 0 || (primitives.polylines?.length ?? 0) > 0
+    || (primitives.areas?.length ?? 0) > 0 || (primitives.sectors?.length ?? 0) > 0 || primitives.axes.length > 0
+  return drawable ? primitives : undefined
+}
+
+function createChartNode(element: Extract<Element, { kind: 'chart' }>, context: SceneThemeContext): SceneChartNode {
+  const transform = elementTransform(element)
+  const primitives = chartPrimitives(element, context)
+  return {
+    id: element.id,
+    kind: 'chart',
+    bounds: structuredClone(element.bounds),
+    ...(transform ? { transform } : {}),
+    ...(primitives ? { primitives } : {}),
+  }
+}
+
 function createNode(
   element: Element,
   context: SceneThemeContext,
@@ -703,6 +756,8 @@ function createNode(
       return createTableNode(element, context, tableStyles, assets)
     case 'image':
       return createImageNode(element, assets)
+    case 'chart':
+      return createChartNode(element, context)
     case 'group':
       return undefined
     default:

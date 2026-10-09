@@ -1,6 +1,6 @@
 import type { EngineState, ImageFlipAxis, SnapOptions } from '@ppt4ai/engine'
 import { documentToSceneGraph, type SceneGraph } from '@ppt4ai/render'
-import type { AssetAdapter, AssetMetadata, Color, Element, Fill, Ppt4aiDocument, Rect, SlideBackground, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
+import type { AssetAdapter, AssetMetadata, ChartSeries, ChartType, Color, Element, Fill, Ppt4aiDocument, PresetGeometry, Rect, SlideBackground, StrokeStyle, TableBorder, TextBody, ThemeColorSlot, ThemeFontScript, ThemeFontSlot } from '@ppt4ai/model'
 import { createPlaygroundAssetHost, type PlaygroundAssetHost, type PlaygroundAssetHostSnapshot } from './asset-host'
 import type { PlaygroundImageUploadInput } from './image-file-upload'
 
@@ -43,6 +43,16 @@ export interface PlaygroundPresentationHost {
   moveSlide(slideId: string, direction: 'up' | 'down'): PlaygroundPresentationSnapshot
   selectElements(elementIds: string[]): PlaygroundPresentationSnapshot
   selectElement(elementId: string | undefined): PlaygroundPresentationSnapshot
+  insertText(): PlaygroundPresentationSnapshot
+  insertShape(preset: PresetGeometry): PlaygroundPresentationSnapshot
+  duplicateSelected(): PlaygroundPresentationSnapshot
+  deleteSelected(): PlaygroundPresentationSnapshot
+  alignSelected(edge: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom', relativeTo: 'slide' | 'selection'): PlaygroundPresentationSnapshot
+  distributeSelected(axis: 'horizontal' | 'vertical'): PlaygroundPresentationSnapshot
+  bringToFront(): PlaygroundPresentationSnapshot
+  sendToBack(): PlaygroundPresentationSnapshot
+  bringForward(): PlaygroundPresentationSnapshot
+  sendBackward(): PlaygroundPresentationSnapshot
   moveSelected(elementId: string, dx: number, dy: number): PlaygroundPresentationSnapshot
   groupSelected(): PlaygroundPresentationSnapshot
   ungroupSelected(groupId: string): PlaygroundPresentationSnapshot
@@ -55,6 +65,8 @@ export interface PlaygroundPresentationHost {
   toggleSelectedElementFlip(elementId: string, axis: ImageFlipAxis): PlaygroundPresentationSnapshot
   flipSelection(axis: ImageFlipAxis): PlaygroundPresentationSnapshot
   updateTextElement(elementId: string, body: TextBody): PlaygroundPresentationSnapshot
+  setChartData(elementId: string, categories: string[], series: ChartSeries[]): PlaygroundPresentationSnapshot
+  setChartType(elementId: string, chartType: ChartType): PlaygroundPresentationSnapshot
   selectTableCell(elementId: string, row: number, column: number, extend?: boolean): PlaygroundPresentationSnapshot
   setTableCellText(elementId: string, row: number, column: number, body: TextBody): PlaygroundPresentationSnapshot
   setTableCellFill(fill: Fill | null): PlaygroundPresentationSnapshot
@@ -188,6 +200,7 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
   let clipboard: PlaygroundClipboardPayload | undefined
   let pasteElementSequence = 1
   let pasteAssetSequence = 1
+  let duplicateElementSequence = 1
 
   const activeHost = (): PlaygroundAssetHost => pageHosts.get(activeSlideId)!
   const recordStructuralChange = (beforeOrder: string[], beforeActiveSlideId: string): void => {
@@ -462,6 +475,59 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     moveSelected(elementId, dx, dy) {
       return forward((host) => host.moveSelected(elementId, dx, dy))
     },
+    insertText() {
+      return forward((host) => host.insertText())
+    },
+    insertShape(preset) {
+      return forward((host) => host.insertShape(preset))
+    },
+    duplicateSelected() {
+      const state = activeHost().getSnapshot().engineState
+      const rootElementIds = clipboardRoots(state.document, state.selection)
+      if (rootElementIds.length === 0) {
+        status = { kind: 'error', message: 'element-operation-failed' }
+        return snapshot()
+      }
+      const elements = clipboardElements(state.document, rootElementIds)
+      const idMap = new Map<string, string>()
+      const taken = new Set<string>()
+      const nextId = (): string => {
+        let id = `element_dup_${duplicateElementSequence}`
+        duplicateElementSequence += 1
+        while (state.document.elements[id] || taken.has(id)) {
+          id = `element_dup_${duplicateElementSequence}`
+          duplicateElementSequence += 1
+        }
+        taken.add(id)
+        return id
+      }
+      for (const element of elements) idMap.set(element.id, nextId())
+      const offset = 200000 // nudge the copy so it does not sit exactly on the original
+      const cloned = elements.map((element) => {
+        const next = structuredClone(element)
+        next.id = idMap.get(element.id)!
+        next.bounds = { ...next.bounds, x: next.bounds.x + offset, y: next.bounds.y + offset }
+        if (next.kind === 'group') next.childIds = next.childIds.map((childId) => idMap.get(childId) ?? childId)
+        return next
+      })
+      const newRoots = rootElementIds.map((id) => idMap.get(id)!)
+      const result = activeHost().insertElements(newRoots, cloned, [])
+      status = result.status
+      return snapshot()
+    },
+    deleteSelected() {
+      return forward((host) => host.deleteSelected())
+    },
+    alignSelected(edge, relativeTo) {
+      return forward((host) => host.alignSelected(edge, relativeTo))
+    },
+    distributeSelected(axis) {
+      return forward((host) => host.distributeSelected(axis))
+    },
+    bringToFront() { return forward((host) => host.zOrder('front')) },
+    sendToBack() { return forward((host) => host.zOrder('back')) },
+    bringForward() { return forward((host) => host.zOrder('forward')) },
+    sendBackward() { return forward((host) => host.zOrder('backward')) },
     groupSelected() {
       return forward((host) => host.groupSelected())
     },
@@ -494,6 +560,12 @@ export function createPlaygroundPresentationHost(): PlaygroundPresentationHost {
     },
     updateTextElement(elementId, body) {
       return forward((host) => host.updateTextElement(elementId, body))
+    },
+    setChartData(elementId, categories, series) {
+      return forward((host) => host.setChartData(elementId, categories, series))
+    },
+    setChartType(elementId, chartType) {
+      return forward((host) => host.setChartType(elementId, chartType))
     },
     selectTableCell(elementId, row, column, extend) {
       return forward((host) => host.selectTableCell(elementId, row, column, extend))

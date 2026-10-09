@@ -1,0 +1,91 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { PptEditor, type TableCellSelection } from '@ppt4ai/editor'
+import type { Fill, StrokeStyle, TableBorder, TextBody } from '@ppt4ai/model'
+import { stageBindings } from '../editor/stage-bindings'
+import type { PlaygroundPresentationHost, PlaygroundPresentationSnapshot } from '../presentation-host'
+
+const props = defineProps<{ snapshot: PlaygroundPresentationSnapshot; host: PlaygroundPresentationHost; zoom: number }>()
+const emit = defineEmits<{ update: [PlaygroundPresentationSnapshot] }>()
+
+// Right-click context menu, acting on the current selection.
+const menu = ref<{ x: number; y: number }>()
+const hasSelection = computed(() => props.snapshot.slides[props.snapshot.activeSlideId]!.engineState.selection.length > 0)
+function openMenu(event: MouseEvent): void {
+  if (!hasSelection.value) { menu.value = undefined; return }
+  menu.value = { x: event.clientX, y: event.clientY }
+}
+function closeMenu(): void { menu.value = undefined }
+function run(op: () => PlaygroundPresentationSnapshot): void { emit('update', op()); closeMenu() }
+function onDocPointer(event: PointerEvent): void {
+  if (menu.value && !(event.target as HTMLElement)?.closest?.('[data-context-menu]')) closeMenu()
+}
+function onKey(event: KeyboardEvent): void { if (event.key === 'Escape') closeMenu() }
+onMounted(() => { document.addEventListener('pointerdown', onDocPointer); document.addEventListener('keydown', onKey) })
+onBeforeUnmount(() => { document.removeEventListener('pointerdown', onDocPointer); document.removeEventListener('keydown', onKey) })
+
+const b = computed(() => stageBindings(props.snapshot))
+const tableCellSelection = computed(() => {
+  const s = props.snapshot.slides[props.snapshot.activeSlideId]!.engineState.tableCellSelection
+  return s ? { elementId: s.elementId, row: s.row, column: s.column } : undefined
+})
+
+function selectElements(p: { elementIds: string[] }): void { emit('update', props.host.selectElements(p.elementIds)) }
+function groupSelected(): void { emit('update', props.host.groupSelected()) }
+function ungroupSelected(p: { groupId: string }): void { emit('update', props.host.ungroupSelected(p.groupId)) }
+function resizeSelected(p: { elementIds: string[]; bounds: { x: number; y: number; w: number; h: number } }): void { emit('update', props.host.resizeSelected(p.elementIds, p.bounds)) }
+function moveElement(p: { nodeId: string; dx: number; dy: number }): void { if (p.dx === 0 && p.dy === 0) return; emit('update', props.host.moveSelected(p.nodeId, p.dx, p.dy)) }
+function resizeElement(p: { elementId: string; bounds: { x: number; y: number; w: number; h: number } }): void { emit('update', props.host.resizeElement(p.elementId, p.bounds)) }
+function rotateImage(p: { elementId: string; rotation: number }): void { emit('update', props.host.rotateSelectedImage(p.elementId, p.rotation)) }
+function rotateElement(p: { elementId: string; rotation: number }): void { emit('update', props.host.rotateSelectedElement(p.elementId, p.rotation)) }
+function rotateSelection(p: { rotation: number }): void { emit('update', props.host.rotateSelection(p.rotation)) }
+function flipImage(p: { elementId: string; axis: 'horizontal' | 'vertical' }): void { emit('update', props.host.toggleSelectedImageFlip(p.elementId, p.axis)) }
+function flipElement(p: { elementId: string; axis: 'horizontal' | 'vertical' }): void { emit('update', props.host.toggleSelectedElementFlip(p.elementId, p.axis)) }
+function flipSelection(p: { axis: 'horizontal' | 'vertical' }): void { emit('update', props.host.flipSelection(p.axis)) }
+function updateTextElement(p: { elementId: string; body: TextBody }): void { emit('update', props.host.updateTextElement(p.elementId, p.body)) }
+function setShapeFill(fill: Fill | null): void { emit('update', props.host.setSelectedFill(fill)) }
+function setShapeStroke(stroke: Fill | null): void { emit('update', props.host.setSelectedStroke(stroke)) }
+function setShapeStrokeWidth(width: number | null): void { emit('update', props.host.setSelectedStrokeWidth(width)) }
+function setShapeStrokeStyle(style: StrokeStyle | null): void { emit('update', props.host.setSelectedStrokeStyle(style)) }
+function selectTableCell(p: { elementId: string; selection: TableCellSelection }): void {
+  const extend = p.selection.anchor.row !== p.selection.focus.row || p.selection.anchor.column !== p.selection.focus.column
+  emit('update', props.host.selectTableCell(p.elementId, p.selection.focus.row, p.selection.focus.column, extend))
+}
+function setTableCellFill(fill: Fill | null): void { emit('update', props.host.setTableCellFill(fill)) }
+function setTableCellBorders(borders: Partial<Record<'left' | 'right' | 'top' | 'bottom', TableBorder | null>>): void { emit('update', props.host.setTableCellBorders(borders)) }
+function setTableCellText(p: { elementId: string; point: { row: number; column: number }; body: TextBody }): void { emit('update', props.host.setTableCellText(p.elementId, p.point.row, p.point.column, p.body)) }
+</script>
+<template>
+  <div data-region="stage" class="flex items-start justify-center overflow-auto bg-gradient-to-b from-surface-2 to-bg p-10" @contextmenu.prevent="openMenu">
+    <div class="overflow-hidden rounded-xl bg-white shadow-slide ring-1 ring-black/5">
+      <PptEditor
+      :scene="b.scene" :adapter="props.host.adapter" :snap-options="props.host.snapOptions"
+      :selected-element-id="b.selectedElementId" :selected-element-ids="b.selectedElementIds"
+      :table-cell-selection="tableCellSelection" :text-bodies="b.textBodies"
+      :zoom="props.zoom" :show-object-toolbar="false"
+      @selection-change="selectElements" @group="groupSelected" @ungroup="ungroupSelected"
+      @resize-selection="resizeSelected" @move-end="moveElement" @resize="resizeElement"
+      @rotate-image="rotateImage" @rotate-element="rotateElement" @rotate-selection="rotateSelection"
+      @flip-image="flipImage" @flip-element="flipElement" @flip-selection="flipSelection"
+      @text-edit="updateTextElement" @set-fill="setShapeFill" @set-stroke="setShapeStroke"
+      @set-stroke-width="setShapeStrokeWidth" @set-stroke-style="setShapeStrokeStyle"
+      @select-table-cell="selectTableCell" @set-table-cell-fill="setTableCellFill"
+      @set-table-cell-borders="setTableCellBorders" @table-cell-text="setTableCellText"
+      />
+    </div>
+    <div
+      v-if="menu"
+      data-context-menu
+      class="fixed z-50 min-w-36 rounded-lg border border-border bg-surface py-1 text-sm shadow-pop"
+      :style="{ left: `${menu.x}px`, top: `${menu.y}px` }"
+    >
+      <button type="button" class="block w-full px-3 py-1.5 text-left hover:bg-surface-2" data-ctx="duplicate" @click="run(() => props.host.duplicateSelected())">再制</button>
+      <button type="button" class="block w-full px-3 py-1.5 text-left text-danger hover:bg-danger-soft" data-ctx="delete" @click="run(() => props.host.deleteSelected())">删除</button>
+      <div class="my-1 border-t border-border" />
+      <button type="button" class="block w-full px-3 py-1.5 text-left hover:bg-surface-2" @click="run(() => props.host.bringToFront())">置于顶层</button>
+      <button type="button" class="block w-full px-3 py-1.5 text-left hover:bg-surface-2" @click="run(() => props.host.bringForward())">上移一层</button>
+      <button type="button" class="block w-full px-3 py-1.5 text-left hover:bg-surface-2" @click="run(() => props.host.sendBackward())">下移一层</button>
+      <button type="button" class="block w-full px-3 py-1.5 text-left hover:bg-surface-2" @click="run(() => props.host.sendToBack())">置于底层</button>
+    </div>
+  </div>
+</template>

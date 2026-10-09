@@ -5,6 +5,7 @@ import type { SceneGraph, SceneImageNode, SceneNode } from '@ppt4ai/render'
 import { paintPatternFill, paintPictureFill, paintShapeNode } from './shape-painting'
 import { paintTableNode } from './table-painting'
 import { paintTextNode } from './text-painting'
+import { paintChartNode } from './chart-painting'
 import { createImageNodeLoader, type DecodedImage, type ImageDecoder, type ImageLoadOutcome } from './image-canvas-renderer'
 import { paintImageNode } from './image-painting'
 
@@ -73,6 +74,7 @@ function drawNode(
   if (node.kind === 'shape') paintShapeNode(context, node, mapping, picture)
   else if (node.kind === 'text') paintTextNode(context, node, mapping, picture)
   else if (node.kind === 'table') paintTableNode(context, node, mapping, cellPictures)
+  else if (node.kind === 'chart') paintChartNode(context, node, mapping)
   else throw new Error('image nodes require decoded image data')
 }
 

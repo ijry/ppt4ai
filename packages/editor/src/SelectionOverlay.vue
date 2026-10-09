@@ -76,7 +76,7 @@ function emitRotatePointer(eventName: 'rotate-start' | 'rotate' | 'rotate-end' |
 </script>
 
 <template>
-  <div v-if="props.active" class="ppt-selection-overlay pointer-events-none absolute" data-selection-overlay>
+  <div v-if="props.active" class="ppt-selection-overlay pointer-events-none absolute left-0 top-0" data-selection-overlay>
     <div
       class="pointer-events-none absolute border-2 border-blue-500"
       data-selection-border

@@ -1,5 +1,5 @@
 import { boundsCentre, cascadeTransform, mapChildSpace, rotatePointAround, type GeometryPoint, type GroupTransform } from '@ppt4ai/geometry'
-import { validateDocument, validateTextBody, type AssetMetadata, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type SlideBackground, type StrokeStyle, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot, type ThemeFonts, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
+import { validateDocument, validateTextBody, type AssetMetadata, type ChartSeries, type ChartType, type Color, type Element, type ElementTransform, type Fill, type ImageElement, type Ppt4aiDocument, type Rect, type SlideBackground, type StrokeStyle, type TableBorder, type TableCell, type TableCellBorders, type TableElement, type TableRow, type TextBody, type ThemeColorSlot, type ThemeFonts, type ThemeFontScript, type ThemeFontSlot } from '@ppt4ai/model'
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -77,6 +77,8 @@ export type EngineCommand =
   | { type: 'selectTableCell'; elementId: string; row: number; column: number; extend?: boolean }
   | { type: 'setTableCellText'; body: TextBody }
   | { type: 'setTextBody'; elementId: string; body: TextBody }
+  | { type: 'setChartData'; elementId: string; categories: string[]; series: ChartSeries[] }
+  | { type: 'setChartType'; elementId: string; chartType: ChartType }
   | { type: 'setTableCellFill'; fill: Fill | null }
   | { type: 'setTableCellBorders'; borders: Partial<Record<TableBorderSide, TableBorder | null>> }
   | { type: 'setSlideBackground'; slideId: string; background: SlideBackground | null }
@@ -102,6 +104,9 @@ export type EngineCommand =
   | { type: 'zOrder'; action: 'front' | 'back' | 'forward' | 'backward' }
   | { type: 'group' }
   | { type: 'ungroup'; groupId: string }
+  | { type: 'deleteElements'; elementIds: string[] }
+  | { type: 'alignElements'; edge: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom'; relativeTo: 'slide' | 'selection' }
+  | { type: 'distributeElements'; axis: 'horizontal' | 'vertical' }
 
 interface HistoryEntry {
   patch: Patch
@@ -729,6 +734,14 @@ export class EditorEngine {
         this.setTextBody(command.elementId, command.body)
         break
       }
+      case 'setChartData': {
+        this.setChartData(command.elementId, command.categories, command.series)
+        break
+      }
+      case 'setChartType': {
+        this.setChartType(command.elementId, command.chartType)
+        break
+      }
       case 'setTableCellFill': {
         this.setTableCellFill(command.fill)
         break
@@ -821,6 +834,15 @@ export class EditorEngine {
       case 'ungroup':
         this.ungroup(command.groupId)
         break
+      case 'deleteElements':
+        this.deleteElements(command.elementIds)
+        break
+      case 'alignElements':
+        this.alignElements(command.edge, command.relativeTo)
+        break
+      case 'distributeElements':
+        this.distributeElements(command.axis)
+        break
     }
     return this.getState()
   }
@@ -865,6 +887,38 @@ export class EditorEngine {
     const validation = validateTextBody(body)
     if (!validation.valid) throw new Error(`text body is invalid: ${validation.errors.join('; ')}`)
     this.commit([{ path: ['elements', elementId, 'body'], value: body }])
+  }
+
+  /** Replace a chart's read-only data reflection (categories + series). Phase 2: the render updates from
+   * this; the writeback that pushes it back into the chart part's cache is a separate path. */
+  private setChartData(elementId: string, categories: string[], series: ChartSeries[]): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`element does not exist: ${elementId}`)
+    if (element.kind !== 'chart') throw new Error(`element is not a chart: ${elementId}`)
+    const nextDocument = clone(this.document)
+    const next = nextDocument.elements[elementId]!
+    if (next.kind !== 'chart') throw new Error(`element is not a chart: ${elementId}`)
+    next.categories = categories
+    next.series = series
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`chart data is invalid: ${elementId}: ${validation.errors.join('; ')}`)
+    this.commit([
+      { path: ['elements', elementId, 'categories'], value: categories },
+      { path: ['elements', elementId, 'series'], value: series },
+    ])
+  }
+
+  private setChartType(elementId: string, chartType: ChartType): void {
+    const element = this.document.elements[elementId]
+    if (!element) throw new Error(`element does not exist: ${elementId}`)
+    if (element.kind !== 'chart') throw new Error(`element is not a chart: ${elementId}`)
+    const nextDocument = clone(this.document)
+    const next = nextDocument.elements[elementId]!
+    if (next.kind !== 'chart') throw new Error(`element is not a chart: ${elementId}`)
+    next.chartType = chartType
+    const validation = validateDocument(nextDocument)
+    if (!validation.valid) throw new Error(`chart type is invalid: ${elementId}: ${validation.errors.join('; ')}`)
+    this.commit([{ path: ['elements', elementId, 'chartType'], value: chartType }])
   }
 
   private selectedTableSourceCells(): { elementId: string; table: TableElement; sources: TableSourceCell[] } | undefined {
@@ -1302,6 +1356,103 @@ export class EditorEngine {
       { path: ['elements', groupId], value: undefined },
     ])
     this.selection = [...group.childIds]
+  }
+
+  /**
+   * Delete top-level slide elements (and, for a group, its whole subtree). Only ids that are direct
+   * members of the active slide's `elementIds` are removed, so no group is ever left referencing a
+   * missing child. Deleted ids are dropped from the selection. Ids that are not top-level are ignored.
+   */
+  private deleteElements(elementIds: string[]): void {
+    const slide = this.activeSlide()
+    if (!slide) return
+    const topLevel = new Set(slide.elementIds)
+    const remove = new Set<string>()
+    const collect = (id: string): void => {
+      if (remove.has(id)) return
+      const element = this.document.elements[id]
+      if (!element) return
+      remove.add(id)
+      if (element.kind === 'group') for (const childId of element.childIds) collect(childId)
+    }
+    for (const id of elementIds) if (topLevel.has(id)) collect(id)
+    if (remove.size === 0) return
+
+    const nextElementIds = slide.elementIds.filter((id) => !remove.has(id))
+    const changes: Array<{ path: string[]; value: unknown }> = [
+      { path: ['slides', slide.id, 'elementIds'], value: nextElementIds },
+    ]
+    for (const id of remove) changes.push({ path: ['elements', id], value: undefined })
+    this.commit(changes)
+    this.selection = this.selection.filter((id) => !remove.has(id))
+    this.tableCellSelection = undefined
+  }
+
+  /**
+   * Align the selected top-level elements to a reference box. `slide` uses the page rectangle; `selection`
+   * uses the union bounds of the selected elements (and needs at least two). Only x or y changes — sizes
+   * are untouched — so the result is always valid.
+   */
+  private alignElements(edge: 'left' | 'centerX' | 'right' | 'top' | 'centerY' | 'bottom', relativeTo: 'slide' | 'selection'): void {
+    const slide = this.activeSlide()
+    if (!slide) return
+    const ids = this.selection.filter((id) => slide.elementIds.includes(id) && this.document.elements[id])
+    if (ids.length === 0) return
+    const rects = ids.map((id) => this.document.elements[id]!.bounds)
+    let ref: Rect
+    if (relativeTo === 'slide') {
+      ref = { x: 0, y: 0, w: this.document.page.w, h: this.document.page.h }
+    } else {
+      if (ids.length < 2) return
+      const minX = Math.min(...rects.map((r) => r.x))
+      const minY = Math.min(...rects.map((r) => r.y))
+      const maxX = Math.max(...rects.map((r) => r.x + r.w))
+      const maxY = Math.max(...rects.map((r) => r.y + r.h))
+      ref = { x: minX, y: minY, w: maxX - minX, h: maxY - minY }
+    }
+    const changes = ids.map((id) => {
+      const b = this.document.elements[id]!.bounds
+      const next = { ...b }
+      if (edge === 'left') next.x = ref.x
+      else if (edge === 'right') next.x = ref.x + ref.w - b.w
+      else if (edge === 'centerX') next.x = Math.round(ref.x + (ref.w - b.w) / 2)
+      else if (edge === 'top') next.y = ref.y
+      else if (edge === 'bottom') next.y = ref.y + ref.h - b.h
+      else next.y = Math.round(ref.y + (ref.h - b.h) / 2)
+      return { path: ['elements', id, 'bounds'], value: next }
+    })
+    this.commit(changes)
+  }
+
+  /**
+   * Evenly space three or more selected top-level elements along an axis: the outermost two (by centre)
+   * stay put and the rest are repositioned so their centres are equally spaced between them. Only the
+   * distributed axis changes.
+   */
+  private distributeElements(axis: 'horizontal' | 'vertical'): void {
+    const slide = this.activeSlide()
+    if (!slide) return
+    const ids = this.selection.filter((id) => slide.elementIds.includes(id) && this.document.elements[id])
+    if (ids.length < 3) return
+    const centre = (id: string): number => {
+      const b = this.document.elements[id]!.bounds
+      return axis === 'horizontal' ? b.x + b.w / 2 : b.y + b.h / 2
+    }
+    const ordered = [...ids].sort((a, b) => centre(a) - centre(b))
+    const first = centre(ordered[0]!)
+    const last = centre(ordered[ordered.length - 1]!)
+    const step = (last - first) / (ordered.length - 1)
+    const changes: Array<{ path: string[]; value: unknown }> = []
+    for (let i = 1; i < ordered.length - 1; i += 1) {
+      const id = ordered[i]!
+      const b = this.document.elements[id]!.bounds
+      const targetCentre = first + step * i
+      const next = axis === 'horizontal'
+        ? { ...b, x: Math.round(targetCentre - b.w / 2) }
+        : { ...b, y: Math.round(targetCentre - b.h / 2) }
+      changes.push({ path: ['elements', id, 'bounds'], value: next })
+    }
+    if (changes.length > 0) this.commit(changes)
   }
 
   /**

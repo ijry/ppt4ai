@@ -11,6 +11,7 @@ import {
   stableAssetId,
 } from './image-writeback.js'
 import { rewritePictureAppearance } from './image-appearance-writeback.js'
+import { patchChartCache } from './chart-writeback.js'
 import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } from './dependency-graph.js'
 import { decodeXml, descendants, attributeReplacements, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 import {
@@ -819,6 +820,12 @@ function isImportableTable(element: XmlElement): boolean {
     && rows.length > 0 && rows.every((row) => numericAttribute(row, 'h'))
 }
 
+// Mirror of the importer's parseChart: a graphicFrame is a chart when it has bounds and a `<c:chart>`.
+// The scan must keep the same frames the importer keeps, or the two `el_N` numberings drift.
+function isChartFrame(element: XmlElement): boolean {
+  return hasBounds(element) && firstDescendant(element, 'chart') !== undefined
+}
+
 function groupHasBounds(element: XmlElement): boolean {
   const properties = element.children.find((child) => child.localName === 'grpSpPr')
   const transform = properties?.children.find((child) => child.localName === 'xfrm')
@@ -871,7 +878,7 @@ function slideElements(xml: string, slideId: string, slidePath: string, relation
       if (expectedId && element.localName === 'sp' && (hasBounds(element) || isPlaceholder(element))) {
         const sourceBody = sourceTextBody(element)
         result.push({ element, expectedId, ...(sourceBody !== undefined ? { sourceBody } : {}) })
-      } else if (expectedId && element.localName === 'graphicFrame' && isImportableTable(element)) {
+      } else if (expectedId && element.localName === 'graphicFrame' && (isImportableTable(element) || isChartFrame(element))) {
         result.push({ element, expectedId })
       }
       if (expectedId && element.localName === 'pic') {
@@ -1600,6 +1607,12 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
       }
       continue
     }
+    if (element.kind === 'chart') {
+      // Phase 0: the chart part is preserved verbatim; only the frame's box and rotation/flip move here.
+      replacements.push(...boundsReplacements(xml, sourceElement, element.bounds))
+      replacements.push(...transformReplacements(xml, sourceElement, element))
+      continue
+    }
     if (element.kind !== 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
     const table = firstDescendant(sourceElement, 'tbl')
     if (!table) throw new Error(`PPTX export table source missing for element ${element.id}`)
@@ -1981,8 +1994,8 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       }
       if (sourceElement) {
         if (element.kind === 'image') throw new Error(`PPTX export element prefix mismatch for slide ${slideId}`)
-        if (sourceElement.localName === 'graphicFrame' && element.kind !== 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
-        if (sourceElement.localName !== 'graphicFrame' && element.kind === 'table') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
+        if (sourceElement.localName === 'graphicFrame' && element.kind !== 'table' && element.kind !== 'chart') throw new Error(`PPTX export table source mismatch for element ${element.id}`)
+        if (sourceElement.localName !== 'graphicFrame' && (element.kind === 'table' || element.kind === 'chart')) throw new Error(`PPTX export table source mismatch for element ${element.id}`)
         continue
       }
       if (element.kind !== 'image') throw new Error(`PPTX export only supports trailing image additions for slide ${slideId}`)
@@ -2009,6 +2022,20 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       ? rewriteSlideColorMapXml(materializedSlide, slide.colorMapOverride, slideId)
       : materializedSlide
     entry.data = encoder.encode(rewrittenSlide)
+    // Chart parts (Tier A): if a chart element's data changed, patch its part's cached values in place.
+    // The part is a separate, verbatim-retained entry — an unedited chart re-encodes to the same bytes.
+    const sourcePartPath = plan.source?.partPath ?? slidePath
+    for (const elementId of slide.elementIds) {
+      const chart = document.elements[elementId]
+      if (chart?.kind !== 'chart' || !chart.series) continue
+      const relationship = slideRelationships.find((candidate) => candidate.id === chart.chartRelId && candidate.type === 'chart')
+      if (!relationship) continue
+      const chartEntry = entriesByName.get(resolveTarget(sourcePartPath, relationship.target))
+      if (!chartEntry) continue
+      const sourceChartXml = decoder.decode(chartEntry.data)
+      const patchedChartXml = patchChartCache(sourceChartXml, chart.categories ?? [], chart.series)
+      if (patchedChartXml !== sourceChartXml) chartEntry.data = encoder.encode(patchedChartXml)
+    }
     if (newRelationships.length > 0) {
       const relationshipXml = relationshipEntry ? decoder.decode(relationshipEntry.data) : undefined
       const relationshipData = encoder.encode(appendRelationships(relationshipXml, newRelationships))

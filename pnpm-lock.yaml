@@ -53,6 +53,9 @@ importers:
       '@ppt4ai/text':
         specifier: workspace:*
         version: link:../../packages/text
+      lucide-vue-next:
+        specifier: 0.544.0
+        version: 0.544.0(vue@3.5.41(typescript@6.0.3))
       vue:
         specifier: 3.5.41
         version: 3.5.41(typescript@6.0.3)
@@ -87,6 +90,9 @@ importers:
 
   packages/editor:
     dependencies:
+      '@ppt4ai/charts':
+        specifier: workspace:*
+        version: link:../charts
       '@ppt4ai/engine':
         specifier: workspace:*
         version: link:../engine
@@ -187,6 +193,9 @@ importers:
 
   packages/render:
     dependencies:
+      '@ppt4ai/charts':
+        specifier: workspace:*
+        version: link:../charts
       '@ppt4ai/geometry':
         specifier: workspace:*
         version: link:../geometry
@@ -879,6 +888,12 @@ packages:
   lightningcss@1.33.0:
     resolution: {integrity: sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==}
     engines: {node: '>= 12.0.0'}
+
+  lucide-vue-next@0.544.0:
+    resolution: {integrity: sha512-mDp/AdGOPIDkpFHnFiTWgQgCST9aBXHVaiobZfOMIvv7nrOukzF/TP+7KoOwrngdWRaH9TMiepMBIX1vsgKJ3g==}
+    deprecated: Package deprecated. Please use @lucide/vue instead.
+    peerDependencies:
+      vue: '>=3.0.1'
 
   magic-regexp@0.10.0:
     resolution: {integrity: sha512-Uly1Bu4lO1hwHUW0CQeSWuRtzCMNO00CmXtS8N6fyvB3B979GOEEeAkiTUDsmbYLAbvpUS/Kt5c4ibosAzVyVg==}
@@ -1822,6 +1837,10 @@ snapshots:
       lightningcss-linux-x64-musl: 1.33.0
       lightningcss-win32-arm64-msvc: 1.33.0
       lightningcss-win32-x64-msvc: 1.33.0
+
+  lucide-vue-next@0.544.0(vue@3.5.41(typescript@6.0.3)):
+    dependencies:
+      vue: 3.5.41(typescript@6.0.3)
 
   magic-regexp@0.10.0:
     dependencies:

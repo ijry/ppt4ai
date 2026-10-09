@@ -1,6 +1,6 @@
 import type { SceneGraph } from '@ppt4ai/render'
 import { describe, expect, it } from 'vitest'
-import { hitTestScene, pointFromCanvasEvent } from './slide-canvas'
+import { hitTestScene, marqueeSelect, pointFromCanvasEvent } from './slide-canvas'
 
 function scene(): SceneGraph {
   return {
@@ -18,6 +18,24 @@ describe('slide canvas hit testing', () => {
     expect(hitTestScene(scene(), { x: 300, y: 300 })).toBe('top')
     expect(hitTestScene(scene(), { x: 100, y: 100 })).toBe('bottom')
     expect(hitTestScene(scene(), { x: 900, y: 900 })).toBeUndefined()
+  })
+
+  it('marquee selects every top-level element whose bounds intersect the rectangle', () => {
+    // bottom spans 100..600, top spans 250..750. A rect over 50..300 hits both; 700..800 hits only top.
+    expect(marqueeSelect(scene(), { x: 50, y: 50, w: 250, h: 250 }).sort()).toEqual(['bottom', 'top'])
+    expect(marqueeSelect(scene(), { x: 700, y: 700, w: 40, h: 40 })).toEqual(['top'])
+    expect(marqueeSelect(scene(), { x: 2000, y: 2000, w: 100, h: 100 })).toEqual([])
+  })
+
+  it('marquee selects the top-level group, not its grouped leaves', () => {
+    const grouped: SceneGraph = {
+      ...scene(),
+      nodes: [...scene().nodes, { id: 'leaf', kind: 'shape', bounds: { x: 120, y: 120, w: 80, h: 80 }, path: [] }],
+      groups: [{ id: 'grp', bounds: { x: 100, y: 100, w: 500, h: 500 }, childIds: ['leaf'], ancestorIds: [], paintOrder: 2 }],
+    }
+    const ids = marqueeSelect(grouped, { x: 0, y: 0, w: 10000, h: 10000 })
+    expect(ids).toContain('grp')
+    expect(ids).not.toContain('leaf')
   })
 
   it('converts client coordinates to EMU using the canvas rect and zoom', () => {

@@ -16,6 +16,7 @@
     "@ppt4ai/player": "workspace:*",
     "@ppt4ai/render": "workspace:*",
     "@ppt4ai/text": "workspace:*",
+    "lucide-vue-next": "0.544.0",
     "vue": "3.5.41",
     "vue-i18n": "11.2.8"
   },
