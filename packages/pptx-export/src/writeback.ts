@@ -1566,16 +1566,19 @@ function replaceSlideTables(document: Ppt4aiDocument, slideId: string, xml: stri
     ...backgroundReplacements(xml, slide.background, scanned.backgroundAssetId, bgPictureRelationshipId),
     ...timingReplacements(xml, document.animations?.[slideId], (elementId) => elementIdToSpid.get(elementId)),
   ]
+  // When a group is deleted its whole `grpSp` node goes, which already contains its descendants' nodes;
+  // their scan entries, which follow the group, must then be skipped rather than removed again.
+  const removedRanges: Array<{ start: number; end: number }> = []
   for (let index = 0; index < sourceElements.length; index += 1) {
     const source = sourceElements[index]
     if (!source) throw new Error(`PPTX export element mapping missing for slide ${slideId}`)
     const sourceElement = source.element
+    if (removedRanges.some((range) => sourceElement.start >= range.start && sourceElement.end <= range.end)) continue
     // Reuse pairs by id, so a deletion elsewhere does not shift the mapping. A source element whose el_N
-    // is gone from the model was deleted: drop its node. Groups (whose node spans a whole subtree) are a
-    // follow-up — removing one needs its child scan entries skipped too.
+    // is gone from the model was deleted: drop its node (a group drops its whole subtree with it).
     if (strictIdentity && !modelElementIds.has(source.expectedId)) {
-      if (source.group) throw new Error(`PPTX export group deletion is not yet supported for slide ${slideId}`)
       replacements.push({ start: sourceElement.start, end: sourceElement.end, value: '' })
+      if (source.group) removedRanges.push({ start: sourceElement.start, end: sourceElement.end })
       continue
     }
     const elementId = strictIdentity ? source.expectedId : slide.elementIds[index]

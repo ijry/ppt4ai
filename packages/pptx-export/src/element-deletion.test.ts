@@ -58,3 +58,37 @@ describe('element deletion writeback (reuse, leaf nodes)', () => {
     expect(await exportPptx(await importPptx(src), src)).toEqual(src)
   })
 })
+
+const groupSlide = '<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree>'
+  + '<p:grpSp><p:nvGrpSpPr><p:cNvPr id="10" name="Grp"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
+  + '<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="2000000" cy="2000000"/><a:chOff x="0" y="0"/><a:chExt cx="2000000" cy="2000000"/></a:xfrm></p:grpSpPr>'
+  + shape(11, 'Inner1', 0) + shape(12, 'Inner2', 500000)
+  + '</p:grpSp>'
+  + shape(3, 'Top', 4000000)
+  + '</p:spTree></p:cSld></p:sld>'
+function groupSource(): Uint8Array {
+  return writeStoredZip([
+    { name: 'ppt/presentation.xml', data: enc(presentation) },
+    { name: 'ppt/_rels/presentation.xml.rels', data: enc(presentationRels) },
+    { name: 'ppt/slides/slide1.xml', data: enc(groupSlide) },
+  ])
+}
+
+describe('element deletion writeback (reuse, group subtree)', () => {
+  it('removes a deleted group with its whole subtree, keeping siblings', async () => {
+    const src = groupSource()
+    const document = await importPptx(src)
+    const slideId = document.slideOrder[0]!
+    const group = Object.values(document.elements).find((element) => element.kind === 'group')
+    if (!group || group.kind !== 'group') throw new Error('fixture group did not import')
+    const removed = new Set([group.id, ...group.childIds])
+    for (const id of removed) delete document.elements[id]
+    document.slides[slideId]!.elementIds = document.slides[slideId]!.elementIds.filter((id) => !removed.has(id))
+
+    const slideXml = await slideXmlOf(await exportPptx(document, src))
+    expect(slideXml).not.toContain('name="Grp"') // group frame removed
+    expect(slideXml).not.toContain('name="Inner1"') // ...with its children
+    expect(slideXml).not.toContain('name="Inner2"')
+    expect(slideXml).toContain('name="Top"') // sibling kept
+  })
+})
