@@ -1,5 +1,6 @@
 import type { ChartSeries } from '@ppt4ai/model'
 import { escapeXml } from './text-xml.js'
+import { parseCellRange } from './workbook-writeback.js'
 import { decodeXml, descendants, replaceRanges, scanXml, type Replacement, type XmlElement } from './xml-range.js'
 
 const PLOT_TYPES = ['barChart', 'lineChart', 'areaChart', 'pieChart', 'doughnutChart']
@@ -56,4 +57,31 @@ export function patchChartCache(chartXml: string, categories: readonly string[],
     }
   })
   return replaceRanges(chartXml, replacements)
+}
+
+/**
+ * Map a chart's edited series values to the embedded-workbook cells that back them, grouped by sheet.
+ * Reads each series' `c:val/c:numRef/c:f` range (Tier B1: numeric values only); a series without a
+ * formula contributes nothing. The caller patches these cells so the workbook agrees with the cache.
+ */
+export function chartValueCellEdits(chartXml: string, series: readonly Pick<ChartSeries, 'values'>[]): Map<string, Map<string, number>> {
+  const edits = new Map<string, Map<string, number>>()
+  const plot = plotNode(scanXml(chartXml))
+  if (!plot) return edits
+  const serNodes = plot.children.filter((child) => child.localName === 'ser')
+  serNodes.forEach((ser, seriesIndex) => {
+    const modelValues = series[seriesIndex]?.values
+    const valNode = ser.children.find((child) => child.localName === 'val')
+    const formulaNode = valNode ? descendants([valNode], 'f')[0] : undefined
+    if (!modelValues || !formulaNode) return
+    const range = parseCellRange(decodeXml(formulaNode.text))
+    if (!range) return
+    const sheetEdits = edits.get(range.sheet) ?? new Map<string, number>()
+    range.cells.forEach((cell, index) => {
+      const value = modelValues[index]
+      if (value !== null && value !== undefined && Number.isFinite(value)) sheetEdits.set(cell, value)
+    })
+    if (sheetEdits.size > 0) edits.set(range.sheet, sheetEdits)
+  })
+  return edits
 }

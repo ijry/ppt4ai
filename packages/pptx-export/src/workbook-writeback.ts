@@ -1,4 +1,5 @@
 import { escapeXml } from './text-xml.js'
+import { readZipEntries, writeStoredZip, type ZipEntry } from './zip.js'
 import { decodeXml, descendants, replaceRanges, scanXml, type Replacement } from './xml-range.js'
 
 // Phase 2b (Tier B) pure helpers: map a chart series' `c:f` range to spreadsheet cells, and patch those
@@ -72,4 +73,52 @@ export function patchSheetCells(sheetXml: string, cellValues: ReadonlyMap<string
     }
   }
   return replaceRanges(sheetXml, replacements)
+}
+
+/** Map each worksheet's name to its part path inside the xlsx, via `xl/workbook.xml` + its rels. */
+function resolveSheetPaths(entries: readonly ZipEntry[]): Map<string, string> {
+  const result = new Map<string, string>()
+  const workbook = entries.find((entry) => entry.name === 'xl/workbook.xml')
+  const rels = entries.find((entry) => entry.name === 'xl/_rels/workbook.xml.rels')
+  if (!workbook || !rels) return result
+  const decoder = new TextDecoder()
+  const targetById = new Map<string, string>()
+  for (const relationship of descendants(scanXml(decoder.decode(rels.data)), 'Relationship')) {
+    const id = relationship.attributes.Id
+    const target = relationship.attributes.Target
+    if (id && target) targetById.set(id, target)
+  }
+  for (const sheet of descendants(scanXml(decoder.decode(workbook.data)), 'sheet')) {
+    const name = sheet.attributes.name
+    const relId = sheet.attributes['r:id']
+    const target = relId ? targetById.get(relId) : undefined
+    if (name && target) result.set(name, `xl/${target.replace(/^\//u, '')}`)
+  }
+  return result
+}
+
+/**
+ * Sync edited values into the embedded workbook (Tier B1). Reads the nested xlsx (DEFLATE inflated),
+ * patches the numeric cells named per sheet, and re-writes it (stored). Returns the original bytes
+ * unchanged when nothing changed, so an unedited chart's workbook entry stays byte-identical.
+ */
+export async function patchEmbeddedWorkbook(xlsxBytes: Uint8Array, editsBySheet: ReadonlyMap<string, ReadonlyMap<string, number>>): Promise<Uint8Array> {
+  if (editsBySheet.size === 0) return xlsxBytes
+  const entries = await readZipEntries(xlsxBytes)
+  const sheetPaths = resolveSheetPaths(entries)
+  const decoder = new TextDecoder()
+  const encoder = new TextEncoder()
+  let changed = false
+  for (const [sheetName, cells] of editsBySheet) {
+    const path = sheetPaths.get(sheetName)
+    const entry = path ? entries.find((candidate) => candidate.name === path) : undefined
+    if (!entry) continue
+    const sheetXml = decoder.decode(entry.data)
+    const patched = patchSheetCells(sheetXml, cells)
+    if (patched !== sheetXml) {
+      entry.data = encoder.encode(patched)
+      changed = true
+    }
+  }
+  return changed ? writeStoredZip(entries) : xlsxBytes
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { parseCellRange, patchSheetCells } from './workbook-writeback.js'
+import { parseCellRange, patchEmbeddedWorkbook, patchSheetCells } from './workbook-writeback.js'
+import { readZipEntries, writeStoredZip } from './zip.js'
 
 describe('parseCellRange', () => {
   it('expands a single-column range top to bottom', () => {
@@ -46,5 +47,29 @@ describe('patchSheetCells', () => {
   it('leaves the sheet untouched when no target cells are present', () => {
     const src = sheet('<c r="B2"><v>10</v></c>')
     expect(patchSheetCells(src, new Map([['Z9', 1]]))).toBe(src)
+  })
+})
+
+const enc = (value: string): Uint8Array => new TextEncoder().encode(value)
+function xlsx(sheetCells: string): Uint8Array {
+  return writeStoredZip([
+    { name: 'xl/workbook.xml', data: enc('<workbook xmlns:r="r"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+    { name: 'xl/_rels/workbook.xml.rels', data: enc('<Relationships><Relationship Id="rId1" Type="x/worksheet" Target="worksheets/sheet1.xml"/></Relationships>') },
+    { name: 'xl/worksheets/sheet1.xml', data: enc(`<worksheet><sheetData>${sheetCells}</sheetData></worksheet>`) },
+  ])
+}
+
+describe('patchEmbeddedWorkbook', () => {
+  it('patches a numeric cell inside the nested workbook, resolving the sheet by name', async () => {
+    const out = await patchEmbeddedWorkbook(xlsx('<c r="B2"><v>10</v></c><c r="B3"><v>20</v></c>'), new Map([['Sheet1', new Map([['B3', 99]])]]))
+    const inner = await readZipEntries(out)
+    const sheetXml = new TextDecoder().decode(inner.find((entry) => entry.name === 'xl/worksheets/sheet1.xml')!.data)
+    expect(sheetXml).toContain('<v>99</v>')
+    expect(sheetXml).toContain('<v>10</v>')
+  })
+
+  it('returns the exact same bytes when no cell changed', async () => {
+    const bytes = xlsx('<c r="B2"><v>10</v></c>')
+    expect(await patchEmbeddedWorkbook(bytes, new Map([['Sheet1', new Map([['B2', 10]])]]))).toBe(bytes)
   })
 })

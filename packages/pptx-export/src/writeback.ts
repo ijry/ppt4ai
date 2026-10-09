@@ -11,7 +11,8 @@ import {
   stableAssetId,
 } from './image-writeback.js'
 import { rewritePictureAppearance } from './image-appearance-writeback.js'
-import { patchChartCache } from './chart-writeback.js'
+import { chartValueCellEdits, patchChartCache } from './chart-writeback.js'
+import { patchEmbeddedWorkbook } from './workbook-writeback.js'
 import { clonePartDependencies, findOrphanedParts, type DependencyCloneResult } from './dependency-graph.js'
 import { decodeXml, descendants, attributeReplacements, replaceRanges, scanXml, tagEnd, type Replacement, type XmlElement } from './xml-range.js'
 import {
@@ -2030,11 +2031,19 @@ export async function exportPptx(document: Ppt4aiDocument, source: Uint8Array, o
       if (chart?.kind !== 'chart' || !chart.series) continue
       const relationship = slideRelationships.find((candidate) => candidate.id === chart.chartRelId && candidate.type === 'chart')
       if (!relationship) continue
-      const chartEntry = entriesByName.get(resolveTarget(sourcePartPath, relationship.target))
+      const chartPath = resolveTarget(sourcePartPath, relationship.target)
+      const chartEntry = entriesByName.get(chartPath)
       if (!chartEntry) continue
       const sourceChartXml = decoder.decode(chartEntry.data)
       const patchedChartXml = patchChartCache(sourceChartXml, chart.categories ?? [], chart.series)
       if (patchedChartXml !== sourceChartXml) chartEntry.data = encoder.encode(patchedChartXml)
+      // Tier B: sync the embedded workbook (if the chart part references one) so Edit-Data agrees.
+      const workbookRelationship = readRelationships(entriesByName, chartPath).find((candidate) => candidate.type === 'package')
+      const workbookEntry = workbookRelationship ? entriesByName.get(resolveTarget(chartPath, workbookRelationship.target)) : undefined
+      if (workbookEntry) {
+        const patchedWorkbook = await patchEmbeddedWorkbook(workbookEntry.data, chartValueCellEdits(sourceChartXml, chart.series))
+        if (patchedWorkbook !== workbookEntry.data) workbookEntry.data = patchedWorkbook
+      }
     }
     if (newRelationships.length > 0) {
       const relationshipXml = relationshipEntry ? decoder.decode(relationshipEntry.data) : undefined
