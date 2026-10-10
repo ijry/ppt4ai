@@ -24,6 +24,7 @@ import {
   type SlideMaster,
   type StrokeJoin,
   type StrokeStyle,
+  type ChartElement,
   type TableElement,
   type TableStyle,
   type TableStyleRegionName,
@@ -669,6 +670,17 @@ export function serializeTableFrameXml(table: TableElement, shapeId: number, pic
   const nonVisualProperties = `<p:nvGraphicFramePr><p:cNvPr id="${shapeId}" name="${escapeXml(table.id)}"/><p:cNvGraphicFramePr/><p:nvPr>${placeholder}</p:nvPr></p:nvGraphicFramePr>`
   const transform = `<p:xfrm${serializeTransformAttributes(table)}>${serializeTransformContents(table.bounds)}</p:xfrm>`
   const graphic = `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">${serializeTableXml(table, pictureRelationships)}</a:graphicData></a:graphic>`
+  return `<p:graphicFrame>${nonVisualProperties}${transform}${graphic}</p:graphicFrame>`
+}
+
+/** The `p:graphicFrame` for a chart: its `a:graphicData` holds a `<c:chart r:id>` pointing at the chart
+ * part (generated separately). Mirrors serializeTableFrameXml, but the data lives in a part, not inline. */
+export function serializeChartFrameXml(chart: ChartElement, shapeId: number, relationshipId: string): string {
+  const nonVisualProperties = `<p:nvGraphicFramePr><p:cNvPr id="${shapeId}" name="${escapeXml(chart.id)}"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>`
+  const transform = `<p:xfrm${serializeTransformAttributes(chart)}>${serializeTransformContents(chart.bounds)}</p:xfrm>`
+  const graphic = '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">'
+    + `<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${relationshipId}"/>`
+    + '</a:graphicData></a:graphic>'
   return `<p:graphicFrame>${nonVisualProperties}${transform}${graphic}</p:graphicFrame>`
 }
 
