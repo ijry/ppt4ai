@@ -103,4 +103,41 @@ describe('Phase 0 guardrail: a chart survives import → edit → export', () =>
     expect(chart2?.kind === 'chart' ? chart2.series?.[0]?.values : undefined).toEqual([10, 99])
     expect(chart2?.kind === 'chart' ? chart2.categories : undefined).toEqual(['A', 'Z'])
   })
+
+  it('syncs edited values into the embedded workbook via c:f, keeping cache and workbook in step (Tier B)', async () => {
+    const enc = (value: string): Uint8Array => new TextEncoder().encode(value)
+    const embeddedXlsx = writeStoredZip([
+      { name: 'xl/workbook.xml', data: enc('<workbook xmlns:r="r"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>') },
+      { name: 'xl/_rels/workbook.xml.rels', data: enc('<Relationships><Relationship Id="rId1" Type="x/worksheet" Target="worksheets/sheet1.xml"/></Relationships>') },
+      { name: 'xl/worksheets/sheet1.xml', data: enc('<worksheet><sheetData><row r="2"><c r="B2"><v>10</v></c></row><row r="3"><c r="B3"><v>20</v></c></row></sheetData></worksheet>') },
+    ])
+    const chartPart = '<c:chartSpace xmlns:c="c" xmlns:r="r"><c:chart><c:plotArea><c:barChart>'
+      + '<c:ser><c:val><c:numRef><c:f>Sheet1!$B$2:$B$3</c:f><c:numCache><c:pt idx="0"><c:v>10</c:v></c:pt><c:pt idx="1"><c:v>20</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>'
+      + '</c:barChart></c:plotArea></c:chart><c:externalData r:id="rId1"/></c:chartSpace>'
+    const chartPartRels = '<Relationships xmlns="r"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/package" Target="../embeddings/wb.xlsx"/></Relationships>'
+    const src = writeStoredZip([
+      { name: 'ppt/presentation.xml', data: enc(presentation) },
+      { name: 'ppt/_rels/presentation.xml.rels', data: enc(presentationRels) },
+      { name: 'ppt/slides/slide1.xml', data: enc(slide) },
+      { name: 'ppt/slides/_rels/slide1.xml.rels', data: enc(slideRels) },
+      { name: 'ppt/charts/chart1.xml', data: enc(chartPart) },
+      { name: 'ppt/charts/_rels/chart1.xml.rels', data: enc(chartPartRels) },
+      { name: 'ppt/embeddings/wb.xlsx', data: embeddedXlsx },
+    ])
+
+    const document = await importPptx(src)
+    const chart = document.elements.el_2
+    if (chart?.kind !== 'chart' || !chart.series?.[0]) throw new Error('fixture chart did not import with data')
+    chart.series = [{ ...chart.series[0], values: [10, 99] }]
+
+    const out = await exportPptx(document, src)
+    const xlsxBytes = (await entriesOf(out)).get('ppt/embeddings/wb.xlsx')
+    if (!xlsxBytes) throw new Error('embedded workbook missing from output')
+    const sheetXml = new TextDecoder().decode((await readZipEntries(xlsxBytes)).find((entry) => entry.name === 'xl/worksheets/sheet1.xml')!.data)
+    expect(sheetXml).toContain('<v>99</v>') // B3 updated in the workbook
+    expect(sheetXml).toContain('<v>10</v>') // B2 left as-is
+    // Cache stays in step with the workbook.
+    const reimported = await importPptx(out)
+    expect(reimported.elements.el_2?.kind === 'chart' ? reimported.elements.el_2.series?.[0]?.values : undefined).toEqual([10, 99])
+  })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { patchChartCache } from './chart-writeback.js'
+import { chartCategoryCellEdits, chartValueCellEdits, patchChartCache } from './chart-writeback.js'
 
 const chart = (plot: string): string => `<c:chartSpace xmlns:c="c"><c:chart><c:plotArea>${plot}</c:plotArea></c:chart></c:chartSpace>`
 const cats = '<c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>A</c:v></c:pt><c:pt idx="1"><c:v>B</c:v></c:pt></c:strCache></c:strRef></c:cat>'
@@ -33,5 +33,27 @@ describe('patchChartCache', () => {
   it('returns the input unchanged for a plot type it does not handle', () => {
     const src = chart('<c:scatterChart/>')
     expect(patchChartCache(src, ['A'], [{ values: [1] }])).toBe(src)
+  })
+})
+
+describe('chartValueCellEdits', () => {
+  it('maps edited series values to workbook cells via the series c:f range', () => {
+    const xml = chart('<c:barChart><c:ser><c:val><c:numRef><c:f>Sheet1!$B$2:$B$3</c:f>'
+      + '<c:numCache><c:pt idx="0"><c:v>10</c:v></c:pt><c:pt idx="1"><c:v>20</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser></c:barChart>')
+    expect(chartValueCellEdits(xml, [{ values: [10, 99] }]).get('Sheet1')).toEqual(new Map([['B2', 10], ['B3', 99]]))
+  })
+
+  it('yields no edits for a series with no formula', () => {
+    const xml = chart('<c:barChart><c:ser><c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>10</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser></c:barChart>')
+    expect(chartValueCellEdits(xml, [{ values: [10] }]).size).toBe(0)
+  })
+})
+
+describe('chartCategoryCellEdits', () => {
+  it('maps only changed category labels to cells via the cat c:f range', () => {
+    const xml = chart('<c:barChart><c:ser><c:cat><c:strRef><c:f>Sheet1!$A$2:$A$3</c:f>'
+      + '<c:strCache><c:pt idx="0"><c:v>A</c:v></c:pt><c:pt idx="1"><c:v>B</c:v></c:pt></c:strCache></c:strRef></c:cat>'
+      + '<c:val><c:numRef><c:numCache/></c:numRef></c:val></c:ser></c:barChart>')
+    expect(chartCategoryCellEdits(xml, ['A', 'Z']).get('Sheet1')).toEqual(new Map([['A3', 'Z']]))
   })
 })
