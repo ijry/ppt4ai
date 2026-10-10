@@ -1046,12 +1046,27 @@ describe('exportPptx', () => {
     expect(imported.elements.el_1).toMatchObject({ kind: 'shape', preset: 'ellipse' })
   })
 
-  it('rejects a slide element count mismatch', async () => {
+  it('removes a slide element deleted from the model (reuse)', async () => {
     const source = sourcePackage()
     const document = await importPptx(source)
-    document.slides.sld_1!.elementIds.pop()
+    document.slides.sld_1!.elementIds.pop() // drop the Neighbor shape (el_2)
 
-    await expect(exportPptx(document, source)).rejects.toThrow('PPTX export element count mismatch for slide sld_1')
+    const output = await exportPptx(document, source)
+    const slideXml = new TextDecoder().decode((await readZipEntries(output)).find((entry) => entry.name === 'ppt/slides/slide1.xml')!.data)
+    expect(slideXml).not.toContain('name="Neighbor"') // deleted node removed
+    expect(slideXml).toContain('name="Table"') // kept element survives
+  })
+
+  it('removes a deleted picture node (reuse) and keeps the other', async () => {
+    const source = imageSourcePackage(true)
+    const document = await importPptx(source)
+    document.slides.sld_1!.elementIds = document.slides.sld_1!.elementIds.filter((id) => id !== 'el_2')
+    delete document.elements.el_2
+
+    const output = await exportPptx(document, source)
+    const slideXml = new TextDecoder().decode((await readZipEntries(output)).find((entry) => entry.name === 'ppt/slides/slide1.xml')!.data)
+    expect(slideXml).not.toContain('rId3') // the deleted picture's blip reference is gone
+    expect(slideXml).toContain('rId2') // the kept picture survives
   })
 
   it('preserves an unchanged imported image without reading the adapter', async () => {
