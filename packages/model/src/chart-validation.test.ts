@@ -28,9 +28,9 @@ describe('chart element validation', () => {
     expect(errorsFor({ ...validChart, rotation: 60000, flipH: true, flipV: false })).toEqual([])
   })
 
-  it('rejects a chart with no chartRelId', () => {
-    const { chartRelId, ...noRel } = validChart
-    expect(errorsFor(noRel)).toContain('chart element el_chart chartRelId must be a non-empty string')
+  it('accepts a newly created chart with no chartRelId (no backing part yet)', () => {
+    const { chartRelId, ...created } = validChart
+    expect(errorsFor({ ...created, chartType: 'column', categories: ['Q1'], series: [{ values: [5] }] })).toEqual([])
   })
 
   it('rejects a chart with an empty chartRelId', () => {

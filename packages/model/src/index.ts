@@ -853,8 +853,9 @@ export interface ChartElement {
   rotation?: number
   flipH?: boolean
   flipV?: boolean
-  /** `r:id` on `<c:chart>` inside the graphicFrame — the handle to the preserved chart part. */
-  chartRelId: string
+  /** `r:id` on `<c:chart>` inside the graphicFrame — the handle to a preserved, imported chart part.
+   *  Absent for a newly created chart (no backing part yet); the exporter generates one on write. */
+  chartRelId?: string
   chartType?: ChartType
   categories?: string[]
   series?: ChartSeries[]
@@ -2713,7 +2714,7 @@ export function validateDocument(value: Ppt4aiDocument): DocumentValidation {
       else if (!value.assets?.[element.assetId]) errors.push(`image element ${elementId} references missing asset: ${element.assetId}`)
       validateImageAppearance(element, `elements.${elementId}`, errors)
     } else if (element.kind === 'chart') {
-      if (typeof element.chartRelId !== 'string' || element.chartRelId.length === 0) errors.push(`chart element ${elementId} chartRelId must be a non-empty string`)
+      if (element.chartRelId !== undefined && (typeof element.chartRelId !== 'string' || element.chartRelId.length === 0)) errors.push(`chart element ${elementId} chartRelId must be a non-empty string`)
       const chartTypes = ['column', 'bar', 'line', 'area', 'pie', 'doughnut', 'unknown']
       if (element.chartType !== undefined && !chartTypes.includes(element.chartType)) errors.push(`chart element ${elementId} chartType is invalid: ${String(element.chartType)}`)
       if (element.categories !== undefined && (!Array.isArray(element.categories) || element.categories.some((entry) => typeof entry !== 'string'))) {
