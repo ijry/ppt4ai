@@ -1,6 +1,7 @@
 import type { ChartElement } from '@ppt4ai/model'
 import { describe, expect, it } from 'vitest'
 import { serializeChartSpace, serializeChartWorkbook } from './chart-generate.js'
+import { serializeChartFrameXml } from './standalone-xml.js'
 import { readZipEntries } from './zip.js'
 
 const chart = (overrides: Partial<ChartElement> = {}): ChartElement => ({
@@ -36,5 +37,16 @@ describe('serializeChartWorkbook', () => {
     expect(sheet).toContain('<c r="A2" t="inlineStr"><is><t>A</t></is></c>')
     expect(sheet).toContain('<c r="B3"><v>20</v></c>')
     expect(inner.some((entry) => entry.name === 'xl/workbook.xml')).toBe(true)
+  })
+})
+
+describe('serializeChartFrameXml', () => {
+  it('wraps a chart in a graphicFrame referencing the chart part by relationship id', () => {
+    const xml = serializeChartFrameXml(chart({ bounds: { x: 100, y: 200, w: 300, h: 400 } }), 5, 'rId9')
+    expect(xml).toContain('<p:graphicFrame>')
+    expect(xml).toContain('uri="http://schemas.openxmlformats.org/drawingml/2006/chart"')
+    expect(xml).toContain('r:id="rId9"')
+    expect(xml).toContain('<a:off x="100" y="200"/>')
+    expect(xml).toContain('<a:ext cx="300" cy="400"/>')
   })
 })
